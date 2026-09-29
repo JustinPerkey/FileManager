@@ -44,6 +44,9 @@ crates/
                               No tauri dependency.
     src/manifest/             parse, validate, model, views
     src/format.rs             ArchiveFormat, compression constants
+    src/sources/              Assignments: entry id -> Windows source file
+    src/archive/              plan, header, eol, encode, write, verify:
+                              atomic archive writer and post-write verification
 examples/tarpack/             example manifests, valid, used by tests through include_str!
 docs/tarpack-manifest.md      the manifest, archive-layout, and extraction reference
 apps/desktop/
@@ -96,10 +99,10 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
   `-p fm-core -p fm-tarpack`, but then the generated-types test does not run.
 - `tauri:build` produces a portable exe (`target/release/filemanager.exe`), not
   an installer.
-- Native prerequisites: later tasks add `zstd` and `liblzma`, which compile
-  bundled C sources. Windows needs the MSVC toolchain (Visual Studio Build
-  Tools, "Desktop development with C++"), which Tauri already requires. Linux
-  needs a C compiler (`cc`/`gcc`).
+- Native prerequisites: `fm-tarpack` depends on `zstd` and `liblzma`
+  (static), which compile bundled C sources. Windows needs the MSVC toolchain
+  (Visual Studio Build Tools, "Desktop development with C++"), which Tauri
+  already requires. Linux needs a C compiler (`cc`/`gcc`).
 - `tauri::generate_context!()` does not need `apps/desktop/dist` to exist for
   `cargo check`; CI builds the frontend first anyway.
 
