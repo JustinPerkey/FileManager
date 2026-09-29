@@ -41,7 +41,18 @@ in the manifest. Typical use: a shell script edited on Windows.
 - `session.readyCount` and `session.totalCount` are also provided.
 - The tokens you use are in `src/styles/tokens.css`: `--ok`, `--danger`,
   `--text-muted`, `--font-mono`, `--surface`, `--surface-sunken`, `--border`,
-  and the `--space-*` scale.
+  `--font-size-sm` and `--font-size-md`, and the `--space-*` scale.
+- U2 built the shared vocabulary; use it and add no parallel version:
+  - `src/app/Button.tsx`: `variant: "primary" | "secondary" | "quiet"`,
+    `icon?`;
+  - `src/app/icons.tsx`: `Icon` with `name: IconName`, including
+    `check-circle`, `alert-triangle`, and `circle`;
+  - the `.num` utility class (tabular numerals) in `src/styles/base.css`.
+- **Design context.** The root `DESIGN.md` records the visual system ("The
+  Packing List"). This table is its signature component: the list of what
+  goes in the crate. It is an Operate surface, dense and scannable, and never
+  decorated. It uses no cards, no zebra striping in status colors, and no
+  metric tiles.
 
 ### Components
 
@@ -53,10 +64,12 @@ in the manifest. Typical use: a shell script edited on Windows.
 
 **Columns, in order:**
 
-1. **Status**: an icon plus a word. Ready uses `--ok` with a check icon.
-   Missing uses `--danger` with a warning icon. Not assigned uses
-   `--text-muted` with an empty-circle icon. The word is always visible; the
-   icon is `aria-hidden`.
+1. **Status**: an `Icon` plus a word. Ready uses `--ok` with `check-circle`.
+   Missing uses `--danger` with `alert-triangle`. Not assigned uses
+   `--text-muted` with `circle`. The word is always visible, in the same
+   color as its icon (each pair passes AA on `--surface`); the icon is
+   `aria-hidden`. Reserve the column's width for the longest word ("Not
+   assigned") so that status changes cause no layout shift.
 2. **File**: the expected `source` name. When `normalizeEol` is true, an
    `EolMarker` follows the name on the same line (wrapping below it if space
    runs out):
@@ -80,26 +93,62 @@ in the manifest. Typical use: a shell script edited on Windows.
 5. **Mode**: `modeText` in `--font-mono`, followed by the octal value in
    `--text-muted`.
 6. **Owner**: `owner`.
-7. **Actions**: **Browse…** and **Clear**. Clear is disabled when unassigned.
-   In this task the buttons call the `onBrowse` and `onClear` props, which U4
-   wires to `lib`.
+7. **Actions**: **Browse…** and **Clear**, as quiet `Button`s. Clear is
+   disabled when unassigned. In this task the buttons call the `onBrowse` and
+   `onClear` props, which U4 wires to `lib`.
+
+**Typography and rhythm** (`/impeccable typeset`):
+
+- Cells are `--font-size-md`, and column headers are `--font-size-sm` at
+  weight 600 in `--text-muted`, in sentence case (not uppercase or tracked).
+- Mono is only for columns 3–5 and the marker: data a user might paste.
+- The octal mode and the summary counts use `.num`.
+- Rows are padded `--space-2 --space-3`, with a 1 px `--border` rule between
+  rows and no vertical rules.
+- Row hover is `--surface-sunken`. There is no hover on the header row.
+- Headers are sticky on `--surface`, with a 1 px bottom rule.
+
+**Names that are not valid UTF-8 or are very long** (`/impeccable harden`):
+
+- Every name you receive is a display string. It may contain U+FFFD (�)
+  where the Windows or manifest name was not valid UTF-8. Render it as
+  given; never try to repair it.
+- Middle truncation works on code points (`Array.from`), never on UTF-16
+  units, so it never splits a surrogate pair or a U+FFFD. It keeps the drive
+  and the full file name. When the file name alone is too long, it keeps the
+  last 24 code points of it.
+- The File column wraps long source names (`overflow-wrap: anywhere`), and
+  never truncates them.
+
+**Scale.** Manifests typically list 1–50 files and can list about 2,000.
+- Render every row, with no virtualization below 2,000. Memoize each row by
+  `id` and entry value, so that one assignment re-renders one row, not the
+  table.
+- Use no measurement in render: truncation is computed from string length
+  and CSS, never `getBoundingClientRect` in a loop.
 
 Above the table, a summary line reads "5 of 6 files ready", or "All 6 files
 ready" when complete. When at least one entry has `normalizeEol`, append
 " · 1 file converts line endings to LF" (or "N files …"), so the conversion is
 announced once without scanning every row.
 
+The summary line is a sentence at `--font-size-md`, not a big-number tile.
+
 When the manifest has no `[[file]]` entries, show "This manifest lists no
-files." instead of an empty table.
+files." instead of an empty table. Follow it with a `--text-muted` line that
+names the next step: "Add a [[file]] entry to the manifest, then Reload."
+Render `[[file]]` in mono.
 
 **Rules that bind this task.**
 
-- Tokens only.
+- Tokens only, with font sizes from `--font-size-*`. Use `Button` and `Icon`;
+  no `<button>` and no glyph icons.
 - Everything is keyboard reachable and labelled.
 - Status is never color-only, and neither is the line-ending marker.
 - No size or modified-time columns (decided: keep the table narrow).
-- The table stays usable with 200 entries: sticky column headers, no layout
-  shift when statuses change, and no horizontal page scroll at 800 px. The
+- The table stays usable with 200 entries, and scrolls without jank at 2,000:
+  sticky column headers, no layout shift when statuses change, and no
+  horizontal page scroll at 800 px. The
   table may scroll horizontally inside its own container if it must, but
   prefer truncation.
 
@@ -111,7 +160,19 @@ files." instead of an empty table.
 
 ## Skill
 
-`impeccable:typeset`, then `impeccable:layout`.
+`/impeccable typeset`, then `/impeccable layout`, then `/impeccable harden`
+for the long-name, non-UTF-8, and scale cases.
+
+How to run it:
+
+- Start with the skill's `impeccable context`, which loads the root
+  `PRODUCT.md` and `DESIGN.md`.
+- This is an Operate surface extending an established world, so run no
+  concept round and do not rewrite `DESIGN.md`.
+- Read the skill's `reference/craft-floor.md` before the first edit.
+- If the skill is not installed, install it with `npx impeccable install`, or
+  follow the named commands' reference docs from
+  `github.com/pbakaus/impeccable` by hand. Say which in your report.
 
 ## Acceptance criteria
 
@@ -122,7 +183,14 @@ files." instead of an empty table.
   exposes "line endings converted to LF" in its accessible name; a row with
   `normalizeEol: false` shows no marker. The marker is not focusable.
 - `targetPath` renders exactly as given, leading `/` included.
-- Middle truncation keeps the file name visible for a 200-character path.
+- Middle truncation keeps the file name visible for a 200-character path. It
+  never splits a surrogate pair, and a path containing U+FFFD renders with
+  it intact.
+- Status words and icons use `Icon` (`check-circle`, `alert-triangle`,
+  `circle`). Row actions are quiet `Button`s. Counts and the octal mode use
+  `.num`.
+- Changing one entry's status re-renders only that row (a render-count test
+  on a 2,000-row fixture).
 - The summary line is correct for mixed, all-ready, and empty cases, and adds
   the line-ending clause only when some entry has `normalizeEol`.
 - There is no horizontal page scroll at 800×560, and the layout holds at 200%
@@ -139,13 +207,19 @@ files." instead of an empty table.
 - `EolMarker.test.tsx` (or cases in `EntryTable.test.tsx`): marker present
   with its accessible text for a `normalizeEol` row, absent otherwise, and the
   summary-line clause.
-- `truncateMiddle.test.ts`: if you add a helper under `src/tools/tarpack/`.
+- `truncateMiddle.test.ts` (the helper lives in `src/tools/tarpack/`): the
+  drive and file name are kept; an emoji or astral character at the cut
+  point is not split; U+FFFD is preserved; and a very long file name keeps
+  its last 24 code points.
+- `EntryTable.scale.test.tsx`: a 2,000-row fixture renders, and one status
+  change re-renders one row.
 - An axe check on a populated table that includes a `normalizeEol` row.
 
 ## States covered
 
-Empty manifest, partial (mixed statuses), all ready, and rows with and
-without line-ending conversion.
+Empty manifest (with its next-step line), partial (mixed statuses), all
+ready, rows with and without line-ending conversion, long and non-UTF-8
+names, and 2,000 rows.
 
 ## Out of scope
 

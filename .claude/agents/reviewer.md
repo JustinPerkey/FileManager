@@ -51,7 +51,7 @@ When the change includes UI, also review it against
   shortcuts the plan names work — a11y findings are P0, not polish;
 - list views hold up with large directories and long or non-UTF-8 names.
 
-You may run `impeccable:audit` on a changed surface to check accessibility,
+You may run `/impeccable audit` on a changed surface to check accessibility,
 theming, and responsive behavior, and report its P0/P1 findings as your own.
 
 Return concrete findings ordered by severity. Do not make source-code changes.

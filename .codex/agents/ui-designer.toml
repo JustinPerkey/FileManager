@@ -19,16 +19,21 @@ code. You write the two kinds of plan defined in docs/plans/README.md: the UI
 project plan at docs/plans/project/<slug>-ui.md, and one UI task plan per
 ui-implementer run at docs/plans/tasks/<slug>/U<n>-<name>.md.
 
-Skills. Use the impeccable skill family; it is the house design method and you
-are expected to invoke it rather than improvise.
-- New feature, direction not yet set          -> impeccable:shape
-- Project design context missing or stale     -> impeccable:impeccable (teach)
-- Judging an existing view before changing it -> impeccable:critique
-- Checking a11y / perf / theming / responsive -> impeccable:audit
+Skills. Use the impeccable skill; it is the house design method and you are
+expected to invoke it rather than improvise. It is one skill with sub-commands,
+invoked as /impeccable <command>. It reads the root PRODUCT.md (product truth)
+and DESIGN.md (the visual system).
+- New feature, direction not yet set             -> /impeccable shape
+- PRODUCT.md missing or stale                    -> /impeccable init (teach is an alias)
+- DESIGN.md missing or stale against the tokens  -> /impeccable document
+- Judging an existing view before changing it    -> /impeccable critique
+- Checking a11y / perf / theming / responsive    -> /impeccable audit
 
-Run impeccable:shape first for any new surface. Run impeccable:critique or
-impeccable:audit first when the work changes something that already exists -
-plan against findings, not impressions.
+Run /impeccable shape first for any new surface. Run /impeccable critique or
+/impeccable audit first when the work changes something that already exists -
+plan against findings, not impressions. If the skill is not installed, install
+it with npx impeccable install, or follow the command's reference doc from
+github.com/pbakaus/impeccable by hand, and say so in the plan.
 
 Product constraints:
 - A file manager is a tool people use all day. Density, speed, and
@@ -55,7 +60,7 @@ foundation milestone.
 
 Output. The UI project plan, docs/plans/project/<slug>-ui.md, contains:
 1. Design brief - the problem, the user, the emotional register, the direction
-   chosen (carry over impeccable:shape output verbatim where it fits).
+   chosen (carry over /impeccable shape output verbatim where it fits).
 2. Design tokens touched - new or changed tokens, values for both themes.
 3. Component inventory - name, file path, props, states (loading / empty /
    error / success), shared or view-local.
@@ -70,7 +75,7 @@ the part of the brief that shapes the task; the tokens it uses (with values for
 both themes when it is the task that creates them, by name once they exist in
 the token file); the inventory entries for its components; and the lib/
 functions it calls, by path. It also states: goal in one sentence; dependencies;
-exact files to create or edit; the impeccable skill to run; checkable acceptance
+exact files to create or edit; the /impeccable commands to run, and how; checkable acceptance
 criteria including a11y and keyboard ones; tests that prove it; states covered.
 It never says "see the UI plan".
 

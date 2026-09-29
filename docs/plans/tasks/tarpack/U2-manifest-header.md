@@ -6,7 +6,8 @@ Project: tarpack   Depends on: U1 (landed), M6 (landed)
 ## Goal
 
 Let the user open, reload, and edit a manifest, and see clearly when none is
-loaded, when it is invalid, or when it changed on disk.
+loaded, when it is invalid, or when it changed on disk. Along the way, create
+the shared button, icon, and type vocabulary that every later task uses.
 
 ## Context
 
@@ -47,6 +48,14 @@ same package many times a day, so they want confidence at a glance.
   - `TarpackErrorKind`: a closed string-literal union of exactly 17 kinds,
     listed in the error table below.
 
+**Design context.** The root `PRODUCT.md` records the product. The root
+`DESIGN.md` records the visual system U1 built: "The Packing List". It is a
+quiet, dense, restrained palette, with tonal depth, no shadows at rest, system
+UI type, and mono for data. This is an **Operate** surface that extends the
+established world. Invent no new visual identity and do not rewrite
+`DESIGN.md`, except to change its "Planned (U2)" markers to landed once you
+build them.
+
 **The single source of truth.** Every command returns a full `TarpackSession`,
 and the view renders it. Keep it in one piece of React state in
 `TarpackView`, replaced wholesale on each command result. Never derive a second
@@ -69,7 +78,92 @@ Reserve those regions, and leave the table and bar as empty slots.
 | `ManifestHeader` | `src/tools/tarpack/ManifestHeader.tsx` | `session, onOpen, onOpenRecent, onReload, onEdit` | loaded |
 | `ManifestErrors` | `src/tools/tarpack/ManifestErrors.tsx` | `errors, warnings` | errors / warnings only |
 | `errorMessages` | `src/tools/tarpack/errorMessages.ts` (module) | exports `errorMessage(error: TarpackError, entries): string` | one entry per kind |
-| `Banner` | `src/app/Banner.tsx` (shared) | `tone: "info"\|"warn"\|"error", message, action?: { label, onAction }` | — |
+| `Banner` | `src/app/Banner.tsx` (shared) | `tone: "info"\|"warn"\|"error", message, action?: { label, onAction }, onDismiss?` | info / warn / error |
+| `Button` | `src/app/Button.tsx` (shared) + `src/styles/controls.css` | native `<button>` props, plus `variant: "primary"\|"secondary"\|"quiet"` (default `"secondary"`) and `icon?: IconName` | default / hover / active / focus / disabled / busy |
+| `Icon` | `src/app/icons.tsx` (shared) | `name: IconName` | — |
+
+### Shared vocabulary (you create it)
+
+An `impeccable` critique of the plan found that without this, U2–U5 would each
+style their own buttons, reach for Unicode glyphs as icons, and pick one-off
+font sizes. Build it first, use it in this task, and later tasks import it.
+
+**Type-size tokens.** Add these to `src/styles/tokens.css`, on `:root` only;
+they do not change with the theme:
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--font-size-sm` | `0.8125rem` | secondary lines, hints, header labels |
+| `--font-size-md` | `0.875rem` | body, controls, mono data |
+| `--font-size-lg` | `1rem` | region headings ("This manifest has N problems") |
+| `--font-size-xl` | `1.25rem` | the view heading |
+
+Also add `--shadow-overlay`: `0 8px 24px rgb(0 0 0 / 0.18)` in light, and
+`0 8px 24px rgb(0 0 0 / 0.5)` in both dark blocks. U5 and U6 use it for the
+dialog and popover; nothing else has a shadow.
+
+Point `body` in `base.css` at `--font-size-md`, and `.tool-view h1` in
+`app.css` at `--font-size-xl`, so the values have one home.
+
+**Browser surfaces** (`src/styles/base.css`):
+
+- `::selection` uses `--accent-text` on `--accent`;
+- `html` sets `scrollbar-color: var(--border) var(--surface-sunken)`. Do not
+  build custom scrollbars;
+- a `.num` utility class sets `font-variant-numeric: tabular-nums`. Use it for
+  counts ("3 problems", "N warnings").
+
+**`Button`.** It wraps a native `<button type="button">` and forwards every
+prop and ref. Every button in the app uses it. Styles go in
+`src/styles/controls.css`, imported from `App.tsx`:
+
+- **Shape:** `--radius`, 1 px border, font `inherit` at `--font-size-md`,
+  padding `--space-1 --space-3`, a minimum 24×24 px target, and an icon gap of
+  `--space-1`.
+- **primary:** `--accent` fill and border, `--accent-text` label. There is one
+  per region; in this task that is **Open manifest…** in the empty state.
+- **secondary:** `--surface` fill, `--border` outline, `--text` label. This is
+  the default, used for the header actions.
+- **quiet:** transparent with a transparent border; `--surface-sunken` on
+  hover. Use it for Dismiss and the Details disclosure toggle.
+- **hover:** secondary and quiet use `--surface-sunken`. Primary uses
+  `color-mix(in srgb, var(--accent) 88%, var(--text))`. The mix references
+  only tokens, so it follows the theme.
+- **active:** the same fill as hover, plus `translate: 0 1px`. No transition
+  on layout properties.
+- **focus:** the global `:focus-visible` ring from `base.css`. Never remove
+  it.
+- **disabled:** `--text-muted` on `--surface-sunken`, with `--border` and
+  `cursor: default`. Use the real `disabled` attribute.
+- **busy:** `aria-busy="true"`, the label unchanged, and the button disabled.
+
+**`Icon`.** Inline SVG authored in `src/app/icons.tsx`. There is no icon
+library, and the CSP forbids remote assets.
+
+- One style: a 16×16 viewBox, `fill="none"`, `stroke="currentColor"`,
+  `stroke-width="1.5"`, round caps and joins, sized `1em`, and
+  `aria-hidden="true"` with `focusable="false"`.
+- Export `type IconName` as a union of `check-circle`, `alert-triangle`,
+  `circle`, `x-circle`, `info`, `chevron-down`, `folder`, `copy`, `x`, and
+  `keyboard`. U3–U6 use these; add names here only.
+- The meaning always sits in adjacent text. Never use Unicode glyphs (`▾`,
+  `✓`, `⚠`, `×`) or emoji as icons.
+
+**`Banner` look.**
+
+- `--surface` fill with a 1 px border in the tone color (`--accent` for info,
+  `--warn`, or `--danger`), `--radius`, and padding `--space-2 --space-3`.
+- A tone icon (`info`, `alert-triangle`, or `x-circle`) in the tone color,
+  then the message in `--text`, then the action as a secondary `Button`, then
+  a quiet dismiss `Button` with the `x` icon and the accessible name "Dismiss",
+  when `onDismiss` is given.
+- The tone is also given in visually hidden text before the message:
+  "Information:", "Warning:", or "Error:".
+- There is no tinted fill and no colored side border thicker than 1 px.
+- The container is `role="status"` for info and warn, and `role="alert"` for
+  error.
+- Banners stack above the table, newest first. The changed-on-disk banner
+  has no dismiss; it clears on reload.
 
 ### Behaviour
 
@@ -77,15 +171,25 @@ Reserve those regions, and leave the table and bar as empty slots.
   - shows the manifest `name` as the view heading;
   - shows the manifest path below it in `--font-mono`, `--text-muted`, and
     middle-truncated with the full path in `title`;
-  - has these actions: **Open…**, **Recent ▾** (a menu from
-    `recentManifests()`; hidden when empty), **Reload**, and **Edit in
-    editor**.
+  - has these actions, as secondary `Button`s: **Open…**, **Recent** (a menu
+    button with the `chevron-down` icon after its label, never a `▾` glyph,
+    listing `recentManifests()`; hidden when empty; it opens on Enter, Space,
+    or Down, arrows move through it, and Escape closes it and returns focus),
+    **Reload**, and **Edit in editor**.
 - **No-manifest state** (`session.manifest === null`): one sentence, "Open a
   manifest to list the files this package needs.", and two buttons:
-  - **Open manifest…**: an open dialog filtered to `*.toml`;
-  - **Create from example…**: a save dialog, then `createManifestFromExample`.
+  - **Open manifest…** (primary): an open dialog filtered to `*.toml`;
+  - **Create from example…** (secondary): a save dialog, then
+    `createManifestFromExample`.
+
+  This state is the first-run screen, so it teaches: under the buttons, one
+  `--text-muted` line reads "A manifest is a TOML file that lists each file,
+  its Linux path, and its permissions." Nothing else: no illustration and no
+  card.
 - **Invalid state** (`manifest.errors.length > 0`):
-  - an error-tone region headed "This manifest has N problems";
+  - an error-tone region headed "This manifest has N problems" at
+    `--font-size-lg`, with the `x-circle` icon and the count in `.num`. It
+    uses the Banner border treatment, with no tinted fill;
   - a list of `line:col — message` items, with the entry id in `--font-mono`
     when present;
   - the list is focusable and each item is readable by a screen reader;
@@ -148,13 +252,17 @@ placeholder then reads "A file".
 | `Io` | any | "A file could not be read or written." |
 
 - **Loading:** while the first `session()` call is pending, show a quiet
-  skeleton. It must not flash for fast loads; delay it by about 150 ms.
+  skeleton: two `--surface-sunken` bars in the header's place, with no
+  spinner and no shimmer animation. It must not flash for fast loads; delay it
+  by about 150 ms. Give it `aria-busy="true"` on the view and the visually
+  hidden text "Loading manifest".
 - `session.stateWarning`, when set, shows an info `Banner` (for example that
   saved locations were reset).
 
 **Rules that bind this task.**
 
-- Tokens only, no hex.
+- Tokens only, no hex. Font sizes only from `--font-size-*`.
+- Every button is a `Button`, and every icon is an `Icon`.
 - Everything is keyboard reachable and labelled.
 - Status is never conveyed by color alone.
 - Plain, short copy.
@@ -164,16 +272,41 @@ placeholder then reads "A file".
 ## Files
 
 - `src/tools/tarpack/TarpackView.tsx`, `ManifestHeader.tsx`,
-  `ManifestErrors.tsx`
-- `src/app/Banner.tsx`
+  `ManifestErrors.tsx`, `errorMessages.ts`
+- `src/app/Banner.tsx`, `src/app/Button.tsx`, `src/app/icons.tsx`
+- `src/styles/tokens.css` (the new tokens), `src/styles/base.css` (the browser
+  surfaces and body size), `src/styles/app.css` (the heading size), and
+  `src/styles/controls.css` (new, imported from `src/App.tsx`)
+- The root `DESIGN.md`: change the "Planned (U2)" markers to "Landed (U2)" for
+  what you built. Change nothing else in it.
 - Tests next to each
 
 ## Skill
 
-`impeccable:layout`, then `impeccable:clarify` for all copy.
+`/impeccable layout`, then `/impeccable clarify` for all copy.
+
+How to run it:
+
+- Start with the skill's `impeccable context`, which loads the root
+  `PRODUCT.md` and `DESIGN.md`.
+- This is an Operate surface extending an established world, so run no
+  concept round and write no direction contract.
+- Read the skill's `reference/craft-floor.md` before the first edit.
+- If the skill is not installed, install it with `npx impeccable install`, or
+  follow the named commands' reference docs from
+  `github.com/pbakaus/impeccable` by hand. Say which in your report.
 
 ## Acceptance criteria
 
+- `--font-size-sm/md/lg/xl` and `--shadow-overlay` exist in `tokens.css`. No
+  `font-size` under `src/` outside `tokens.css` uses a literal value.
+- No `<button>` element is written outside `Button.tsx`, except U1's
+  `ToolNav.tsx`, whose nav items keep their own style. No `▾`, `✓`, `⚠`, or
+  `×` character appears in any `.tsx` file.
+- `Button` renders each variant, forwards `ref` and `disabled`, is at least
+  24×24 px, and keeps the focus ring. Busy sets `aria-busy` and disables it.
+- A `Banner` of each tone has a 1 px tone border, no tinted fill, the tone
+  word in its accessible text, and the right role.
 - Every state above renders from a `TarpackSession` fixture.
 - **Open…** calls `openFileDialog` with a `.toml` filter, then `openManifest`.
   A cancelled dialog does nothing.
@@ -195,8 +328,15 @@ placeholder then reads "A file".
 - `TarpackView.states.test.tsx`: loading, no-manifest, invalid, loaded, and
   changed-on-disk; `ManifestUnreadable` from Open and Reload; `PathExists`
   from Create from example.
-- `ManifestHeader.test.tsx`: each action calls the right `lib` function, and
-  Recent is hidden when empty.
+- `ManifestHeader.test.tsx`: each action calls the right `lib` function;
+  Recent is hidden when empty; and the Recent menu opens, moves, and closes
+  with Escape, returning focus by keyboard.
+- `Button.test.tsx`: variants, `disabled`, `busy`, `ref` forwarding, and an
+  axe check.
+- `Banner.test.tsx`: each tone's role and hidden tone word; dismiss present
+  only with `onDismiss`.
+- `tokens.test.ts` (extend U1's): the four size tokens and `--shadow-overlay`
+  exist.
 - `errorMessages.test.ts`: a non-empty message for each of the 17 kinds
   (listed explicitly in the test), `{source}` filled from `entryId`, and
   "A file" when `entryId` is omitted or unknown. `npm run typecheck` proves
