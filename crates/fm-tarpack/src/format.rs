@@ -87,14 +87,7 @@ impl ArchiveFormat {
     /// Strips a known archive suffix if there is one, then appends this
     /// format's extension. Works on the encoded bytes, never lossily.
     pub fn with_extension(self, name: &OsStr) -> OsString {
-        let bytes = name.as_encoded_bytes();
-        let keep = match known_suffix(name) {
-            Some((len, _)) => &bytes[..bytes.len() - len],
-            None => bytes,
-        };
-        // SAFETY: `keep` is `name`'s encoded bytes cut either at the end or
-        // right before an ASCII suffix, which is a valid boundary.
-        let mut out = unsafe { OsString::from_encoded_bytes_unchecked(keep.to_vec()) };
+        let mut out = strip_known_suffix(name);
         out.push(self.extension());
         out
     }
@@ -114,6 +107,30 @@ impl ArchiveFormat {
             shell_quote(file_name)
         )
     }
+}
+
+/// `name` without its known archive suffix, if it has one. Every known suffix
+/// is ASCII, so its length is the same in bytes and in UTF-16 units and the cut
+/// leaves a valid `OsString`.
+#[cfg(unix)]
+fn strip_known_suffix(name: &OsStr) -> OsString {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let bytes = name.as_bytes();
+    let keep = match known_suffix(name) {
+        Some((len, _)) => &bytes[..bytes.len() - len],
+        None => bytes,
+    };
+    OsString::from_vec(keep.to_vec())
+}
+
+#[cfg(windows)]
+fn strip_known_suffix(name: &OsStr) -> OsString {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let mut units: Vec<u16> = name.encode_wide().collect();
+    if let Some((len, _)) = known_suffix(name) {
+        units.truncate(units.len() - len);
+    }
+    OsString::from_wide(&units)
 }
 
 fn shell_quote(s: &str) -> String {
@@ -154,6 +171,42 @@ mod tests {
         assert_eq!(w(ArchiveFormat::TarXz, "x"), "x.tar.xz");
         assert_eq!(w(ArchiveFormat::TarGz, "x.zip"), "x.zip.tar.gz");
         assert_eq!(w(ArchiveFormat::TarGz, "a.b.tar"), "a.b.tar.gz");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn with_extension_and_from_file_name_keep_non_unicode_names() {
+        use std::os::unix::ffi::OsStrExt;
+        let name = OsStr::from_bytes(b"\xffname.TGZ");
+        assert_eq!(
+            ArchiveFormat::from_file_name(name),
+            Some(ArchiveFormat::TarGz)
+        );
+        assert_eq!(
+            ArchiveFormat::TarZst.with_extension(name),
+            OsStr::from_bytes(b"\xffname.tar.zst")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn with_extension_and_from_file_name_keep_non_unicode_names() {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        let prefix: Vec<u16> = vec![0xD800, 'n' as u16];
+        let mut units = prefix.clone();
+        units.extend(".tar".encode_utf16());
+        let name = OsString::from_wide(&units);
+        assert_eq!(
+            ArchiveFormat::from_file_name(&name),
+            Some(ArchiveFormat::Tar)
+        );
+        let got: Vec<u16> = ArchiveFormat::TarXz
+            .with_extension(&name)
+            .encode_wide()
+            .collect();
+        let mut want = prefix;
+        want.extend(".tar.xz".encode_utf16());
+        assert_eq!(got, want);
     }
 
     #[test]

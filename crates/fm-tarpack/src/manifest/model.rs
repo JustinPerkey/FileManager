@@ -170,7 +170,6 @@ impl Manifest {
 pub struct ManifestView {
     pub name: String,
     pub output_name: Option<String>,
-    pub default_format: ArchiveFormat,
     pub entries: Vec<EntryView>,
 }
 
@@ -181,14 +180,15 @@ pub struct EntryView {
     pub source: String,
     /// Absolute stored name, such as `/opt/gateway/bin/gateway`.
     pub target_path: String,
-    /// `rwxr-xr-x`
-    pub mode_symbolic: String,
     /// Four octal digits, such as `0755`.
-    pub mode_octal: String,
+    pub mode: String,
+    /// Symbolic form, such as `rwxr-xr-x`.
+    pub mode_text: String,
+    /// `<uname>:<gname>`, such as `root:root`.
+    pub owner: String,
+    /// Numeric ids that are written to the header.
     pub uid: u32,
     pub gid: u32,
-    pub uname: String,
-    pub gname: String,
     pub normalize_eol: bool,
 }
 
@@ -197,7 +197,6 @@ impl From<&Manifest> for ManifestView {
         ManifestView {
             name: m.name.clone(),
             output_name: m.output_name.clone(),
-            default_format: m.default_format(),
             entries: m
                 .entries
                 .iter()
@@ -205,12 +204,11 @@ impl From<&Manifest> for ManifestView {
                     id: e.id.clone(),
                     source: e.source.clone(),
                     target_path: e.target_path(),
-                    mode_symbolic: mode::symbolic(e.mode),
-                    mode_octal: format!("{:04o}", e.mode),
+                    mode: format!("{:04o}", e.mode),
+                    mode_text: mode::symbolic(e.mode),
+                    owner: format!("{}:{}", e.owner.uname, e.owner.gname),
                     uid: e.owner.uid,
                     gid: e.owner.gid,
-                    uname: e.owner.uname.clone(),
-                    gname: e.owner.gname.clone(),
                     normalize_eol: e.normalize_eol,
                 })
                 .collect(),

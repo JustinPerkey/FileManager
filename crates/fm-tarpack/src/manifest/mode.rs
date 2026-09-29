@@ -1,6 +1,6 @@
 //! Octal permission strings.
 
-/// Parses an octal string of 1 to 4 digits, at most `07777`.
+/// Parses an octal string of 1 to 4 digits.
 pub fn parse_mode(s: &str) -> Result<u32, String> {
     if s.is_empty() || s.len() > 4 {
         return Err(format!(
@@ -10,10 +10,8 @@ pub fn parse_mode(s: &str) -> Result<u32, String> {
     if !s.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
         return Err(format!("mode `{s}` is not an octal string"));
     }
-    match u32::from_str_radix(s, 8) {
-        Ok(v) if v <= 0o7777 => Ok(v),
-        _ => Err(format!("mode `{s}` exceeds 07777")),
-    }
+    // 1 to 4 octal digits cannot exceed 0o7777 and cannot fail to parse.
+    Ok(s.bytes().fold(0, |acc, b| acc * 8 + u32::from(b - b'0')))
 }
 
 /// Renders the low 12 bits as `rwxr-xr-x`, with `s`/`S` and `t`/`T` for the

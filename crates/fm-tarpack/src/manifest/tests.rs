@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::*;
 use crate::format::ArchiveFormat;
 
@@ -64,6 +62,16 @@ fn rejects_dotdot() {
 }
 
 #[test]
+fn rejects_dot_segment_in_dir() {
+    for d in ["/opt/./x", "/opt/.", "/.", "/./opt"] {
+        assert_err(&with_dir(d), "`.` segment");
+    }
+    for d in ["/opt/.x", "/opt/x.", "/opt/..x"] {
+        ok(&with_dir(d));
+    }
+}
+
+#[test]
 fn rejects_backslash_in_dir() {
     assert_err(&with_dir("/opt\\\\x"), "backslash");
     assert_err(&with_dir("/opt/\\u0000x"), "NUL");
@@ -92,9 +100,39 @@ fn rejects_duplicate_target() {
         [[file]]\nid = \"b\"\nsource = \"z\"\nname = \"a\"\ndir = \"/x\"\n";
     let d = assert_err(t, "/x/a");
     assert_eq!(d.entry_id.as_deref(), Some("b"));
+    // Located at the `name` value when `name` is set.
+    assert_eq!((d.line, d.col), (10, 8));
+    // Otherwise at the `dir` value.
+    let t2 = "version = 1\nname = \"t\"\n\
+        [[file]]\nid = \"a\"\nsource = \"a\"\ndir = \"/x/\"\n\
+        [[file]]\nid = \"b\"\nsource = \"a\"\ndir = \"/x\"\n";
+    let d = assert_err(t2, "/x/a");
+    assert_eq!((d.line, d.col), (10, 7));
     // Case-sensitive: different case is a different target.
     let t = t.replace("name = \"a\"", "name = \"A\"");
     ok(&t);
+}
+
+#[test]
+fn rejects_target_that_is_another_entrys_directory() {
+    let a = "[[file]]\nid = \"a\"\nsource = \"s\"\nname = \"gateway\"\ndir = \"/opt\"\n";
+    let head = "version = 1\nname = \"t\"\n";
+    let b = |dir: &str| format!("[[file]]\nid = \"b\"\nsource = \"t\"\ndir = \"{dir}\"\n");
+    for bdir in ["/opt/gateway/bin", "/opt/gateway", "/opt/gateway/"] {
+        for order in [0, 1] {
+            let body = if order == 0 {
+                format!("{a}{}", b(bdir))
+            } else {
+                format!("{}{a}", b(bdir))
+            };
+            let errs = errors(&format!("{head}{body}"));
+            assert_eq!(errs.len(), 1, "{bdir} {order}: {errs:?}");
+            assert_eq!(errs[0].entry_id.as_deref(), Some("a"));
+            assert!(errs[0].message.contains("`/opt/gateway`"));
+            assert!(errs[0].message.contains("file `b`"), "{}", errs[0].message);
+        }
+    }
+    ok(&format!("{head}{a}{}", b("/opt/gatewayx/bin")));
 }
 
 #[test]
@@ -104,11 +142,53 @@ fn rejects_unknown_key_with_location() {
     assert!(d.message.contains("colour"), "{}", d.message);
     assert_eq!((d.line, d.col), (7, 1));
     assert_eq!(errors("version = 1\nname = \"t\"\nbogus = 1\n").len(), 1);
-    assert!(
-        errors("version = 1\nname = \"t\"\n[defaults]\nmod = \"0644\"\n")[0]
-            .message
-            .contains("mod")
-    );
+    let d = &errors("version = 1\nname = \"t\"\n[defaults]\nmod = \"0644\"\n")[0];
+    assert!(d.message.contains("`mod`"), "{}", d.message);
+    assert_eq!((d.line, d.col), (4, 1));
+}
+
+#[test]
+fn file_table_errors_name_the_entry_id() {
+    let head = "version = 1\nname = \"t\"\n[[file]]\nid = \"a\"\nsource = \"a\"\n";
+    // (extra lines, expected line)
+    for (extra, line) in [
+        ("dir = \"/x\"\ncolour = \"red\"\n", 7),
+        ("dir = \"/x\"\nmode = 644\n", 7),
+        ("", 3),
+    ] {
+        let t = format!("{head}{extra}");
+        let errs = errors(&t);
+        assert_eq!(errs.len(), 1, "{t}: {errs:?}");
+        assert_eq!(errs[0].entry_id.as_deref(), Some("a"), "{errs:?}");
+        assert!(
+            errs[0].message.starts_with("file `a`: "),
+            "{}",
+            errs[0].message
+        );
+        assert_eq!(errs[0].line, line, "{errs:?}");
+    }
+    let d = errors("version = 1\nname = \"t\"\n[[file]]\nid = 3\nsource = \"a\"\ndir = \"/x\"\n")
+        .remove(0);
+    assert_eq!(d.entry_id, None);
+    assert!(d.message.starts_with("[[file]] #1: "), "{}", d.message);
+}
+
+#[test]
+fn unknown_keys_are_reported_with_validation_errors() {
+    let t = "version = 2\nname = \"t\"\nbogus = 1\n[defaults]\nmod = \"0644\"\n\
+        [[file]]\nid = \"a\"\nsource = \"a\"\ndir = \"/x\"\ncolour = 1\n\
+        [[file]]\nid = \"b\"\nsource = \"b\"\ndir = \"rel\"\n";
+    let errs = errors(t);
+    assert_eq!(errs.len(), 5, "{errs:?}");
+    let lines: Vec<u32> = errs.iter().map(|d| d.line).collect();
+    assert_eq!(lines, [1, 3, 5, 10, 14]);
+}
+
+#[test]
+fn rejects_empty_manifest_name() {
+    assert_err("version = 1\nname = \"\"\n", "name must not be empty");
+    ok("version = 1\nname = \"a/b\"\n");
+    ok("version = 1\nname = \".\"\n");
 }
 
 #[test]
@@ -213,9 +293,10 @@ fn collects_all_errors() {
     let t = "version = 2\nname = \"\"\noutput_name = \"a/b\"\n\
         [defaults]\nmode = \"9\"\n\
         [[file]]\nid = \"a\"\nsource = \"..\"\ndir = \"rel\"\n\
-        [[file]]\nid = \"a\"\nsource = \"s\"\ndir = \"/x\"\nuid = -3\n";
+        [[file]]\nid = \"a\"\nsource = \"s\"\ndir = \"/x\"\nuid = -3\n\
+        [[file]]\nid = \"c\"\nsource = \"c\"\ndir = \"/x\"\ncolour = 1\nmode = 644\n";
     let errs = errors(t);
-    assert!(errs.len() >= 7, "{errs:?}");
+    assert!(errs.len() >= 9, "{errs:?}");
     let lines: Vec<u32> = errs.iter().map(|d| d.line).collect();
     let mut sorted = lines.clone();
     sorted.sort_unstable();
@@ -229,6 +310,8 @@ fn collects_all_errors() {
         "absolute",
         "duplicate id",
         "uid",
+        "unknown key `colour`",
+        "invalid type",
     ] {
         assert!(errs.iter().any(|d| d.message.contains(needle)), "{needle}");
     }
@@ -247,6 +330,9 @@ fn rejects_type_and_missing_field_errors() {
         let d = errors(t);
         assert_eq!(d.len(), 1, "{t}");
         assert!(d[0].line >= 1);
+        if t.contains("[[file]]") && !t.contains("id = 3") {
+            assert_eq!(d[0].entry_id.as_deref(), Some("a"), "{t}");
+        }
     }
     let d = errors("version = 1\nname = \"t\"\n[[file]]\nid = \"a\"\nsource = \"a\"\n");
     assert!(d[0].message.contains("dir"), "{}", d[0].message);
@@ -315,17 +401,22 @@ fn default_format_follows_output_name_suffix() {
 fn view_renders_mode_and_target() {
     let (m, _) = ok(&one("mode = \"0755\""));
     let v = ManifestView::from(&m);
-    assert_eq!(v.entries[0].mode_symbolic, "rwxr-xr-x");
-    assert_eq!(v.entries[0].mode_octal, "0755");
+    assert_eq!(v.entries[0].mode, "0755");
+    assert_eq!(v.entries[0].mode_text, "rwxr-xr-x");
+    assert_eq!(v.entries[0].owner, "root:root");
     assert_eq!(v.entries[0].target_path, "/opt/a");
+    let (m, _) = ok(&one("gname = \"gateway\"\ngid = 990"));
+    let v = ManifestView::from(&m);
+    assert_eq!(v.entries[0].owner, "root:gateway");
+    assert_eq!(v.entries[0].gid, 990);
 }
 
 #[test]
 fn example_manifest_is_valid() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/tarpack/example.toml");
-    let loaded = load(&path).expect("example loads");
-    assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
-    let m = &loaded.manifest;
+    let (m, warnings) = parse(include_str!("../../../../examples/tarpack/example.toml"))
+        .unwrap_or_else(|d| panic!("example is invalid: {d:?}"));
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let m = &m;
     assert_eq!(m.name(), "Gateway deploy");
     assert_eq!(m.default_format(), ArchiveFormat::TarZst);
     assert_eq!(m.entries().len(), 3);

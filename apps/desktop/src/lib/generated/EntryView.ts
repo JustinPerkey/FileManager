@@ -6,10 +6,18 @@ export type EntryView = { id: string, source: string,
  */
 targetPath: string, 
 /**
- * `rwxr-xr-x`
- */
-modeSymbolic: string, 
-/**
  * Four octal digits, such as `0755`.
  */
-modeOctal: string, uid: number, gid: number, uname: string, gname: string, normalizeEol: boolean, };
+mode: string, 
+/**
+ * Symbolic form, such as `rwxr-xr-x`.
+ */
+modeText: string, 
+/**
+ * `<uname>:<gname>`, such as `root:root`.
+ */
+owner: string, 
+/**
+ * Numeric ids that are written to the header.
+ */
+uid: number, gid: number, normalizeEol: boolean, };

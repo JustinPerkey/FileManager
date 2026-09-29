@@ -49,7 +49,7 @@ surface.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `mode` | `"0644"` | File permissions, octal string of 1 to 4 digits, at most `07777`. |
+| `mode` | `"0644"` | File permissions, octal string of 1 to 4 digits. |
 | `dir_mode` | `"0755"` | Permissions of directory entries the archive creates. |
 | `uid` | `0` | Numeric owner. Must fit in `u32`. |
 | `gid` | `0` | Numeric group. Must fit in `u32`. |
@@ -57,7 +57,8 @@ surface.
 | `gname` | `"root"` | Group name, 1 to 32 bytes. |
 
 `normalize_eol` is **not** accepted here: conversion must be a deliberate
-per-file choice. The unknown-key rule rejects it with a location.
+per-file choice. It is reported as an error at its key, with a message saying
+it is set per file.
 
 ### `[[file]]`
 
@@ -65,42 +66,58 @@ per-file choice. The unknown-key rule rejects it with a location.
 |---|---|---|---|
 | `id` | yes | | Stable key; last-used locations are stored against it. Not empty, unique. |
 | `source` | yes | | Expected Windows file name, used to match drops. Not empty, no `/`, `\` or NUL, not `.` or `..`. |
-| `dir` | yes | | Linux directory inside the archive. Absolute. |
+| `dir` | yes | | Linux directory inside the archive. Absolute; no `.`, `..`, or empty segments; no backslash or NUL. |
 | `name` | no | `source` | Rename inside the archive. Same rules as `source`. |
 | `mode` | no | `defaults.mode` | Permissions. |
 | `uid`, `gid`, `uname`, `gname` | no | the defaults | Per-file owner overrides. |
 | `normalize_eol` | no | `false` | Per file only. When `true`, every CRLF pair becomes LF when writing; a lone CR is kept. When `false` or absent, the bytes are copied exactly. |
 
 The stored path of an entry is `dir` with its trailing `/` trimmed, then `/`,
-then `name`, for example `/opt/gateway/bin/gateway`.
+then `name`, for example `/opt/gateway/bin/gateway`. A file's stored path may
+not also be a directory of another entry (for example `/opt/gateway` as a file
+while another entry has `dir = "/opt/gateway/bin"`).
 
 ## Diagnostics
 
-Every diagnostic has a line and column (1-based) and names the entry `id` where
-there is one. All validation errors are reported together. A TOML syntax error,
-a wrong type, or a missing required field stops at the first one, because the
-document cannot be read past it. Any error makes the manifest unbuildable.
+Every diagnostic has a line and column (1-based). Any error makes the manifest
+unbuildable. Parsing happens in two stages:
+
+1. A **TOML syntax error** stops at the first one: nothing past it can be read
+   reliably.
+2. Everything else is reported together, sorted by line and column: unknown
+   keys at every level, missing required fields, wrong types, and every
+   validation rule below, across all entries. The one limit: inside a single
+   `[defaults]` or `[[file]]` table only the **first** wrong-type or
+   missing-field error is reported, and that table's value rules (`dir`,
+   `mode`, owner, and so on) are not checked until it is fixed. Unknown keys in
+   that table are still reported, and so are all errors in other tables.
+
+Every error inside a `[[file]]` table names its `id`: the message starts with
+`` file `<id>`: ``. A table without a string `id` starts with `[[file]] #<n>: `
+(`n` is its 1-based position).
 
 ### Errors
 
 | Rule | Example message |
 |---|---|
 | `version` is not `1` | `unsupported version 2; this program reads version 1` |
-| Unknown key | `unknown field `colour`, expected one of ...` |
-| Missing required field | `missing field `dir`` |
-| Wrong type | `invalid type: integer `644`, expected a string` |
+| Unknown key | `` unknown key `colour` `` / `` file `a`: unknown key `colour` `` / `` [defaults]: `normalize_eol` is set per file, not in [defaults] `` |
+| Missing required field | `` file `a`: missing field `dir` `` |
+| Wrong type | `` file `a`: invalid type: integer `644`, expected a string `` |
 | `id` empty | `id must not be empty` |
-| `id` duplicated | `file `a`: duplicate id (first used on line 4)` |
-| `dir` not absolute | `file `a`: dir must be absolute (start with `/`)` |
-| `dir` has a backslash or NUL | `file `a`: dir must not contain a backslash or NUL` |
-| `dir` has a `..` segment | `file `a`: dir must not contain a `..` segment` |
-| `dir` has an empty segment (other than the trailing one) | `file `a`: dir must not contain an empty segment (`//`)` |
-| `name` or `source` empty, has `/`, `\`, NUL, or is `.`/`..` | `file `a`: source must not be `.` or `..`` |
-| `output_name` empty or has `/`, `\`, NUL | `output_name must not be empty or contain `/`, `\` or NUL` |
-| Two entries with the same stored path (case-sensitive) | `file `b`: target path `/x/a` is already used by file `a`` |
-| Bad `mode` or `dir_mode` | `file `a`: mode: mode `0898` is not an octal string` / `mode `17777` must be an octal string of 1 to 4 digits` |
-| `uid` or `gid` does not fit in `u32` | `file `a`: uid `-3` does not fit in u32` |
-| `uname` or `gname` empty or over 32 bytes | `file `a`: gname must be 1 to 32 bytes, got 33` |
+| `id` duplicated | `` file `a`: duplicate id (first used on line 4) `` |
+| `dir` not absolute | `` file `a`: dir must be absolute (start with `/`) `` |
+| `dir` has a backslash or NUL | `` file `a`: dir must not contain a backslash or NUL `` |
+| `dir` has a `..` segment | `` file `a`: dir must not contain a `..` segment `` |
+| `dir` has a `.` segment | `` file `a`: dir must not contain a `.` segment `` |
+| `dir` has an empty segment (other than the trailing one) | `` file `a`: dir must not contain an empty segment (`//`) `` |
+| `name` or `source` empty, has `/`, `\`, NUL, or is `.`/`..` | `` file `a`: source must not be `.` or `..` `` |
+| `output_name` empty or has `/`, `\`, NUL | `` output_name must not be empty or contain `/`, `\` or NUL `` |
+| Two entries with the same stored path (case-sensitive); reported on the later entry, at its `name` (else `dir`) | `` file `b`: target path `/x/a` is already used by file `a` `` |
+| An entry's stored path is also a directory of another entry; reported on the file entry, at its `name` (else `dir`) | `` file `a`: target path `/opt/gateway` is also a directory of file `b` `` |
+| Bad `mode` or `dir_mode` | `` file `a`: mode: mode `0898` is not an octal string `` / `` mode `17777` must be an octal string of 1 to 4 digits `` |
+| `uid` or `gid` does not fit in `u32` | `` file `a`: uid `-3` does not fit in u32 `` |
+| `uname` or `gname` empty or over 32 bytes | `` file `a`: gname must be 1 to 32 bytes, got 33 `` |
 | Manifest `name` empty | `name must not be empty` |
 
 ### Warnings
@@ -109,8 +126,8 @@ They do not block a build.
 
 | Rule | Example message |
 |---|---|
-| Two entries share a `source`, compared case-insensitively. A drop cannot tell them apart, so the user picks those files per row. | `file `b`: source `cfg.TXT` matches file `a` (compared case-insensitively); a dropped file cannot tell them apart, so pick their files per row` |
-| A stored path is 100 bytes or longer, leading `/` included. The writer emits a GNU long-name record. | `file `a`: stored path `/...` is 100 bytes or longer (153 bytes); the archive will use a GNU long-name record` |
+| Two entries share a `source`, compared case-insensitively. A drop cannot tell them apart, so the user picks those files per row. | `` file `b`: source `cfg.TXT` matches file `a` (compared case-insensitively); a dropped file cannot tell them apart, so pick their files per row `` |
+| A stored path is 100 bytes or longer, leading `/` included. The writer emits a GNU long-name record. | `` file `a`: stored path `/...` is 100 bytes or longer (153 bytes); the archive will use a GNU long-name record `` |
 | No `[[file]]` entries | `the manifest has no [[file]] entries` |
 
 ## Archive layout

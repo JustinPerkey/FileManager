@@ -35,6 +35,10 @@ crates/
   fm-core/                    shared, tool-agnostic library. No tauri dependency.
   fm-tarpack/                 Tar Packager domain library. Depends on fm-core only.
                               No tauri dependency.
+    src/manifest/             parse, validate, model, views
+    src/format.rs             ArchiveFormat, compression constants
+examples/tarpack/             example manifests, valid, used by tests through include_str!
+docs/tarpack-manifest.md      the manifest, archive-layout, and extraction reference
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, eslint.config.js, index.html
   src-tauri/                  package and binary name: filemanager

@@ -48,13 +48,20 @@ impl From<io::Error> for LoadError {
 }
 
 /// Parses and validates manifest text. On failure returns every diagnostic,
-/// warnings included. A syntax or type error stops at the first one, since
-/// the document cannot be read past it.
+/// warnings included.
+///
+/// Parsing has two stages. A TOML syntax error stops at the first one, since
+/// nothing past it can be read. Everything else is collected in one pass:
+/// unknown keys, missing fields, wrong types and every validation rule, across
+/// all entries. Within a single `[defaults]` or `[[file]]` table only the
+/// first wrong-type or missing-field error is reported, and that table's
+/// value rules wait until it deserializes. Errors inside a `[[file]]` table
+/// name its `id`.
 pub fn parse(text: &str) -> Result<(Manifest, Vec<Diagnostic>), Vec<Diagnostic>> {
-    match toml::from_str::<raw::RawManifest>(text) {
-        Ok(raw) => validate::validate(text, raw),
-        Err(e) => Err(vec![validate::syntax_error(text, &e)]),
-    }
+    let doc = toml::de::DeTable::parse(text).map_err(|e| vec![validate::syntax_error(text, &e)])?;
+    let mut ctx = validate::Ctx::new(text);
+    let raw = raw::read(&mut ctx, doc.into_inner());
+    validate::validate(ctx, raw)
 }
 
 pub fn load(path: &Path) -> Result<LoadedManifest, LoadError> {

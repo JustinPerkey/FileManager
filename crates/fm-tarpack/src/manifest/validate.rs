@@ -8,7 +8,7 @@ use toml::Spanned;
 
 use super::mode::parse_mode;
 use super::model::{Diagnostic, Entry, Manifest, Owner, Severity};
-use super::raw::{RawDefaults, RawFile, RawManifest};
+use super::raw::{RawDefaults, RawDoc, RawFile};
 
 const DEFAULT_MODE: u32 = 0o644;
 const DEFAULT_DIR_MODE: u32 = 0o755;
@@ -39,12 +39,26 @@ impl<'a> LineIndex<'a> {
     }
 }
 
-struct Ctx<'a> {
+pub(super) struct Ctx<'a> {
     index: LineIndex<'a>,
     diags: Vec<Diagnostic>,
 }
 
-impl Ctx<'_> {
+impl<'a> Ctx<'a> {
+    pub(super) fn new(text: &'a str) -> Self {
+        Ctx {
+            index: LineIndex::new(text),
+            diags: Vec::new(),
+        }
+    }
+
+    /// An error at byte offset `at`. With an id, the message is prefixed
+    /// ``file `<id>`: `` and the diagnostic names the entry; a message that
+    /// already carries its own prefix is passed with `id` `None`.
+    pub(super) fn push_error(&mut self, at: usize, id: Option<&str>, message: String) {
+        self.push(Severity::Error, at, id, message);
+    }
+
     fn push(&mut self, severity: Severity, at: usize, id: Option<&str>, message: String) {
         let (line, col) = self.index.locate(at);
         let message = match id {
@@ -67,7 +81,7 @@ impl Ctx<'_> {
     }
 }
 
-/// Converts a serde/toml error into a single diagnostic.
+/// Converts a TOML syntax error into a single diagnostic.
 pub(super) fn syntax_error(text: &str, err: &toml::de::Error) -> Diagnostic {
     let (line, col) = err
         .span()
@@ -108,6 +122,9 @@ fn bad_dir(dir: &str) -> Option<&'static str> {
     for seg in rest.split('/') {
         if seg == ".." {
             return Some("must not contain a `..` segment");
+        }
+        if seg == "." {
+            return Some("must not contain a `.` segment");
         }
         if seg.is_empty() {
             return Some("must not contain an empty segment (`//`)");
@@ -280,27 +297,39 @@ fn resolve_entry(ctx: &mut Ctx, f: &RawFile, defaults: &Defaults) -> Option<Entr
     })
 }
 
-pub(super) fn validate(
-    text: &str,
-    raw: RawManifest,
-) -> Result<(Manifest, Vec<Diagnostic>), Vec<Diagnostic>> {
-    let mut ctx = Ctx {
-        index: LineIndex::new(text),
-        diags: Vec::new(),
-    };
+/// Every directory a stored path needs: `dir` (trailing `/` trimmed) and each
+/// ancestor of it except `/`.
+fn needed_dirs(dir: &str) -> Vec<&str> {
+    let dir = dir.trim_end_matches('/');
+    let mut out = Vec::new();
+    let mut end = dir.len();
+    while end > 0 {
+        out.push(&dir[..end]);
+        end = dir[..end].rfind('/').unwrap_or(0);
+    }
+    out
+}
 
-    if *raw.version.get_ref() != 1 {
-        ctx.error(
-            &raw.version.span(),
+pub(super) fn validate(
+    mut ctx: Ctx,
+    raw: RawDoc,
+) -> Result<(Manifest, Vec<Diagnostic>), Vec<Diagnostic>> {
+    match &raw.version {
+        Some(v) if *v.get_ref() != 1 => ctx.error(
+            &v.span(),
             None,
             format!(
                 "unsupported version {}; this program reads version 1",
-                raw.version.get_ref()
+                v.get_ref()
             ),
-        );
+        ),
+        _ => {}
     }
-    if raw.name.get_ref().is_empty() {
-        ctx.error(&raw.name.span(), None, "name must not be empty".into());
+    match &raw.name {
+        Some(n) if n.get_ref().is_empty() => {
+            ctx.error(&n.span(), None, "name must not be empty".into());
+        }
+        _ => {}
     }
     if let Some(o) = &raw.output_name {
         let s = o.get_ref();
@@ -315,72 +344,100 @@ pub(super) fn validate(
 
     let defaults = resolve_defaults(&mut ctx, raw.defaults.as_ref());
 
-    let mut entries = Vec::new();
+    let mut entries: Vec<Entry> = Vec::new();
+    // Raw file of each resolved entry, for locating later errors.
+    let mut resolved: Vec<&RawFile> = Vec::new();
     let mut ids: HashMap<&str, usize> = HashMap::new();
     let mut targets: HashMap<String, &str> = HashMap::new();
     let mut sources: HashMap<String, &str> = HashMap::new();
 
-    for f in &raw.file {
-        let file = f.get_ref();
-        let id_str = file.id.get_ref().as_str();
+    for slot in &raw.files {
+        // The raw id takes part in the duplicate check even when the table
+        // itself failed to deserialize.
+        let id_str = slot.id.as_ref().map_or("", |i| i.get_ref().as_str());
         let id = (!id_str.is_empty()).then_some(id_str);
 
-        if id.is_some() {
-            if let Some(&first) = ids.get(id_str) {
+        if let (Some(id_val), Some(id)) = (&slot.id, id) {
+            if let Some(&first) = ids.get(id) {
                 let (line, _) = ctx.index.locate(first);
                 ctx.error(
-                    &file.id.span(),
-                    id,
+                    &id_val.span(),
+                    Some(id),
                     format!("duplicate id (first used on line {line})"),
                 );
             } else {
-                ids.insert(id_str, file.id.span().start);
+                ids.insert(id, id_val.span().start);
             }
         }
 
-        let entry = resolve_entry(&mut ctx, file, &defaults);
+        let Some(file) = &slot.file else { continue };
+        let Some(e) = resolve_entry(&mut ctx, file, &defaults) else {
+            continue;
+        };
 
-        if let Some(e) = &entry {
-            let path = e.target_path();
-            if let Some(prev) = targets.get(&path) {
-                ctx.error(
-                    &file.dir.span(),
-                    id,
-                    format!("target path `{path}` is already used by file `{prev}`"),
-                );
-            } else {
-                targets.insert(path.clone(), id_str);
-            }
-            if path.len() >= LONG_NAME_BYTES {
-                ctx.warn(
-                    &file.dir.span(),
-                    id,
-                    format!(
-                        "stored path `{path}` is 100 bytes or longer ({} bytes); \
-                         the archive will use a GNU long-name record",
-                        path.len()
-                    ),
-                );
-            }
-            let key = e.source().to_lowercase();
-            if let Some(prev) = sources.get(&key) {
-                ctx.warn(
-                    &file.source.span(),
-                    id,
-                    format!(
-                        "source `{}` matches file `{prev}` (compared case-insensitively); \
-                         a dropped file cannot tell them apart, so pick their files per row",
-                        e.source()
-                    ),
-                );
-            } else {
-                sources.insert(key, id_str);
-            }
+        // Duplicate targets are reported at the `name` value, else at `dir`.
+        let at = file
+            .name
+            .as_ref()
+            .map_or_else(|| file.dir.span(), |n| n.span());
+        let path = e.target_path();
+        if let Some(prev) = targets.get(&path) {
+            ctx.error(
+                &at,
+                id,
+                format!("target path `{path}` is already used by file `{prev}`"),
+            );
+        } else {
+            targets.insert(path.clone(), id_str);
         }
-        entries.extend(entry);
+        if path.len() >= LONG_NAME_BYTES {
+            ctx.warn(
+                &file.dir.span(),
+                id,
+                format!(
+                    "stored path `{path}` is 100 bytes or longer ({} bytes); \
+                     the archive will use a GNU long-name record",
+                    path.len()
+                ),
+            );
+        }
+        let key = e.source().to_lowercase();
+        if let Some(prev) = sources.get(&key) {
+            ctx.warn(
+                &file.source.span(),
+                id,
+                format!(
+                    "source `{}` matches file `{prev}` (compared case-insensitively); \
+                     a dropped file cannot tell them apart, so pick their files per row",
+                    e.source()
+                ),
+            );
+        } else {
+            sources.insert(key, id_str);
+        }
+        entries.push(e);
+        resolved.push(file);
     }
 
-    if raw.file.is_empty() {
+    // A file's stored path must not also be a directory another entry needs.
+    for (i, (a, fa)) in entries.iter().zip(&resolved).enumerate() {
+        let path = a.target_path();
+        for (j, b) in entries.iter().enumerate() {
+            if i != j && needed_dirs(b.target_dir()).contains(&path.as_str()) {
+                let at = fa.name.as_ref().map_or_else(|| fa.dir.span(), |n| n.span());
+                ctx.error(
+                    &at,
+                    Some(a.id()),
+                    format!(
+                        "target path `{path}` is also a directory of file `{}`",
+                        b.id()
+                    ),
+                );
+            }
+        }
+    }
+
+    if raw.files.is_empty() {
         ctx.push(
             Severity::Warning,
             0,
@@ -394,9 +451,12 @@ pub(super) fn validate(
     if diags.iter().any(|d| d.severity == Severity::Error) {
         return Err(diags);
     }
+    let (Some(name), output_name) = (raw.name, raw.output_name) else {
+        return Err(diags);
+    };
     let manifest = Manifest::new(
-        raw.name.into_inner(),
-        raw.output_name.map(Spanned::into_inner),
+        name.into_inner(),
+        output_name.map(Spanned::into_inner),
         defaults.dir_mode,
         defaults.owner,
         entries,
