@@ -7,7 +7,7 @@ use serde::Deserialize;
 use toml::de::{DeTable, DeValue};
 use toml::Spanned;
 
-use super::validate::Ctx;
+use super::validate::{Ctx, Scope};
 
 /// `normalize_eol` is deliberately absent: it is a per-file choice.
 #[derive(Debug, Default, Deserialize)]
@@ -39,7 +39,14 @@ pub struct RawFile {
 /// One `[[file]]` table. `id` is the raw string id when the table has one,
 /// even if the table as a whole failed to deserialize.
 pub struct RawFileSlot {
+    /// 1-based position of the table.
+    pub index: usize,
     pub id: Option<Spanned<String>>,
+    /// `source` when it is a string.
+    pub source: Option<String>,
+    /// Start of the table: its `[[file]]` header, or the element of an inline
+    /// array.
+    pub at: usize,
     pub file: Option<RawFile>,
 }
 
@@ -66,25 +73,6 @@ const FILE_KEYS: [&str; 10] = [
     "normalize_eol",
 ];
 
-/// Who a table's diagnostics are attributed to.
-#[derive(Clone, Copy)]
-enum Scope<'a> {
-    Top,
-    Defaults,
-    File(Option<&'a str>, usize),
-}
-
-impl Scope<'_> {
-    fn report(self, ctx: &mut Ctx, at: usize, message: String) {
-        match self {
-            Scope::Top => ctx.push_error(at, None, message),
-            Scope::Defaults => ctx.push_error(at, None, format!("[defaults]: {message}")),
-            Scope::File(Some(id), _) => ctx.push_error(at, Some(id), message),
-            Scope::File(None, n) => ctx.push_error(at, None, format!("[[file]] #{n}: {message}")),
-        }
-    }
-}
-
 /// Removes keys not in `allowed`, reporting each at the key's span.
 fn strip_unknown<'i>(
     ctx: &mut Ctx,
@@ -103,7 +91,7 @@ fn strip_unknown<'i>(
         } else {
             format!("unknown key `{}`", key.get_ref())
         };
-        scope.report(ctx, key.span().start, msg);
+        ctx.error(scope, key.span().start, msg);
     }
     kept
 }
@@ -115,10 +103,15 @@ fn take<'i>(table: &mut DeTable<'i>, name: &str) -> Option<Spanned<DeValue<'i>>>
 
 /// Takes a required field. One that is absent is reported here; one that is
 /// present but of the wrong type is reported by `de`.
-fn required<'i>(ctx: &mut Ctx, table: &mut DeTable<'i>, key: &str) -> Option<Spanned<DeValue<'i>>> {
+fn required<'i>(
+    ctx: &mut Ctx,
+    table: &mut DeTable<'i>,
+    key: &str,
+    scope: Scope,
+) -> Option<Spanned<DeValue<'i>>> {
     let v = take(table, key);
     if v.is_none() {
-        ctx.push_error(0, None, format!("missing field `{key}`"));
+        ctx.error(scope, 0, format!("missing field `{key}`"));
     }
     v
 }
@@ -141,15 +134,15 @@ fn de<'de, T: Deserialize<'de>>(
         Ok(v) => Some(v),
         Err(e) => {
             let at = e.span().unwrap_or(span).start;
-            scope.report(ctx, at, e.message().trim().to_string());
+            ctx.error(scope, at, e.message().trim().to_string());
             None
         }
     }
 }
 
 fn type_error(ctx: &mut Ctx, what: &str, value: &Spanned<DeValue<'_>>, scope: Scope) {
-    scope.report(
-        ctx,
+    ctx.error(
+        scope,
         value.span().start,
         format!(
             "invalid type: {}, expected {what}",
@@ -159,10 +152,14 @@ fn type_error(ctx: &mut Ctx, what: &str, value: &Spanned<DeValue<'_>>, scope: Sc
 }
 
 pub fn read(ctx: &mut Ctx, doc: DeTable<'_>) -> RawDoc {
-    let mut table = strip_unknown(ctx, doc, &TOP_KEYS, Scope::Top);
-    let version = required(ctx, &mut table, "version").and_then(|v| de(ctx, v, Scope::Top));
-    let name = required(ctx, &mut table, "name").and_then(|v| de(ctx, v, Scope::Top));
-    let output_name = take(&mut table, "output_name").and_then(|v| de(ctx, v, Scope::Top));
+    // `version`, unknown keys and `file` withhold every entry; `name` and
+    // `output_name` do not change how an entry is read.
+    let hard = Scope::Top { withholds: true };
+    let soft = Scope::Top { withholds: false };
+    let mut table = strip_unknown(ctx, doc, &TOP_KEYS, hard);
+    let version = required(ctx, &mut table, "version", hard).and_then(|v| de(ctx, v, hard));
+    let name = required(ctx, &mut table, "name", soft).and_then(|v| de(ctx, v, soft));
+    let output_name = take(&mut table, "output_name").and_then(|v| de(ctx, v, soft));
     let defaults_val = take(&mut table, "defaults");
     let file_val = take(&mut table, "file");
 
@@ -194,7 +191,7 @@ pub fn read(ctx: &mut Ctx, doc: DeTable<'_>) -> RawDoc {
                 }
                 other => {
                     let v = Spanned::new(span, other);
-                    type_error(ctx, "an array of tables", &v, Scope::Top);
+                    type_error(ctx, "an array of tables", &v, hard);
                 }
             }
         }
@@ -212,9 +209,12 @@ pub fn read(ctx: &mut Ctx, doc: DeTable<'_>) -> RawDoc {
 fn read_file(ctx: &mut Ctx, n: usize, item: Spanned<DeValue<'_>>) -> RawFileSlot {
     let span = item.span();
     let DeValue::Table(table) = item.get_ref() else {
-        type_error(ctx, "a table", &item, Scope::File(None, n));
+        type_error(ctx, "a table", &item, Scope::file("", n));
         return RawFileSlot {
+            index: n,
             id: None,
+            source: None,
+            at: span.start,
             file: None,
         };
     };
@@ -222,15 +222,25 @@ fn read_file(ctx: &mut Ctx, n: usize, item: Spanned<DeValue<'_>>) -> RawFileSlot
         DeValue::String(s) => Some(Spanned::new(v.span(), s.to_string())),
         _ => None,
     });
+    let source = find(table, "source").and_then(|v| match v.get_ref() {
+        DeValue::String(s) => Some(s.to_string()),
+        _ => None,
+    });
     let DeValue::Table(table) = item.into_inner() else {
         unreachable!()
     };
-    let scope_id = id
-        .as_ref()
-        .map(|i| i.get_ref().as_str())
-        .filter(|s| !s.is_empty());
-    let scope = Scope::File(scope_id, n);
+    let scope = Scope::file(id.as_ref().map_or("", |i| i.get_ref().as_str()), n);
     let table = strip_unknown(ctx, table, &FILE_KEYS, scope);
-    let file = de(ctx, Spanned::new(span, DeValue::Table(table)), scope);
-    RawFileSlot { id, file }
+    let file = de(
+        ctx,
+        Spanned::new(span.clone(), DeValue::Table(table)),
+        scope,
+    );
+    RawFileSlot {
+        index: n,
+        id,
+        source,
+        at: span.start,
+        file,
+    }
 }

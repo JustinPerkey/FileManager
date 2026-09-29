@@ -5,6 +5,6 @@ pub mod manifest;
 
 pub use format::ArchiveFormat;
 pub use manifest::{
-    load, parse, Diagnostic, Entry, LoadError, LoadedManifest, Manifest, ManifestView, Owner,
-    Severity,
+    load, parse, Diagnostic, Entry, EntryFailure, LoadError, LoadedManifest, Manifest,
+    ManifestView, Owner, ParseReport, Severity,
 };

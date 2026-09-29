@@ -18,6 +18,10 @@ modeText: string,
  */
 owner: string, 
 /**
- * Numeric ids that are written to the header.
+ * Numeric user id written to the header.
  */
-uid: number, gid: number, normalizeEol: boolean, };
+uid: number, 
+/**
+ * Numeric group id written to the header.
+ */
+gid: number, normalizeEol: boolean, };

@@ -1,13 +1,12 @@
 //! Turns a raw manifest into a validated `Manifest`, collecting every error
 //! and warning with its line and column.
 
-use std::collections::HashMap;
-use std::ops::Range;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use toml::Spanned;
 
 use super::mode::parse_mode;
-use super::model::{Diagnostic, Entry, Manifest, Owner, Severity};
+use super::model::{Diagnostic, Entry, EntryFailure, Manifest, Owner, ParseReport, Severity};
 use super::raw::{RawDefaults, RawDoc, RawFile};
 
 const DEFAULT_MODE: u32 = 0o644;
@@ -39,9 +38,47 @@ impl<'a> LineIndex<'a> {
     }
 }
 
+/// Where a diagnostic came from, kept internally so the report can group it.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Origin {
+    /// Outside every `[[file]]` table. `withholds` hides all entries.
+    Header { withholds: bool },
+    /// Inside the `[[file]]` table at this 1-based position.
+    Table(usize),
+}
+
+/// Who a diagnostic is attributed to. The prefix rule lives here only.
+#[derive(Clone, Copy)]
+pub(super) enum Scope<'a> {
+    /// Top level, no prefix.
+    Top { withholds: bool },
+    /// `[defaults]` unknown-key, serde and not-a-table errors, prefixed
+    /// ``[defaults]: ``; withholds. Bad values in `[defaults]` are reported
+    /// through `Top { withholds: true }` instead, since their messages already
+    /// start with `defaults.<field>`.
+    Defaults,
+    /// A `[[file]]` table: its non-empty string id, and its position.
+    File(Option<&'a str>, usize),
+}
+
+impl<'a> Scope<'a> {
+    /// A table's scope: an empty id counts as no id.
+    pub(super) fn file(id: &'a str, n: usize) -> Scope<'a> {
+        Scope::File((!id.is_empty()).then_some(id), n)
+    }
+
+    fn origin(self) -> Origin {
+        match self {
+            Scope::Top { withholds } => Origin::Header { withholds },
+            Scope::Defaults => Origin::Header { withholds: true },
+            Scope::File(_, n) => Origin::Table(n),
+        }
+    }
+}
+
 pub(super) struct Ctx<'a> {
     index: LineIndex<'a>,
-    diags: Vec<Diagnostic>,
+    diags: Vec<(Origin, Diagnostic)>,
 }
 
 impl<'a> Ctx<'a> {
@@ -52,32 +89,33 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// An error at byte offset `at`. With an id, the message is prefixed
-    /// ``file `<id>`: `` and the diagnostic names the entry; a message that
-    /// already carries its own prefix is passed with `id` `None`.
-    pub(super) fn push_error(&mut self, at: usize, id: Option<&str>, message: String) {
-        self.push(Severity::Error, at, id, message);
+    /// An error at byte offset `at`, attributed through `scope`.
+    pub(super) fn error(&mut self, scope: Scope, at: usize, message: String) {
+        self.push(Severity::Error, scope, at, message);
     }
 
-    fn push(&mut self, severity: Severity, at: usize, id: Option<&str>, message: String) {
+    fn warn(&mut self, scope: Scope, at: usize, message: String) {
+        self.push(Severity::Warning, scope, at, message);
+    }
+
+    fn push(&mut self, severity: Severity, scope: Scope, at: usize, message: String) {
         let (line, col) = self.index.locate(at);
-        let message = match id {
-            Some(id) => format!("file `{id}`: {message}"),
-            None => message,
+        let (message, entry_id) = match scope {
+            Scope::Top { .. } => (message, None),
+            Scope::Defaults => (format!("[defaults]: {message}"), None),
+            Scope::File(Some(id), _) => (format!("file `{id}`: {message}"), Some(id.to_string())),
+            Scope::File(None, n) => (format!("[[file]] #{n}: {message}"), None),
         };
-        self.diags.push(Diagnostic {
-            severity,
-            line,
-            col,
-            entry_id: id.map(str::to_string),
-            message,
-        });
-    }
-    fn error(&mut self, span: &Range<usize>, id: Option<&str>, message: String) {
-        self.push(Severity::Error, span.start, id, message);
-    }
-    fn warn(&mut self, span: &Range<usize>, id: Option<&str>, message: String) {
-        self.push(Severity::Warning, span.start, id, message);
+        self.diags.push((
+            scope.origin(),
+            Diagnostic {
+                severity,
+                line,
+                col,
+                entry_id,
+                message,
+            },
+        ));
     }
 }
 
@@ -133,13 +171,13 @@ fn bad_dir(dir: &str) -> Option<&'static str> {
     None
 }
 
-fn to_u32(ctx: &mut Ctx, field: &str, v: &Spanned<i64>, id: Option<&str>) -> Option<u32> {
+fn to_u32(ctx: &mut Ctx, scope: Scope, field: &str, v: &Spanned<i64>) -> Option<u32> {
     match u32::try_from(*v.get_ref()) {
         Ok(n) => Some(n),
         Err(_) => {
             ctx.error(
-                &v.span(),
-                id,
+                scope,
+                v.span().start,
                 format!("{field} `{}` does not fit in u32", v.get_ref()),
             );
             None
@@ -147,22 +185,22 @@ fn to_u32(ctx: &mut Ctx, field: &str, v: &Spanned<i64>, id: Option<&str>) -> Opt
     }
 }
 
-fn mode_field(ctx: &mut Ctx, field: &str, v: &Spanned<String>, id: Option<&str>) -> Option<u32> {
+fn mode_field(ctx: &mut Ctx, scope: Scope, field: &str, v: &Spanned<String>) -> Option<u32> {
     match parse_mode(v.get_ref()) {
         Ok(m) => Some(m),
         Err(e) => {
-            ctx.error(&v.span(), id, format!("{field}: {e}"));
+            ctx.error(scope, v.span().start, format!("{field}: {e}"));
             None
         }
     }
 }
 
-fn owner_name(ctx: &mut Ctx, field: &str, v: &Spanned<String>, id: Option<&str>) -> Option<String> {
+fn owner_name(ctx: &mut Ctx, scope: Scope, field: &str, v: &Spanned<String>) -> Option<String> {
     let s = v.get_ref();
     if s.is_empty() || s.len() > MAX_OWNER_NAME {
         ctx.error(
-            &v.span(),
-            id,
+            scope,
+            v.span().start,
             format!(
                 "{field} must be 1 to {MAX_OWNER_NAME} bytes, got {}",
                 s.len()
@@ -180,104 +218,113 @@ struct Defaults {
     owner: Owner,
 }
 
+impl Defaults {
+    fn builtin() -> Defaults {
+        Defaults {
+            mode: DEFAULT_MODE,
+            dir_mode: DEFAULT_DIR_MODE,
+            owner: Owner {
+                uid: 0,
+                gid: 0,
+                uname: "root".into(),
+                gname: "root".into(),
+            },
+        }
+    }
+}
+
 fn resolve_defaults(ctx: &mut Ctx, raw: Option<&RawDefaults>) -> Defaults {
-    let mut d = Defaults {
-        mode: DEFAULT_MODE,
-        dir_mode: DEFAULT_DIR_MODE,
-        owner: Owner {
-            uid: 0,
-            gid: 0,
-            uname: "root".into(),
-            gname: "root".into(),
-        },
-    };
+    let mut d = Defaults::builtin();
     let Some(raw) = raw else { return d };
+    // Every `[defaults]` error withholds the entries; the field name is the
+    // prefix, so no `[defaults]: ` is added.
+    let sc = Scope::Top { withholds: true };
     if let Some(v) = &raw.mode {
-        d.mode = mode_field(ctx, "defaults.mode", v, None).unwrap_or(d.mode);
+        d.mode = mode_field(ctx, sc, "defaults.mode", v).unwrap_or(d.mode);
     }
     if let Some(v) = &raw.dir_mode {
-        d.dir_mode = mode_field(ctx, "defaults.dir_mode", v, None).unwrap_or(d.dir_mode);
+        d.dir_mode = mode_field(ctx, sc, "defaults.dir_mode", v).unwrap_or(d.dir_mode);
     }
     if let Some(v) = &raw.uid {
-        d.owner.uid = to_u32(ctx, "defaults.uid", v, None).unwrap_or(d.owner.uid);
+        d.owner.uid = to_u32(ctx, sc, "defaults.uid", v).unwrap_or(d.owner.uid);
     }
     if let Some(v) = &raw.gid {
-        d.owner.gid = to_u32(ctx, "defaults.gid", v, None).unwrap_or(d.owner.gid);
+        d.owner.gid = to_u32(ctx, sc, "defaults.gid", v).unwrap_or(d.owner.gid);
     }
     if let Some(v) = &raw.uname {
-        if let Some(s) = owner_name(ctx, "defaults.uname", v, None) {
+        if let Some(s) = owner_name(ctx, sc, "defaults.uname", v) {
             d.owner.uname = s;
         }
     }
     if let Some(v) = &raw.gname {
-        if let Some(s) = owner_name(ctx, "defaults.gname", v, None) {
+        if let Some(s) = owner_name(ctx, sc, "defaults.gname", v) {
             d.owner.gname = s;
         }
     }
     d
 }
 
-fn resolve_entry(ctx: &mut Ctx, f: &RawFile, defaults: &Defaults) -> Option<Entry> {
+fn resolve_entry(ctx: &mut Ctx, f: &RawFile, defaults: &Defaults, index: usize) -> Option<Entry> {
     let id_str = f.id.get_ref().as_str();
-    let id = (!id_str.is_empty()).then_some(id_str);
+    let sc = Scope::file(id_str, index);
     let mut ok = true;
 
     if id_str.is_empty() {
-        ctx.error(&f.id.span(), None, "id must not be empty".into());
+        ctx.error(sc, f.id.span().start, "id must not be empty".into());
         ok = false;
     }
 
     let source = f.source.get_ref();
     if let Some(why) = bad_leaf(source) {
-        ctx.error(&f.source.span(), id, format!("source {why}"));
+        ctx.error(sc, f.source.span().start, format!("source {why}"));
         ok = false;
     }
 
-    let (name, name_span) = match &f.name {
-        Some(n) => (n.get_ref().as_str(), n.span()),
-        None => (source.as_str(), f.source.span()),
-    };
-    if f.name.is_some() {
+    let name = f
+        .name
+        .as_ref()
+        .map_or(source.as_str(), |n| n.get_ref().as_str());
+    if let Some(n) = &f.name {
         if let Some(why) = bad_leaf(name) {
-            ctx.error(&name_span, id, format!("name {why}"));
+            ctx.error(sc, n.span().start, format!("name {why}"));
             ok = false;
         }
     }
 
     let dir = f.dir.get_ref();
     if let Some(why) = bad_dir(dir) {
-        ctx.error(&f.dir.span(), id, format!("dir {why}"));
+        ctx.error(sc, f.dir.span().start, format!("dir {why}"));
         ok = false;
     }
 
     let mut mode = defaults.mode;
     if let Some(v) = &f.mode {
-        match mode_field(ctx, "mode", v, id) {
+        match mode_field(ctx, sc, "mode", v) {
             Some(m) => mode = m,
             None => ok = false,
         }
     }
     let mut owner = defaults.owner.clone();
     if let Some(v) = &f.uid {
-        match to_u32(ctx, "uid", v, id) {
+        match to_u32(ctx, sc, "uid", v) {
             Some(n) => owner.uid = n,
             None => ok = false,
         }
     }
     if let Some(v) = &f.gid {
-        match to_u32(ctx, "gid", v, id) {
+        match to_u32(ctx, sc, "gid", v) {
             Some(n) => owner.gid = n,
             None => ok = false,
         }
     }
     if let Some(v) = &f.uname {
-        match owner_name(ctx, "uname", v, id) {
+        match owner_name(ctx, sc, "uname", v) {
             Some(s) => owner.uname = s,
             None => ok = false,
         }
     }
     if let Some(v) = &f.gname {
-        match owner_name(ctx, "gname", v, id) {
+        match owner_name(ctx, sc, "gname", v) {
             Some(s) => owner.gname = s,
             None => ok = false,
         }
@@ -310,33 +357,69 @@ fn needed_dirs(dir: &str) -> Vec<&str> {
     out
 }
 
-pub(super) fn validate(
-    mut ctx: Ctx,
-    raw: RawDoc,
-) -> Result<(Manifest, Vec<Diagnostic>), Vec<Diagnostic>> {
-    match &raw.version {
-        Some(v) if *v.get_ref() != 1 => ctx.error(
-            &v.span(),
-            None,
-            format!(
-                "unsupported version {}; this program reads version 1",
-                v.get_ref()
-            ),
-        ),
-        _ => {}
+/// The report for a manifest that cannot be read at all: an empty incomplete
+/// manifest and the one error that stopped it.
+pub(super) fn withheld_report(error: Diagnostic) -> ParseReport {
+    let d = Defaults::builtin();
+    ParseReport {
+        manifest: Manifest::new(String::new(), None, d.dir_mode, d.owner, Vec::new(), false),
+        entries_withheld: true,
+        errors: vec![error],
+        failures: Vec::new(),
+        warnings: Vec::new(),
     }
-    match &raw.name {
-        Some(n) if n.get_ref().is_empty() => {
-            ctx.error(&n.span(), None, "name must not be empty".into());
+}
+
+/// A resolved entry with the raw table it came from.
+struct Resolved<'r> {
+    /// Index into `raw.files`.
+    slot: usize,
+    entry: Entry,
+    file: &'r RawFile,
+}
+
+impl Resolved<'_> {
+    /// Where target-path errors point: the `name` value, else `dir`.
+    fn target_at(&self) -> usize {
+        self.file
+            .name
+            .as_ref()
+            .map_or_else(|| self.file.dir.span(), |n| n.span())
+            .start
+    }
+    fn scope(&self, raw: &RawDoc) -> Scope<'_> {
+        Scope::file(self.entry.id(), raw.files[self.slot].index)
+    }
+}
+
+pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
+    let hard = Scope::Top { withholds: true };
+    let soft = Scope::Top { withholds: false };
+    if let Some(v) = &raw.version {
+        if *v.get_ref() != 1 {
+            ctx.error(
+                hard,
+                v.span().start,
+                format!(
+                    "unsupported version {}; this program reads version 1",
+                    v.get_ref()
+                ),
+            );
         }
-        _ => {}
     }
+    if let Some(n) = &raw.name {
+        if n.get_ref().is_empty() {
+            ctx.error(soft, n.span().start, "name must not be empty".into());
+        }
+    }
+    let mut output_name_ok = true;
     if let Some(o) = &raw.output_name {
         let s = o.get_ref();
         if s.is_empty() || s.contains(['/', '\\', '\0']) {
+            output_name_ok = false;
             ctx.error(
-                &o.span(),
-                None,
+                soft,
+                o.span().start,
                 "output_name must not be empty or contain `/`, `\\` or NUL".into(),
             );
         }
@@ -344,56 +427,105 @@ pub(super) fn validate(
 
     let defaults = resolve_defaults(&mut ctx, raw.defaults.as_ref());
 
-    let mut entries: Vec<Entry> = Vec::new();
-    // Raw file of each resolved entry, for locating later errors.
-    let mut resolved: Vec<&RawFile> = Vec::new();
-    let mut ids: HashMap<&str, usize> = HashMap::new();
-    let mut targets: HashMap<String, &str> = HashMap::new();
-    let mut sources: HashMap<String, &str> = HashMap::new();
+    let mut resolved: Vec<Resolved> = Vec::new();
+    for (i, slot) in raw.files.iter().enumerate() {
+        let Some(file) = &slot.file else { continue };
+        if let Some(entry) = resolve_entry(&mut ctx, file, &defaults, slot.index) {
+            resolved.push(Resolved {
+                slot: i,
+                entry,
+                file,
+            });
+        }
+    }
 
+    // A table that failed on its own takes no part in the cross-entry checks.
+    // (Duplicate-id errors are pushed after this, so a table failing only
+    // through a duplicate id still takes part.)
+    let own_failed: HashSet<usize> = ctx
+        .diags
+        .iter()
+        .filter_map(|(o, d)| match o {
+            Origin::Table(n) if d.severity == Severity::Error => Some(*n),
+            _ => None,
+        })
+        .collect();
+    resolved.retain(|r| !own_failed.contains(&raw.files[r.slot].index));
+
+    // Duplicate ids, from the raw id, so tables that failed to deserialize
+    // take part. Every table sharing an id is reported.
+    let mut by_id: HashMap<&str, Vec<&super::raw::RawFileSlot>> = HashMap::new();
     for slot in &raw.files {
-        // The raw id takes part in the duplicate check even when the table
-        // itself failed to deserialize.
-        let id_str = slot.id.as_ref().map_or("", |i| i.get_ref().as_str());
-        let id = (!id_str.is_empty()).then_some(id_str);
-
-        if let (Some(id_val), Some(id)) = (&slot.id, id) {
-            if let Some(&first) = ids.get(id) {
-                let (line, _) = ctx.index.locate(first);
-                ctx.error(
-                    &id_val.span(),
-                    Some(id),
-                    format!("duplicate id (first used on line {line})"),
-                );
-            } else {
-                ids.insert(id, id_val.span().start);
+        if let Some(i) = &slot.id {
+            if !i.get_ref().is_empty() {
+                by_id.entry(i.get_ref().as_str()).or_default().push(slot);
             }
         }
-
-        let Some(file) = &slot.file else { continue };
-        let Some(e) = resolve_entry(&mut ctx, file, &defaults) else {
+    }
+    for (id, slots) in &by_id {
+        if slots.len() < 2 {
             continue;
-        };
-
-        // Duplicate targets are reported at the `name` value, else at `dir`.
-        let at = file
-            .name
-            .as_ref()
-            .map_or_else(|| file.dir.span(), |n| n.span());
-        let path = e.target_path();
-        if let Some(prev) = targets.get(&path) {
-            ctx.error(
-                &at,
-                id,
-                format!("target path `{path}` is already used by file `{prev}`"),
-            );
-        } else {
-            targets.insert(path.clone(), id_str);
         }
+        let line_of = |s: &&super::raw::RawFileSlot| {
+            ctx.index
+                .locate(s.id.as_ref().map_or(0, |i| i.span().start))
+                .0
+        };
+        let first_line = line_of(&slots[0]);
+        let later: Vec<u32> = slots[1..].iter().map(line_of).collect();
+        for s in &slots[1..] {
+            let at = s.id.as_ref().map_or(0, |i| i.span().start);
+            ctx.error(
+                Scope::file(id, s.index),
+                at,
+                format!("duplicate id (first used on line {first_line})"),
+            );
+        }
+        let list: Vec<String> = later.iter().map(u32::to_string).collect();
+        let msg = if list.len() == 1 {
+            format!("duplicate id (also used on line {})", list[0])
+        } else {
+            format!("duplicate id (also used on lines {})", list.join(", "))
+        };
+        let at = slots[0].id.as_ref().map_or(0, |i| i.span().start);
+        ctx.error(Scope::file(id, slots[0].index), at, msg);
+    }
+
+    // Duplicate targets, reported on both entries of each pair.
+    let mut targets: HashMap<String, Vec<usize>> = HashMap::new();
+    for (k, r) in resolved.iter().enumerate() {
+        let path = r.entry.target_path();
+        let prev = targets.entry(path.clone()).or_default();
+        for &p in prev.iter() {
+            let p = &resolved[p];
+            ctx.error(
+                r.scope(&raw),
+                r.target_at(),
+                format!(
+                    "target path `{path}` is already used by file `{}`",
+                    p.entry.id()
+                ),
+            );
+            ctx.error(
+                p.scope(&raw),
+                p.target_at(),
+                format!(
+                    "target path `{path}` is also used by file `{}`",
+                    r.entry.id()
+                ),
+            );
+        }
+        prev.push(k);
+    }
+
+    // Long names and shared sources are warnings.
+    let mut sources: HashMap<String, &str> = HashMap::new();
+    for r in &resolved {
+        let path = r.entry.target_path();
         if path.len() >= LONG_NAME_BYTES {
             ctx.warn(
-                &file.dir.span(),
-                id,
+                r.scope(&raw),
+                r.file.dir.span().start,
                 format!(
                     "stored path `{path}` is 100 bytes or longer ({} bytes); \
                      the archive will use a GNU long-name record",
@@ -401,36 +533,41 @@ pub(super) fn validate(
                 ),
             );
         }
-        let key = e.source().to_lowercase();
+        let key = r.entry.source().to_lowercase();
         if let Some(prev) = sources.get(&key) {
             ctx.warn(
-                &file.source.span(),
-                id,
+                r.scope(&raw),
+                r.file.source.span().start,
                 format!(
                     "source `{}` matches file `{prev}` (compared case-insensitively); \
                      a dropped file cannot tell them apart, so pick their files per row",
-                    e.source()
+                    r.entry.source()
                 ),
             );
         } else {
-            sources.insert(key, id_str);
+            sources.insert(key, r.entry.id());
         }
-        entries.push(e);
-        resolved.push(file);
     }
 
     // A file's stored path must not also be a directory another entry needs.
-    for (i, (a, fa)) in entries.iter().zip(&resolved).enumerate() {
-        let path = a.target_path();
-        for (j, b) in entries.iter().enumerate() {
-            if i != j && needed_dirs(b.target_dir()).contains(&path.as_str()) {
-                let at = fa.name.as_ref().map_or_else(|| fa.dir.span(), |n| n.span());
+    for (i, a) in resolved.iter().enumerate() {
+        let path = a.entry.target_path();
+        for (j, b) in resolved.iter().enumerate() {
+            if i != j && needed_dirs(b.entry.target_dir()).contains(&path.as_str()) {
                 ctx.error(
-                    &at,
-                    Some(a.id()),
+                    a.scope(&raw),
+                    a.target_at(),
                     format!(
                         "target path `{path}` is also a directory of file `{}`",
-                        b.id()
+                        b.entry.id()
+                    ),
+                );
+                ctx.error(
+                    b.scope(&raw),
+                    b.file.dir.span().start,
+                    format!(
+                        "dir needs `{path}`, which is the target path of file `{}`",
+                        a.entry.id()
                     ),
                 );
             }
@@ -438,28 +575,83 @@ pub(super) fn validate(
     }
 
     if raw.files.is_empty() {
-        ctx.push(
-            Severity::Warning,
-            0,
-            None,
-            "the manifest has no [[file]] entries".into(),
-        );
+        ctx.warn(soft, 0, "the manifest has no [[file]] entries".into());
     }
 
-    let mut diags = ctx.diags;
-    diags.sort_by_key(|d| (d.line, d.col));
-    if diags.iter().any(|d| d.severity == Severity::Error) {
-        return Err(diags);
+    // Group the diagnostics by where they came from.
+    let Ctx { index, diags } = ctx;
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    let mut by_table: BTreeMap<usize, Vec<Diagnostic>> = BTreeMap::new();
+    let mut entries_withheld = false;
+    for (origin, d) in diags {
+        if d.severity == Severity::Warning {
+            warnings.push(d);
+            continue;
+        }
+        match origin {
+            Origin::Header { withholds } => {
+                entries_withheld |= withholds;
+                errors.push(d);
+            }
+            Origin::Table(n) => by_table.entry(n).or_default().push(d),
+        }
     }
-    let (Some(name), output_name) = (raw.name, raw.output_name) else {
-        return Err(diags);
+    let by_pos = |d: &Diagnostic| (d.line, d.col);
+    errors.sort_by_key(by_pos);
+    warnings.sort_by_key(by_pos);
+    let failures: Vec<EntryFailure> = by_table
+        .into_iter()
+        .map(|(n, mut errs)| {
+            errs.sort_by_key(by_pos);
+            let slot = &raw.files[n - 1];
+            EntryFailure {
+                index: n as u32,
+                id: slot
+                    .id
+                    .as_ref()
+                    .map(|i| i.get_ref().clone())
+                    .filter(|s| !s.is_empty()),
+                source: slot.source.clone(),
+                line: index.locate(slot.at).0,
+                errors: errs,
+            }
+        })
+        .collect();
+
+    let failed: HashSet<usize> = failures.iter().map(|f| f.index as usize).collect();
+    let entries: Vec<Entry> = if entries_withheld {
+        Vec::new()
+    } else {
+        resolved
+            .into_iter()
+            .filter(|r| !failed.contains(&raw.files[r.slot].index))
+            .map(|r| r.entry)
+            .collect()
     };
-    let manifest = Manifest::new(
-        name.into_inner(),
-        output_name.map(Spanned::into_inner),
-        defaults.dir_mode,
-        defaults.owner,
-        entries,
-    );
-    Ok((manifest, diags))
+
+    let valid = errors.is_empty() && failures.is_empty();
+    let name = raw
+        .name
+        .map(Spanned::into_inner)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_default();
+    let output_name = raw
+        .output_name
+        .map(Spanned::into_inner)
+        .filter(|_| output_name_ok);
+    ParseReport {
+        manifest: Manifest::new(
+            name,
+            output_name,
+            defaults.dir_mode,
+            defaults.owner,
+            entries,
+            valid,
+        ),
+        entries_withheld,
+        errors,
+        failures,
+        warnings,
+    }
 }

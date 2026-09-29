@@ -12,21 +12,54 @@ fn with_dir(dir: &str) -> String {
     format!("version = 1\nname = \"t\"\n[[file]]\nid = \"a\"\nsource = \"a\"\ndir = \"{dir}\"\n")
 }
 
-fn errors(text: &str) -> Vec<Diagnostic> {
-    match parse(text) {
-        Ok((_, w)) => panic!("expected errors, got ok with {w:?}"),
-        Err(d) => d
-            .into_iter()
-            .filter(|d| d.severity == Severity::Error)
-            .collect(),
+fn check_invariants(r: &ParseReport) {
+    assert_eq!(r.manifest.is_complete(), r.is_valid());
+    if r.entries_withheld {
+        assert!(r.manifest.entries().is_empty());
+        assert!(!r.is_valid());
     }
+    for f in &r.failures {
+        assert!(!f.errors.is_empty());
+        assert!(f.errors.iter().all(|d| d.severity == Severity::Error));
+    }
+    for d in &r.errors {
+        assert_eq!(d.severity, Severity::Error);
+        assert!(d.entry_id.is_none() && !d.message.starts_with("[[file]] #"));
+        assert!(!d.message.starts_with("file `"), "{}", d.message);
+    }
+    assert!(r.warnings.iter().all(|d| d.severity == Severity::Warning));
+    let n = r.errors.len() + r.failures.iter().map(|f| f.errors.len()).sum::<usize>();
+    assert_eq!(r.error_count() as usize, n);
+}
+
+/// Every error, manifest-level and per-entry, sorted by (line, col).
+fn errors(text: &str) -> Vec<Diagnostic> {
+    let r = parse(text);
+    check_invariants(&r);
+    assert!(
+        !r.is_valid(),
+        "expected errors, got warnings {:?}",
+        r.warnings
+    );
+    let mut all: Vec<Diagnostic> = r
+        .errors
+        .into_iter()
+        .chain(r.failures.into_iter().flat_map(|f| f.errors))
+        .collect();
+    all.sort_by_key(|d| (d.line, d.col));
+    all
 }
 
 fn ok(text: &str) -> (Manifest, Vec<Diagnostic>) {
-    match parse(text) {
-        Ok(v) => v,
-        Err(d) => panic!("expected ok, got {d:?}"),
-    }
+    let r = parse(text);
+    check_invariants(&r);
+    assert!(
+        r.is_valid(),
+        "expected ok, got {:?} {:?}",
+        r.errors,
+        r.failures
+    );
+    (r.manifest, r.warnings)
 }
 
 fn assert_err(text: &str, needle: &str) -> Diagnostic {
@@ -84,13 +117,21 @@ fn rejects_duplicate_id() {
     let t = "version = 1\nname = \"t\"\n\
         [[file]]\nid = \"a\"\nsource = \"a\"\ndir = \"/x\"\n\
         [[file]]\nid = \"a\"\nsource = \"b\"\ndir = \"/x\"\n";
-    let d = assert_err(t, "duplicate id");
-    assert_eq!(d.line, 8);
-    assert!(d.message.contains("line 4"));
-    assert_err(
+    let errs = errors(t);
+    assert_eq!(errs.len(), 2, "{errs:?}");
+    assert_eq!(errs[0].line, 4);
+    assert!(errs[0].message.contains("also used on line 8"));
+    assert_eq!(errs[1].line, 8);
+    assert!(errs[1].message.contains("first used on line 4"));
+    let r = parse(t);
+    assert_eq!(r.failures.len(), 2);
+    assert!(r.manifest.entries().is_empty());
+    let d = assert_err(
         &one("").replace("id = \"a\"", "id = \"\""),
         "id must not be empty",
     );
+    assert_eq!(d.message, "[[file]] #1: id must not be empty");
+    assert_eq!(d.entry_id, None);
 }
 
 #[test]
@@ -98,7 +139,13 @@ fn rejects_duplicate_target() {
     let t = "version = 1\nname = \"t\"\n\
         [[file]]\nid = \"a\"\nsource = \"a\"\ndir = \"/x/\"\n\
         [[file]]\nid = \"b\"\nsource = \"z\"\nname = \"a\"\ndir = \"/x\"\n";
-    let d = assert_err(t, "/x/a");
+    let errs = errors(t);
+    assert_eq!(errs.len(), 2, "{errs:?}");
+    let a = &errs[0];
+    assert_eq!(a.entry_id.as_deref(), Some("a"));
+    assert!(a.message.contains("also used by file `b`"), "{}", a.message);
+    assert_eq!((a.line, a.col), (6, 7));
+    let d = assert_err(t, "already used by file `a`");
     assert_eq!(d.entry_id.as_deref(), Some("b"));
     // Located at the `name` value when `name` is set.
     assert_eq!((d.line, d.col), (10, 8));
@@ -106,7 +153,7 @@ fn rejects_duplicate_target() {
     let t2 = "version = 1\nname = \"t\"\n\
         [[file]]\nid = \"a\"\nsource = \"a\"\ndir = \"/x/\"\n\
         [[file]]\nid = \"b\"\nsource = \"a\"\ndir = \"/x\"\n";
-    let d = assert_err(t2, "/x/a");
+    let d = assert_err(t2, "already used");
     assert_eq!((d.line, d.col), (10, 7));
     // Case-sensitive: different case is a different target.
     let t = t.replace("name = \"a\"", "name = \"A\"");
@@ -126,10 +173,21 @@ fn rejects_target_that_is_another_entrys_directory() {
                 format!("{}{a}", b(bdir))
             };
             let errs = errors(&format!("{head}{body}"));
-            assert_eq!(errs.len(), 1, "{bdir} {order}: {errs:?}");
-            assert_eq!(errs[0].entry_id.as_deref(), Some("a"));
-            assert!(errs[0].message.contains("`/opt/gateway`"));
-            assert!(errs[0].message.contains("file `b`"), "{}", errs[0].message);
+            assert_eq!(errs.len(), 2, "{bdir} {order}: {errs:?}");
+            let ea = errs.iter().find(|d| d.entry_id.as_deref() == Some("a"));
+            let eb = errs.iter().find(|d| d.entry_id.as_deref() == Some("b"));
+            let (ea, eb) = (ea.unwrap(), eb.unwrap());
+            assert!(ea.message.contains("`/opt/gateway`"));
+            assert!(ea.message.contains("file `b`"), "{}", ea.message);
+            assert!(eb.message.starts_with("file `b`: dir needs `/opt/gateway`"));
+            assert!(eb.message.contains("target path of file `a`"));
+            if order == 0 {
+                assert_eq!((ea.line, ea.col), (6, 8), "{bdir}");
+                assert_eq!((eb.line, eb.col), (11, 7), "{bdir}");
+            } else {
+                assert_eq!((eb.line, eb.col), (6, 7), "{bdir}");
+                assert_eq!((ea.line, ea.col), (10, 8), "{bdir}");
+            }
         }
     }
     ok(&format!("{head}{a}{}", b("/opt/gatewayx/bin")));
@@ -182,6 +240,15 @@ fn unknown_keys_are_reported_with_validation_errors() {
     assert_eq!(errs.len(), 5, "{errs:?}");
     let lines: Vec<u32> = errs.iter().map(|d| d.line).collect();
     assert_eq!(lines, [1, 3, 5, 10, 14]);
+    for (d, want) in errs.iter().zip([
+        "unsupported version 2",
+        "unknown key `bogus`",
+        "[defaults]: unknown key `mod`",
+        "file `a`: unknown key `colour`",
+        "file `b`: dir must be absolute",
+    ]) {
+        assert!(d.message.contains(want), "{} vs {want}", d.message);
+    }
 }
 
 #[test]
@@ -413,10 +480,9 @@ fn view_renders_mode_and_target() {
 
 #[test]
 fn example_manifest_is_valid() {
-    let (m, warnings) = parse(include_str!("../../../../examples/tarpack/example.toml"))
-        .unwrap_or_else(|d| panic!("example is invalid: {d:?}"));
+    let (m, warnings) = ok(include_str!("../../../../examples/tarpack/example.toml"));
     assert!(warnings.is_empty(), "{warnings:?}");
-    let m = &m;
+    assert!(m.is_complete());
     assert_eq!(m.name(), "Gateway deploy");
     assert_eq!(m.default_format(), ArchiveFormat::TarZst);
     assert_eq!(m.entries().len(), 3);
@@ -440,10 +506,312 @@ fn load_hashes_exact_bytes() {
     std::fs::write(&p, b"version = 1\nname = \"t\"\n").unwrap();
     assert_ne!(load(&p).unwrap().sha256, want);
 
-    std::fs::write(&p, b"\xff\xfe").unwrap();
-    assert!(matches!(load(&p), Err(LoadError::Invalid(_))));
+    let bad = b"\xff\xfe";
+    std::fs::write(&p, bad).unwrap();
+    let loaded = load(&p).unwrap();
+    let want: [u8; 32] = Sha256::digest(bad).into();
+    assert_eq!(loaded.sha256, want);
+    check_invariants(&loaded.report);
+    assert!(loaded.report.entries_withheld);
+    assert_eq!(loaded.report.errors.len(), 1);
+    assert_eq!(
+        (loaded.report.errors[0].line, loaded.report.errors[0].col),
+        (1, 1)
+    );
+    assert!(loaded.report.errors[0].message.contains("UTF-8"));
     assert!(matches!(
         load(&dir.path().join("missing.toml")),
         Err(LoadError::Io(_))
     ));
+}
+
+const HEAD: &str = "version = 1\nname = \"t\"\n";
+
+fn table(id: &str, source: &str, dir: &str, extra: &str) -> String {
+    format!("[[file]]\nid = \"{id}\"\nsource = \"{source}\"\ndir = \"{dir}\"\n{extra}")
+}
+
+fn ids(m: &Manifest) -> Vec<&str> {
+    m.entries().iter().map(Entry::id).collect()
+}
+
+#[test]
+fn empty_id_is_attributed_by_position() {
+    let t = format!(
+        "{HEAD}{}[[file]]\nid = \"\"\nsource = \"s\"\ndir = \"rel\"\nmode = \"9\"\n",
+        table("a", "a", "/x", "")
+    );
+    let errs = errors(&t);
+    assert_eq!(errs.len(), 3, "{errs:?}");
+    for d in &errs {
+        assert_eq!(d.entry_id, None);
+        assert!(d.message.starts_with("[[file]] #2: "), "{}", d.message);
+    }
+    assert!(errs
+        .iter()
+        .any(|d| d.message == "[[file]] #2: id must not be empty"));
+}
+
+#[test]
+fn passed_entries_survive_entry_errors() {
+    let t = format!(
+        "{HEAD}{}{}{}",
+        table("a", "a", "/x", ""),
+        table("b", "b", "/y", "mode = \"9\"\n"),
+        table("c", "c", "/z", "")
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert_eq!(ids(&r.manifest), ["a", "c"]);
+    assert_eq!(r.failures.len(), 1);
+    let f = &r.failures[0];
+    assert_eq!((f.index, f.id.as_deref(), f.line), (2, Some("b"), 7));
+    assert!(r.errors.is_empty());
+    assert!(!r.entries_withheld);
+    assert_eq!(r.error_count(), 1);
+    assert!(!r.manifest.is_complete());
+}
+
+#[test]
+fn failure_collects_every_error_of_its_table() {
+    let t = format!(
+        "{HEAD}{}",
+        table("a", "src", "rel", "mode = \"9\"\nuid = -3\n")
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert_eq!(r.failures.len(), 1);
+    let f = &r.failures[0];
+    assert_eq!(f.errors.len(), 3, "{:?}", f.errors);
+    let lines: Vec<u32> = f.errors.iter().map(|d| d.line).collect();
+    assert_eq!(lines, [6, 7, 8]);
+    assert_eq!(f.source.as_deref(), Some("src"));
+}
+
+#[test]
+fn failure_without_id_is_identified_by_position() {
+    let t = format!(
+        "{HEAD}[[file]]\nid = 3\nsource = \"s3\"\ndir = \"/x\"\n\
+         [[file]]\nsource = \"s4\"\ndir = \"/y\"\n"
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert_eq!(r.failures.len(), 2);
+    for (f, (i, s)) in r.failures.iter().zip([(1, "s3"), (2, "s4")]) {
+        assert_eq!(
+            (f.index, f.id.as_deref(), f.source.as_deref()),
+            (i, None, Some(s))
+        );
+    }
+}
+
+#[test]
+fn duplicate_id_fails_every_table_sharing_it() {
+    let t = format!(
+        "{HEAD}{}{}{}{}",
+        table("a", "a1", "/1", ""),
+        table("a", "a2", "/2", ""),
+        table("a", "a3", "/3", ""),
+        table("b", "b", "/4", "")
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert_eq!(r.failures.len(), 3);
+    assert_eq!(ids(&r.manifest), ["b"]);
+    let first = &r.failures[0].errors;
+    assert_eq!(first.len(), 1);
+    assert!(
+        first[0].message.contains("also used on lines 8, 12"),
+        "{}",
+        first[0].message
+    );
+}
+
+#[test]
+fn duplicate_target_fails_both_entries() {
+    let t = format!(
+        "{HEAD}{}{}{}",
+        table("a", "s", "/x", ""),
+        table("b", "s", "/x", ""),
+        table("c", "c", "/y", "")
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert_eq!(r.failures.len(), 2);
+    assert_eq!(ids(&r.manifest), ["c"]);
+}
+
+#[test]
+fn directory_collision_fails_both_entries() {
+    let t = format!(
+        "{HEAD}{}{}{}",
+        table("a", "gateway", "/opt", ""),
+        table("b", "b", "/opt/gateway/bin", ""),
+        table("c", "c", "/y", "")
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert_eq!(r.failures.len(), 2);
+    assert_eq!(ids(&r.manifest), ["c"]);
+}
+
+#[test]
+fn withholding_errors_hide_all_entries() {
+    let good = table("a", "a", "/x", "");
+    let bad = table("b", "b", "rel", "");
+    let both = format!("{good}{bad}");
+    for (head, body) in [
+        ("version = 2\nname = \"t\"\n", &both),
+        ("name = \"t\"\n", &both),
+        ("version = \"1\"\nname = \"t\"\n", &both),
+        (
+            "version = 1\nname = \"t\"\n[defaults]\nmode = \"9\"\n",
+            &both,
+        ),
+        (
+            "version = 1\nname = \"t\"\n[defaults]\nnormalize_eol = true\n",
+            &both,
+        ),
+        (
+            "version = 1\nname = \"t\"\n[defaults]\nmod = \"0644\"\n",
+            &both,
+        ),
+        ("version = 1\nname = \"t\"\ndefaults = 1\n", &both),
+        (
+            "version = 1\nname = \"t\"\n[default]\nmode = \"0600\"\n",
+            &both,
+        ),
+    ] {
+        let text = format!("{head}{body}");
+        let r = parse(&text);
+        check_invariants(&r);
+        assert!(r.entries_withheld, "{text}");
+        assert!(r.manifest.entries().is_empty(), "{text}");
+        assert_eq!(r.errors.len(), 1, "{text}: {:?}", r.errors);
+        assert!(
+            !r.errors[0].message.contains("[[file]]") && r.errors[0].entry_id.is_none(),
+            "{text}: {:?}",
+            r.errors
+        );
+        assert_eq!(r.failures.len(), 1, "{text}");
+        assert_eq!(r.failures[0].id.as_deref(), Some("b"));
+    }
+    let r = parse("version = 1\nname = \"t\"\nfile = 1\n");
+    check_invariants(&r);
+    assert!(r.entries_withheld);
+    assert_eq!(r.errors.len(), 1);
+}
+
+#[test]
+fn syntax_error_withholds_everything() {
+    let r = parse("version = 1\nname = [\n");
+    check_invariants(&r);
+    assert!(r.entries_withheld);
+    assert_eq!(r.errors.len(), 1);
+    assert!(r.failures.is_empty() && r.warnings.is_empty());
+    assert_eq!(r.manifest.name(), "");
+    assert_eq!(r.manifest.output_name(), None);
+    assert!(!r.manifest.is_complete());
+}
+
+#[test]
+fn name_and_output_name_errors_keep_entries() {
+    let f = table("a", "a", "/x", "");
+    for (head, name, out) in [
+        ("version = 1\nname = \"\"\n", "", None),
+        ("version = 1\n", "", None),
+        (
+            "version = 1\nname = \"t\"\noutput_name = \"a/b\"\n",
+            "t",
+            None,
+        ),
+    ] {
+        let r = parse(&format!("{head}{f}"));
+        check_invariants(&r);
+        assert!(!r.entries_withheld, "{head}");
+        assert_eq!(ids(&r.manifest), ["a"], "{head}");
+        assert_eq!(r.errors.len(), 1, "{head}");
+        assert!(r.failures.is_empty());
+        assert_eq!(r.manifest.name(), name);
+        assert_eq!(r.manifest.output_name(), out);
+        assert!(!r.is_valid() && !r.manifest.is_complete());
+    }
+}
+
+#[test]
+fn warnings_do_not_fail_an_entry() {
+    let long = format!("/{}", "d".repeat(120));
+    let t = format!(
+        "{HEAD}{}{}{}",
+        table("a", "S", "/x", ""),
+        table("b", "s", "/y", ""),
+        table("c", "c", &long, "")
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert!(r.is_valid());
+    assert_eq!(ids(&r.manifest), ["a", "b", "c"]);
+    assert_eq!(r.warnings.len(), 2);
+    assert!(r.manifest.is_complete());
+}
+
+#[test]
+fn three_entries_on_one_target_report_each_pair_on_both() {
+    let t = format!(
+        "{HEAD}{}{}{}",
+        table("a", "s", "/x", ""),
+        table("b", "s", "/x", ""),
+        table("c", "s", "/x", "")
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert_eq!(r.failures.len(), 3);
+    // Each entry is in two pairs, so each has two errors.
+    assert!(r.failures.iter().all(|f| f.errors.len() == 2));
+    assert!(r.manifest.entries().is_empty());
+}
+
+#[test]
+fn duplicate_id_table_still_takes_part_in_target_checks() {
+    let t = format!(
+        "{HEAD}{}{}{}",
+        table("a", "s1", "/1", ""),
+        table("a", "s2", "/2", ""),
+        table("c", "s2", "/2", "")
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert_eq!(r.failures.len(), 3);
+    let second = &r.failures[1].errors;
+    assert!(second
+        .iter()
+        .any(|d| d.message.contains("already used by file `c`")
+            || d.message.contains("also used by file `c`")));
+}
+
+#[test]
+fn unknown_key_only_table_takes_no_part_in_target_checks() {
+    let t = format!(
+        "{HEAD}{}{}",
+        table("a", "s", "/x", "colour = 1\n"),
+        table("b", "s", "/x", "")
+    );
+    let r = parse(&t);
+    check_invariants(&r);
+    assert_eq!(r.failures.len(), 1);
+    assert_eq!(r.failures[0].id.as_deref(), Some("a"));
+    assert_eq!(ids(&r.manifest), ["b"]);
+    assert!(r.warnings.is_empty());
+}
+
+#[test]
+fn non_table_file_element_fails_that_element_only() {
+    let t = format!("{HEAD}file = [1, {{ id = \"a\", source = \"a\", dir = \"/x\" }}]\n");
+    let r = parse(&t);
+    check_invariants(&r);
+    assert!(!r.entries_withheld);
+    assert_eq!(r.failures.len(), 1);
+    assert_eq!(r.failures[0].index, 1);
+    assert!(r.failures[0].errors[0].message.starts_with("[[file]] #1: "));
+    assert_eq!(ids(&r.manifest), ["a"]);
 }

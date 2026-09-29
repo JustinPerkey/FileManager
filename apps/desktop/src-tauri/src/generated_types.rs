@@ -20,6 +20,7 @@ const EXPORTERS: &[Exporter] = &[
     <fm_tarpack::manifest::Severity as ts_rs::TS>::export_all,
     <fm_tarpack::format::ArchiveFormat as ts_rs::TS>::export_all,
     <fm_tarpack::manifest::ManifestView as ts_rs::TS>::export_all,
+    <fm_tarpack::manifest::EntryFailure as ts_rs::TS>::export_all,
 ];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");

@@ -24,6 +24,53 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// One `[[file]]` table that failed validation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryFailure {
+    /// 1-based position of the `[[file]]` table.
+    pub index: u32,
+    /// The id, when it is a non-empty string.
+    pub id: Option<String>,
+    /// `source`, when it is a string, so a table without an id can still be
+    /// recognised.
+    pub source: Option<String>,
+    /// Line of the table's `[[file]]` header (of the element, for an inline
+    /// array).
+    pub line: u32,
+    /// Every error of the table, sorted by (line, col); never empty.
+    pub errors: Vec<Diagnostic>,
+}
+
+/// Everything a parse found. Errors do not block a build: the archive is built
+/// from `manifest`'s passed entries, and the failures and errors travel into
+/// the build's result.
+#[derive(Clone, Debug)]
+pub struct ParseReport {
+    /// Passed entries only, in manifest order.
+    pub manifest: Manifest,
+    /// A withholding error occurred: the manifest has no entries.
+    pub entries_withheld: bool,
+    /// Manifest-level errors, sorted by (line, col).
+    pub errors: Vec<Diagnostic>,
+    /// Failed `[[file]]` tables, in manifest order.
+    pub failures: Vec<EntryFailure>,
+    /// Every warning, sorted by (line, col).
+    pub warnings: Vec<Diagnostic>,
+}
+
+impl ParseReport {
+    /// No errors and no failures.
+    pub fn is_valid(&self) -> bool {
+        self.errors.is_empty() && self.failures.is_empty()
+    }
+
+    /// Every error counted once: manifest-level errors plus every failure's.
+    pub fn error_count(&self) -> u32 {
+        (self.errors.len() + self.failures.iter().map(|f| f.errors.len()).sum::<usize>()) as u32
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Owner {
     pub uid: u32,
@@ -118,6 +165,7 @@ pub struct Manifest {
     dir_mode: u32,
     default_owner: Owner,
     entries: Vec<Entry>,
+    complete: bool,
 }
 
 impl Manifest {
@@ -127,6 +175,7 @@ impl Manifest {
         dir_mode: u32,
         default_owner: Owner,
         entries: Vec<Entry>,
+        complete: bool,
     ) -> Manifest {
         Manifest {
             name,
@@ -134,7 +183,17 @@ impl Manifest {
             dir_mode,
             default_owner,
             entries,
+            complete,
         }
+    }
+
+    /// Whether the manifest holds every entry its file lists. A manifest that
+    /// is not complete holds only the entries that passed validation. Building
+    /// one is allowed only through the whole `ParseReport` (M4's
+    /// `ArchivePlan::new`), so that what was left out is reported. This
+    /// describes the manifest; it is not a build gate.
+    pub fn is_complete(&self) -> bool {
+        self.complete
     }
 
     pub fn name(&self) -> &str {
@@ -186,8 +245,9 @@ pub struct EntryView {
     pub mode_text: String,
     /// `<uname>:<gname>`, such as `root:root`.
     pub owner: String,
-    /// Numeric ids that are written to the header.
+    /// Numeric user id written to the header.
     pub uid: u32,
+    /// Numeric group id written to the header.
     pub gid: u32,
     pub normalize_eol: bool,
 }
