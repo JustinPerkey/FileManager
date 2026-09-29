@@ -21,6 +21,10 @@ const EXPORTERS: &[Exporter] = &[
     <fm_tarpack::format::ArchiveFormat as ts_rs::TS>::export_all,
     <fm_tarpack::manifest::ManifestView as ts_rs::TS>::export_all,
     <fm_tarpack::manifest::EntryFailure as ts_rs::TS>::export_all,
+    <fm_tarpack::archive::BuildSummary as ts_rs::TS>::export_all,
+    <fm_tarpack::archive::NormalizedEntry as ts_rs::TS>::export_all,
+    <fm_tarpack::archive::Progress as ts_rs::TS>::export_all,
+    <fm_tarpack::archive::BuildPhase as ts_rs::TS>::export_all,
 ];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");
