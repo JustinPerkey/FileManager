@@ -1,0 +1,77 @@
+.app-shell {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-shell__main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell__empty {
+  margin: var(--space-5);
+  color: var(--text-muted);
+}
+
+.tool-nav {
+  flex: 0 0 auto;
+  width: 12rem;
+  max-width: 40%;
+  background: var(--surface-sunken);
+  border-right: 1px solid var(--border);
+  padding: var(--space-3) var(--space-2);
+  overflow-y: auto;
+}
+
+.tool-nav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tool-nav__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.tool-nav__item:hover {
+  background: var(--surface);
+}
+
+.tool-nav__item[aria-current="page"] {
+  background: var(--surface);
+  border-color: var(--border);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.tool-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4) var(--space-5);
+}
+
+.tool-view h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
