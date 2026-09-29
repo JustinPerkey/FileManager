@@ -36,7 +36,7 @@ available.
 
 **Tauri v2 shell + Rust workspace crates + React/TypeScript/Vite frontend.**
 
-- It matches `WarnerRobinsBurgerWeek`, so the agent chain, the `impeccable` UI
+- It suits the agent chain as written: the `impeccable` UI
   method, design tokens, and the implementer/ui-implementer split carry over
   unchanged.
 - Tauri's native drag-drop event delivers real Windows file-system paths, which
