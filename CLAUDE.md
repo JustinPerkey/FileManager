@@ -28,7 +28,7 @@ Cargo.toml                    workspace: members crates/*, apps/desktop/src-taur
                               [workspace.dependencies] pins ts-rs (and tempfile)
 .cargo/config.toml            [env] TS_RS_EXPORT_DIR points stray #[ts(export)] into target/
 .gitattributes                apps/desktop/src/lib/generated/** text eol=lf
-rust-toolchain.toml           stable, pinned (1.94.1)
+rust-toolchain.toml           stable channel (latest stable, not pinned)
 rustfmt.toml
 package.json                  root scripts, npm workspaces: apps/desktop
 crates/
