@@ -28,7 +28,8 @@ in the manifest. Typical use: a shell script edited on Windows.
 - `src/tools/tarpack/TarpackView.tsx` (U2) holds the `TarpackSession` state and
   reserves a slot for the table.
 - `session.manifest.entries` is a list of
-  `{ id, source, targetPath, mode, modeText, owner, normalizeEol, assigned, status }`.
+  `{ id, source, targetPath, mode, modeText, owner, uid, gid, normalizeEol, assigned, status }`
+  (the backend's `EntryView` plus `assigned` and `status`).
   Check `src/lib/generated/` for the exact types:
   - `status` is `"ready"`, `"missing"`, or `"unassigned"`;
   - `targetPath` is the absolute name stored in the archive, always starting
@@ -36,7 +37,9 @@ in the manifest. Typical use: a shell script edited on Windows.
   - `normalizeEol` is a boolean, `true` when CRLF → LF conversion is on;
   - `modeText` is like `rwxr-xr-x`;
   - `mode` is the octal string, like `0755`;
-  - `owner` is like `root:root`;
+  - `owner` is like `root:root` (user name, colon, group name);
+  - `uid` and `gid` are the numeric ids written to the archive, as numbers.
+    This task's columns do not require them; the Owner column shows `owner`;
   - `assigned` is the Windows path, or `null`.
 - `session.readyCount` and `session.totalCount` are also provided.
 - The tokens you use are in `src/styles/tokens.css`: `--ok`, `--danger`,

@@ -313,21 +313,38 @@ accepted in `[defaults]`: conversion must be a deliberate per-file choice.
 
 ### 3.2 Validation
 
-Every error reports its line and column. A manifest with any error cannot be
-built. The rules:
+Every error reports its line and column. Every error inside a `[[file]]`
+table, including unknown keys, wrong types, and missing fields, names that
+entry's `id`. A manifest with any error cannot be built. The rules:
 
 - `version` is supported.
+- The top-level `name` is non-empty. (That is its only rule; the separator
+  rules below are for the per-file `name`.)
 - Unknown keys are rejected, so typos surface instead of being ignored.
 - `id` values are unique and non-empty.
-- `dir` is an absolute POSIX path: it starts with `/`, has no `..` segments, no
-  backslashes, and no NUL.
-- `name` and `source` have no `/` or `\`.
+- `dir` is an absolute POSIX path: it starts with `/`, has no `..` or `.`
+  segments, no empty segment except a trailing `/`, no backslashes, and no
+  NUL. `.` is rejected because `/opt/./x` and `/opt/x` are the same directory
+  and would slip past the duplicate-target check (M3 review B2).
+- Per-file `name` and `source` are non-empty, have no `/`, `\`, or NUL, and
+  are not `.` or `..`.
 - `output_name`, when present, is non-empty and has no `/`, `\`, or NUL.
 - The final target paths (`dir` + `name`) are unique. Paths are compared
-  case-sensitively, because the target is Linux.
-- `mode` is octal and at most `07777`.
-- `uid` and `gid` fit in `u32`. `uname` and `gname` are at most 32 bytes.
+  case-sensitively, because the target is Linux. The error points at `name`
+  when it is set, else at `dir`.
+- No target path is also a directory of another entry (equal to another
+  entry's `dir` or an ancestor of it), since the archive cannot hold
+  `/opt/gateway` as both a file and a directory (M3 review N5).
+- `mode` and `dir_mode` are octal strings of 1 to 4 digits.
+- `uid` and `gid` fit in `u32`. `uname` and `gname` are 1 to 32 bytes.
 - `normalize_eol` is a boolean.
+
+**Reporting.** A TOML syntax error stops at the first. Everything else
+(unknown keys, missing fields, wrong types, and the rules above) is collected
+and reported together. The only limit is that one `[defaults]` or `[[file]]`
+table reports at most one wrong-type or missing-field error, and its value
+rules wait until it deserializes (M3 review B3). `docs/tarpack-manifest.md`
+states this.
 
 These produce **warnings**, not errors:
 
@@ -465,6 +482,12 @@ also here when it changes the index below.
 | M7 | [`M7-windows-packaging.md`](../tasks/tarpack/M7-windows-packaging.md) | Portable exe, static CRT, CI artifact, end-to-end check | M6, U6 |
 
 M2 and M3 can run in parallel, and so can M4 and M5.
+
+M3 landed in f04c008 with review gaps. Its task plan now ends with a "Review
+follow-up" section. That follow-up runs as its own implementer run on the same
+task plan, and lands **before M4 and M5 start**: it changes `EntryView` and
+`ManifestView` (regenerating `lib/generated/`) and the parse pipeline both
+depend on.
 
 ## 5. Handoff to ui-designer
 
@@ -615,6 +638,29 @@ Added after the M1 re-review (2026-09-29):
     regenerate command after resolving `EXPORTERS`, and never hand-merges
     generated files.
 
+Added after the M3 review (2026-09-29):
+
+27. **Two-stage manifest parse.** `toml::de::DeTable::parse` first, then a
+    walk that reports unknown keys and deserializes each top-level scalar,
+    `[defaults]`, and each `[[file]]` separately. This attributes serde errors
+    to the entry `id` (review B1) and lets unknown keys and type errors sit
+    alongside validation errors (B3). TOML syntax still stops at the first.
+28. **`.` segments in `dir` are errors** (B2), and **a target that is another
+    entry's directory is an error** (N5). See §3.2.
+29. **One entry-view shape** (N1). `EntryView` is
+    `{ id, source, targetPath, mode, modeText, owner, uid, gid, normalizeEol }`.
+    `mode` is the four-digit octal string (`"0755"`), `modeText` is symbolic
+    (`"rwxr-xr-x"`), and `owner` is `"uname:gname"`. The numeric `uid`/`gid`
+    also cross, because they are what the header carries, and the UI may show
+    them. `ManifestView` is `{ name, outputName, entries }`, with **no**
+    `defaultFormat`: the UI's format is always `session.format`.
+    `outputName` stays, because the session's `manifest.outputName` comes from
+    it. M6 does not embed `ManifestView` whole. Its session entry type
+    flattens `EntryView` (`#[serde(flatten)]`) and adds `assigned` and
+    `status`, so the entry fields are defined once, in M3.
+30. **No `unsafe` in `format.rs`** (N3). `with_extension` uses the cfg'd
+    `OsStrExt`/`OsStringExt` APIs, with a non-UTF-8 test per platform.
+
 ### 6.3 UI-facing contract changes (for the ui-designer)
 
 All of these are owned by M6 (with types from M3–M5) and generated into
@@ -631,6 +677,10 @@ All of these are owned by M6 (with types from M3–M5) and generated into
   With no manifest loaded, `format` is `"tar"`, `formats` lists all four, and
   `outputPath` and `suggestedOutputName` are `null` (decision 11).
 - `TarpackSession.manifest.entries[]` gains `normalizeEol: boolean`.
+- Each entry is `EntryView` (from M3) plus `assigned` and `status`:
+  `{ id, source, targetPath, mode, modeText, owner, uid, gid, normalizeEol, assigned, status }`.
+  `mode` is `"0755"`, `modeText` is `"rwxr-xr-x"`, and `owner` is
+  `"root:root"` (`uname:gname`). `uid` and `gid` are numbers (decision 29).
 - `outputPath` is always normalised to end with the current format's extension.
 - New command `tarpack_set_format(format)` returns `TarpackSession`, and
   `lib/tarpack.ts` gains `setFormat(format)`.

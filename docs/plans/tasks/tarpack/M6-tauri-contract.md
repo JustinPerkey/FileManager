@@ -47,9 +47,14 @@ What exists:
   webkit2gtk dev packages to build this crate. Every test in this crate runs
   on both platforms.
 - **M2:** `fm_core::{AppDirs, Store, FmError}`
-- **M3:** `fm_tarpack::manifest::{load, LoadedManifest, Diagnostic, ManifestView}`.
+- **M3:** `fm_tarpack::manifest::{load, LoadedManifest, Diagnostic, ManifestView, EntryView}`.
   `LoadedManifest.sha256` hashes the exact file bytes. The format is in
-  `docs/tarpack-manifest.md`.
+  `docs/tarpack-manifest.md`. `ManifestView::from(&Manifest)` gives
+  `{ name, output_name, entries: Vec<EntryView> }` (no default format), and
+  `EntryView` is `{ id, source, target_path, mode, mode_text, owner, uid, gid, normalize_eol }`
+  in `crates/fm-tarpack/src/manifest/model.rs`, serialised camelCase:
+  `mode` is `"0755"`, `modeText` is `"rwxr-xr-x"`, `owner` is `"root:root"`.
+  Both are already exported to `lib/generated/`.
 - **M3:** `fm_tarpack::format::ArchiveFormat { Tar, TarGz, TarZst, TarXz }`
   with `ALL`, `extension()`, `from_file_name()` (recognises `.tar`,
   `.tar.gz`, `.tgz`, `.tar.zst`, and `.tar.xz`, case-insensitively), and
@@ -146,8 +151,7 @@ this API.
 {
   manifest: null | {
     path, name, outputName, hash,
-    entries: [{ id, source, targetPath, mode, modeText, owner,
-                normalizeEol: boolean,
+    entries: [{ ...EntryView,        // id, source, targetPath, mode, modeText, owner, uid, gid, normalizeEol
                 assigned: string|null, status: "ready"|"missing"|"unassigned" }],
     errors: Diagnostic[], warnings: Diagnostic[]
   },
@@ -163,6 +167,17 @@ this API.
 ```
 
 `targetPath` is the absolute stored name (`/opt/...`).
+
+**The entry type reuses M3's `EntryView`; do not redefine its fields.** Define
+the session entry as a struct with `#[serde(flatten)] #[ts(flatten)] view: EntryView`
+plus `assigned: Option<String>` and `status`, so the generated TS is
+`EntryView & { assigned, status }` (or ts-rs's equivalent inlined object). Take
+`name`, `outputName`, and the `EntryView`s from `ManifestView::from(&manifest)`;
+the session manifest adds `path`, `hash`, `errors`, and `warnings` around
+them. The session does not carry a separate default format: `format` is the
+only format field the UI reads. Add a test that serialises one session entry
+and asserts the keys `mode` (`"0755"`), `modeText`, `owner` (`"root:root"`),
+`uid`, `gid`, `assigned`, and `status` sit at the same level.
 
 **`ArchiveFormatOption`** (Rust, exported to TS):
 
