@@ -14,6 +14,10 @@ lists tools from the tool registry. Every later view sits inside this frame.
 independent tools. The Tar Packager is the first. Users are developers and
 testers who use it many times a day.
 
+**The stack (decided).** A Tauri v2 shell with a React + TypeScript + Vite
+frontend in `apps/desktop/src/`. You own everything under `apps/desktop/src/`
+except `lib/`, which the backend implementer owns.
+
 **The register.** A quiet, dense, trustworthy utility, like a good build tool.
 It shows everything that matters at a glance, and nothing decorative.
 
@@ -47,8 +51,11 @@ Create these in `apps/desktop/src/styles/tokens.css`:
 - light values on `:root`;
 - dark values under `@media (prefers-color-scheme: dark)` on
   `:root:not([data-theme="light"])`;
-- dark values again under `:root[data-theme="dark"]`, as a hook for a later
-  manual toggle.
+- dark values again under `:root[data-theme="dark"]`, as a hook for a possible
+  later manual toggle.
+
+**Theme (decided).** The app follows the system theme only. Build no toggle
+and no theme setting; the `data-theme` selectors are just a dormant hook.
 
 | Token | Light | Dark |
 | --- | --- | --- |
@@ -143,4 +150,4 @@ The single tool is selected. The navigation state exists for one or more tools.
 ## Out of scope
 
 - Any tarpack content beyond the placeholder heading.
-- A manual theme toggle.
+- A manual theme toggle (decided: the theme follows the system only).
