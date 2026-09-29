@@ -1,13 +1,16 @@
 # M3 — Manifest model, parsing, and validation
 
-Status: implemented in f04c008; **review follow-up pending** (see "Review
-follow-up" at the end)
+Status: implemented in f04c008; review follow-up F1–F12 landed in f9fc7b2.
+**Partial-results follow-up pending** (see "Partial results follow-up" at the
+end).
 Project: tarpack   Depends on: M1 (landed)
 
 ## Goal
 
-Turn a manifest file into a validated `Manifest`, or into a list of errors and
-warnings, each with a line and column. Define the `ArchiveFormat` enum shared by
+Turn a manifest file into a `ParseReport`: a `Manifest` holding the entries
+that passed validation, one failure record per entry that did not, the
+manifest-level errors, and the warnings, each diagnostic with a line and
+column. Only a manifest with no errors at all can be built. Define the `ArchiveFormat` enum shared by
 the writer and the remembered state. Write the manifest and archive reference
 doc that later tasks use as the single source of the format.
 
@@ -83,9 +86,12 @@ reference doc to explain extraction.
 **Errors.** Each has a line and column. Every error that arises inside a
 `[[file]]` table, **including unknown keys, wrong types, and missing required
 fields**, names that entry's `id`: `Diagnostic.entry_id` is set and the message
-starts with ``file `<id>`: ``. (If the table has no string `id`, `entry_id` is
+starts with ``file `<id>`: ``. If the table has no `id` that is a
+**non-empty** string (no `id`, a non-string `id`, or `id = ""`), `entry_id` is
 `None` and the message starts with `[[file]] #<n>: `, `n` being the 1-based
-position of the table.) Any error makes the manifest unbuildable.
+position of the table. That applies to every error from that table, including
+`id must not be empty` itself and the cross-entry errors below. Any error makes
+the manifest unbuildable; "Partial results" below says what is still shown.
 
 - `version` is not `1`.
 - Top-level `name` is empty. (Only non-empty is required. The separator and
@@ -93,7 +99,11 @@ position of the table.) Any error makes the manifest unbuildable.
 - Unknown keys at any level, so typos surface. `normalize_eol` inside
   `[defaults]` is an unknown key there.
 - A required field is missing, or a value has the wrong type.
-- `id` is empty or duplicated.
+- `id` is empty or duplicated. A duplicate is reported on **every** table
+  that shares the id, each at its own `id` value: each later table as
+  ``duplicate id (first used on line <n>)``, and the first table once as
+  ``duplicate id (also used on line <m>)``, listing every later line
+  comma-separated (``also used on lines 9, 14``) when there are several.
 - `dir`:
   - is not absolute (must start with `/`);
   - contains a `..` segment, a `.` segment, a backslash, or NUL (`/opt/./x`,
@@ -108,17 +118,25 @@ position of the table.) Any error makes the manifest unbuildable.
 - `normalize_eol` is not a boolean (the type error rule covers this).
 - Two entries resolve to the same target path (`dir` + `/` + `name`, with
   `dir`'s trailing `/` trimmed). The comparison is case-sensitive, because the
-  target is Linux. The error is reported on the later entry, located at its
-  `name` value when `name` is set, otherwise at its `dir` value.
+  target is Linux. It is reported on **both** entries, each located at its
+  own `name` value when `name` is set, otherwise at its own `dir` value: the
+  later entry as ``target path `<p>` is already used by file `<first>` ``, the
+  earlier as ``target path `<p>` is also used by file `<later>` ``. With three
+  or more entries on one path, each pair is reported once on each of its two
+  entries.
 - An entry's target path is also a directory of another entry: it equals
   another entry's `dir` (trailing `/` trimmed) or any ancestor of it. For
   example, A has `dir = "/opt"`, `name = "gateway"` and B has
   `dir = "/opt/gateway/bin"`. The archive would need `/opt/gateway` to be both
   a file and a directory. This is an error whatever the order of the two
-  entries. It is reported on the entry whose **file** path collides (A), names
-  the other entry, and is located like the duplicate-target error. Comparison
-  is case-sensitive and by whole segments (`/opt/gateway` does not conflict
-  with `/opt/gatewayx/bin`).
+  entries. It is reported on **both** entries, once per colliding pair: on
+  the entry whose **file** path collides (A), located like the
+  duplicate-target error, as
+  ``target path `/opt/gateway` is also a directory of file `b` ``; and on the
+  other entry (B), at its `dir` value, as
+  ``dir needs `/opt/gateway`, which is the target path of file `a` ``.
+  Comparison is case-sensitive and by whole segments (`/opt/gateway` does not
+  conflict with `/opt/gatewayx/bin`).
 - `mode` or `dir_mode` is not an octal string of 1 to 4 digits. (Four octal
   digits cannot exceed `07777`, so there is no separate range rule.)
 - `uid` or `gid` does not fit in `u32`.
@@ -141,6 +159,58 @@ position of the table.) Any error makes the manifest unbuildable.
    takes part in the duplicate-id check.
 
 `docs/tarpack-manifest.md` states exactly this.
+
+**Partial results** (decided by the human, 2026-09-29: show the entries that
+passed, collect the ones that failed in a report, and tell the user there
+were errors). A manifest with errors is still shown, as far as it can be
+trusted:
+
+- **Passed entry.** A `[[file]]` table passes when no error is attributed to
+  it. Warnings never fail an entry. Passed entries keep manifest order, and
+  they are the report's `Manifest` entries.
+- **Failed entry.** Each `[[file]]` table with at least one error becomes one
+  `EntryFailure`, in manifest order, carrying every error attributed to that
+  table.
+- **Cross-entry errors fail every entry involved.** The rules above report
+  them on each entry, so: every table sharing a duplicate `id` fails
+  (assignments and remembered source files are keyed by id, so showing one of
+  them would attach the other's file to it); both entries of a duplicate
+  target fail; both the file entry and the directory entry of a
+  file/directory collision fail.
+- **Target comparisons see only tables that resolved.** A table that failed
+  on its own takes no part in the duplicate-target, file/directory,
+  shared-source, and long-name checks, so fixing it can reveal a new
+  collision. The duplicate-id check uses the raw id, so it covers failed
+  tables too.
+- **Manifest-level errors** are the errors outside every `[[file]]` table.
+  Some of them **withhold all entries**: no entry passes, and
+  `entries_withheld` is `true`, because no entry can be read as its author
+  meant it:
+  - a TOML syntax error, or (in `load`) a file that is not UTF-8;
+  - `version` missing, of the wrong type, or not `1` (another version may
+    mean different things);
+  - any error in `[defaults]`, including `defaults` that is not a table and
+    `normalize_eol` placed there (every entry inherits `[defaults]`, so each
+    would show the wrong mode, owner, or line-ending treatment);
+  - an unknown top-level key (it may be a misspelt `[defaults]`, such as
+    `[default]`, whose values would then silently not apply);
+  - `file` that is not an array.
+
+  Entry failures found in the same pass are still reported. After a syntax
+  error nothing past it is read, so there are none.
+
+  The other manifest-level errors do **not** withhold entries, because they
+  do not change how any entry is read: `name` missing, of the wrong type, or
+  empty; `output_name` of the wrong type, empty, or containing a separator or
+  NUL. The partial manifest's name is then the empty string, and its
+  `output_name` is `None`.
+- **Building is blocked while any error exists**, manifest-level or entry.
+  Building only the passed entries would silently leave out files the
+  manifest lists, which the "never silent" rule forbids. `Manifest::is_complete()`
+  is `true` only when the report has no errors, and the archive plan builder
+  (M4) refuses an incomplete manifest. Warnings never block.
+
+`docs/tarpack-manifest.md` states these rules too.
 
 **Warnings.** These do not block a build.
 
@@ -241,8 +311,9 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
 - `crates/fm-tarpack/Cargo.toml`: adds `toml` (with spans), `serde`, `sha2`,
   and `ts-rs = { workspace = true }`
 - `apps/desktop/src-tauri/src/generated_types.rs`: append the exporters for
-  `Diagnostic`, `Severity`, `ArchiveFormat`, and `ManifestView` to `EXPORTERS`.
-  Change nothing else in the file.
+  `Diagnostic`, `Severity`, `ArchiveFormat`, and `ManifestView` to `EXPORTERS`
+  (and `EntryFailure`, added by the partial-results follow-up). Change nothing
+  else in the file.
 - `examples/tarpack/example.toml`: the manifest above, valid
 - `docs/tarpack-manifest.md`: **the reference for the format and for
   extraction.** Later task plans point here instead of restating the format. It
@@ -300,17 +371,49 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
     (`dir` with its trailing `/` trimmed, then `/`, then `name`).
     All fields are resolved, so defaults are already applied.
   - The fields are private, with getters.
-  - Constructible only through validation, so no later code can hold an invalid
-    manifest.
+  - Constructible only through validation, so no later code can hold an
+    invalid entry. A `Manifest` from a report with errors holds only the
+    passed entries, and says so: `pub fn is_complete(&self) -> bool` is
+    `false`. Code that builds an archive checks it (M4's plan builder refuses
+    an incomplete manifest).
   - `dir_mode` and the default owner are also resolved and exposed.
 - `Diagnostic { severity, line, col, entry_id: Option<String>, message }`
 - `pub fn load(path: &Path) -> Result<LoadedManifest, LoadError>`:
-  - `LoadedManifest { path, sha256: [u8; 32], manifest, warnings }`
-  - `LoadError::Invalid(Vec<Diagnostic>)`, or an I/O error
+  - `LoadedManifest { path, sha256: [u8; 32], report: ParseReport }`
+  - `LoadError::Io(io::Error)` is the only variant: the file could not be
+    read. A readable file always loads, whatever its errors. A file that is
+    not UTF-8 loads as a report with one withholding manifest-level error at
+    1:1.
   - The hash is of the exact file bytes. M6 compares it to detect edits made
     outside the app.
-- `pub fn parse(text: &str) -> Result<(Manifest, Vec<Diagnostic>), Vec<Diagnostic>>`
-  holds the pure core that the tests exercise.
+- `pub fn parse(text: &str) -> ParseReport` holds the pure core that the tests
+  exercise.
+- `ParseReport` (Rust only, not exported; M6 builds its session from the
+  parts):
+
+  ```rust
+  pub struct ParseReport {
+      pub manifest: Manifest,          // passed entries only, manifest order
+      pub entries_withheld: bool,      // a withholding error: manifest has no entries
+      pub errors: Vec<Diagnostic>,     // manifest-level errors, sorted by (line, col)
+      pub failures: Vec<EntryFailure>, // failed [[file]] tables, manifest order
+      pub warnings: Vec<Diagnostic>,   // every warning, sorted by (line, col)
+  }
+  impl ParseReport {
+      pub fn is_valid(&self) -> bool;   // errors and failures both empty
+      pub fn error_count(&self) -> u32; // errors.len() + every failure's errors.len()
+  }
+  ```
+
+  Invariants, which the tests check on every report they build:
+  `manifest.is_complete() == is_valid()`; `entries_withheld` implies
+  `manifest.entries()` is empty and `!is_valid()`; every failure's `errors` is
+  non-empty and all `Severity::Error`; every error diagnostic appears exactly
+  once, either in `errors` or in one failure; `errors` holds no diagnostic
+  from inside a `[[file]]` table. After a syntax error the report is: an empty
+  incomplete manifest (name `""`, no `output_name`, built-in defaults, no
+  entries), `entries_withheld: true`, `errors` holding the one syntax error,
+  no failures, no warnings.
 - Export `Diagnostic`, `Severity`, `ArchiveFormat`, and a UI-facing
   `ManifestView` to TS. This is the shape the UI contract (M6, and the UI
   tasks) consumes, so it is fixed exactly:
@@ -342,6 +445,24 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
   itself stays in Rust. M6 builds its session entries by flattening `EntryView`
   (`#[serde(flatten)]`) and adding its own `assigned` and `status`, so
   `EntryView` is the single definition of those fields.
+- `EntryFailure`, one failed `[[file]]` table, exported to TS:
+
+  ```rust
+  pub struct EntryFailure {        // TS: { index, id, source, line, errors }
+      pub index: u32,              // 1-based position of the [[file]] table
+      pub id: Option<String>,      // TS: string | null; the id when it is a non-empty string
+      pub source: Option<String>,  // TS: string | null; `source` when it is a string,
+                                   // so a table without an id can still be recognised
+      pub line: u32,               // line of the table's [[file]] header
+                                   // (of the element, for an inline array)
+      pub errors: Vec<Diagnostic>, // every error of the table, sorted by (line, col); never empty
+  }
+  ```
+
+  Derives `Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS`
+  with `#[serde(rename_all = "camelCase")]`, like `Diagnostic`. The messages
+  in `errors` keep their entry prefix. `id` is `Some` exactly when the
+  diagnostics carry `entry_id`.
 
 ## Acceptance criteria
 
@@ -358,6 +479,12 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
   commands match the lists above exactly.
 - `docs/tarpack-manifest.md` covers every field, every diagnostic, all four
   formats, and the extraction commands with `-P`.
+- A manifest with errors yields a report whose passed entries, failures,
+  manifest-level errors, and `entries_withheld` follow "Partial results"
+  exactly, and whose `Manifest` is incomplete.
+- Every error from a `[[file]]` table without a non-empty string `id`,
+  `id must not be empty` included, starts with `[[file]] #<n>: ` and has
+  `entry_id: None`.
 
 ## Tests proving completion
 
@@ -389,6 +516,17 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
 - `rejects_output_name_with_separator`
 - `long_name_warning_counts_leading_slash`: a stored path of exactly 100
   bytes, `/` included, warns; 99 bytes does not
+- partial results, added by the follow-up: `empty_id_is_attributed_by_position`,
+  `passed_entries_survive_entry_errors`,
+  `failure_collects_every_error_of_its_table`,
+  `failure_without_id_is_identified_by_position`,
+  `duplicate_id_fails_every_table_sharing_it`,
+  `duplicate_target_fails_both_entries`,
+  `directory_collision_fails_both_entries`,
+  `withholding_errors_hide_all_entries`,
+  `syntax_error_withholds_everything`,
+  `name_and_output_name_errors_keep_entries`,
+  `warnings_do_not_fail_an_entry`
 
 `cargo test -p fm-tarpack format`:
 
@@ -427,6 +565,9 @@ too.
   `version = 2` handling, and never reinterprets version 1 files.
 
 ## Review follow-up
+
+*(Landed in f9fc7b2. Kept for the record; the next run is "Partial results
+follow-up" below.)*
 
 M3 is already implemented and committed (f04c008). The review found the gaps
 below. The sections above are now the corrected spec; this list is the
@@ -666,3 +807,267 @@ The frontend checks matter because the generated `EntryView.ts` and
 `lib/generated/` consumes them yet; if something does, report it instead of
 editing UI code. Confirm with `grep -rn unsafe crates/fm-tarpack` that no
 `unsafe` remains.
+
+## Partial results follow-up
+
+F1–F12 above landed in f9fc7b2. This section is a **separate implementer
+run** on the landed code. It implements the "Partial results" rules under
+Validation, the `ParseReport` / `EntryFailure` / `Manifest::is_complete()`
+API under Design, and the both-entries reporting of cross-entry errors. P1
+(the empty-id prefix) comes first because P2 and P3 build on the attribution
+it introduces. P8 lists small review nits to fix in the same run.
+
+### P1. An empty `id` is attributed by position
+
+Today `raw.rs` already reports a `[[file]]` table with `id = ""` under
+`Scope::File(None, n)` (prefix `[[file]] #<n>: `) for its unknown-key and
+serde errors. But `resolve_entry` in `validate.rs` computes
+`id = (!id_str.is_empty()).then_some(id_str)` and calls
+`ctx.error(span, id, …)`, which with `None` adds **no** prefix. So that
+table's value errors (`dir`, `source`, `name`, `mode`, owner) and
+`id must not be empty` itself come out with no prefix and no entry.
+
+- Give `RawFileSlot` the 1-based position `read_file` already receives
+  (`index: usize`).
+- Pass it into `resolve_entry` and into the cross-entry checks, and attribute
+  every diagnostic from a table through one rule, the one `Scope::report`
+  uses: a non-empty string id gives ``file `<id>`: `` and `entry_id: Some(id)`;
+  otherwise `[[file]] #<n>: ` and `entry_id: None`. The simplest way is to
+  move `Scope` (or an equivalent attribution type) next to `Ctx` in
+  `validate.rs` and have `raw.rs` and `validate.rs` both push through it, so
+  the prefix rule exists once. `Ctx::push_error(at, Some(id), …)` with a
+  pre-formatted prefix must not remain as a second path.
+- `id must not be empty` is pushed with the same attribution:
+  `[[file]] #<n>: id must not be empty`.
+
+Test `empty_id_is_attributed_by_position`: a manifest whose second
+`[[file]]` has `id = ""`, `dir = "rel"`, and `mode = "9"` gives three errors
+from that table, each with `entry_id == None` and a message starting
+`[[file]] #2: `, one of them `[[file]] #2: id must not be empty`. Update the
+empty-id case in `rejects_duplicate_id` to expect the prefix.
+
+### P2. Record where each diagnostic came from
+
+Grouping needs to know, for every diagnostic, whether it belongs to a
+`[[file]]` table (and which) or to the manifest, and whether a
+manifest-level error withholds the entries. Record it in `Ctx`, internally.
+`Diagnostic`'s shape and its TS type do not change.
+
+- `Ctx` stores `(Origin, Diagnostic)` pairs, with
+  `enum Origin { Header { withholds: bool }, Table(usize /* 1-based index */) }`.
+- Every push states its origin:
+  - anything attributed to a `[[file]]` table (P1's attribution) →
+    `Table(n)`, including a `file` element that is not a table;
+  - `[defaults]` (unknown key, `normalize_eol`, serde error, bad value in
+    `resolve_defaults`, `defaults` not a table) → `Header { withholds: true }`;
+  - top level: unknown key, `version` missing / wrong type / not `1`, `file`
+    not an array → `Header { withholds: true }`;
+  - top level: `name` missing / wrong type / empty, `output_name` wrong type /
+    empty / bad → `Header { withholds: false }`.
+
+  `Scope::Top` in `raw.rs` covers both kinds today; split it (for example
+  `Scope::Top { withholds: bool }`) so `required(…, "name")` and the
+  `output_name` path pass `false`.
+- Warnings keep an origin too, but only errors are grouped.
+
+### P3. Cross-entry errors are reported on every entry involved
+
+In `validate.rs`, so that each failed entry has its own reason:
+
+- **Duplicate id.** Keep the later tables' error. Also push, on the **first**
+  table with that id, one error at its `id` value:
+  ``duplicate id (also used on line <m>)``, or
+  ``duplicate id (also used on lines <m1>, <m2>)`` when there are several.
+  Collect the later lines during the loop and push the first table's error
+  after it. Empty ids take no part (they already fail).
+- **Duplicate target.** Keep the later entry's error. Also push, on the
+  earlier entry, ``target path `<p>` is also used by file `<later>` ``,
+  located at the earlier entry's `name` value when set, else its `dir` value.
+  `targets` must therefore remember the earlier entry's index, id, and
+  location, not just its id. Each colliding pair gives one error on each of
+  its two entries.
+- **File/directory collision.** Keep the error on the file entry (A). Also
+  push, on the directory entry (B), at B's `dir` value,
+  ``dir needs `<p>`, which is the target path of file `<a>` ``, once per
+  pair.
+- All of these use P1's attribution, so an entry with an empty id gets the
+  `[[file]] #<n>: ` prefix.
+
+### P4. `ParseReport`, `EntryFailure`, and `Manifest::is_complete()`
+
+Implement the API under Design exactly.
+
+- `crates/fm-tarpack/src/manifest/model.rs`: add `EntryFailure` (with the
+  derives under Design), and a private `complete: bool` on `Manifest`, set by
+  `Manifest::new`'s new last parameter, with `pub fn is_complete(&self) -> bool`.
+  Its doc comment says a `Manifest` that is not complete holds only the
+  entries that passed, and must never be built.
+- `crates/fm-tarpack/src/manifest/raw.rs`: `RawFileSlot` gains, besides P1's
+  `index`, `source: Option<String>` (read from the raw table like `id`, when
+  it is a string) and `at: usize` (the table's span start: its `[[file]]`
+  header, or the element for an inline array).
+- `crates/fm-tarpack/src/manifest/validate.rs`, at the end of `validate`:
+  - Split the recorded pairs: `Table(n)` errors are grouped by `n` into
+    `EntryFailure { index: n, id, source, line, errors }` (id from the slot
+    when it is a non-empty string; `line` from the slot's `at`), sorted by
+    index, each failure's `errors` sorted by (line, col). `Header` errors go
+    to `errors`, sorted. All warnings go to `warnings`, sorted.
+  - `entries_withheld` is `true` when any `Header { withholds: true }` error
+    exists.
+  - Passed entries: resolved entries whose slot index has no failure, in
+    manifest order; none when `entries_withheld`.
+  - The `Manifest` is always built: `name` is the parsed name when it is
+    present and non-empty, else `""`; `output_name` is the parsed value only
+    when it passed its rule, else `None`; `dir_mode` and the default owner as
+    resolved (built-in values where `[defaults]` failed); `complete` is
+    `is_valid()`.
+  - `validate` returns `ParseReport` instead of a `Result`.
+- `crates/fm-tarpack/src/manifest/mod.rs`:
+  - `parse(text) -> ParseReport`. The syntax-error path returns the report
+    described under Design (empty incomplete manifest, withheld, the one
+    error). Update the doc comment to state the partial-results rules in
+    brief.
+  - `load(path) -> Result<LoadedManifest, LoadError>` with
+    `LoadedManifest { path, sha256, report }`. Remove `LoadError::Invalid`;
+    `LoadError::Io` remains, and `Display` loses the invalid arm. A non-UTF-8
+    file returns `Ok` with a report built like the syntax path, whose one
+    error is today's "the file is not valid UTF-8 (at byte N)" at 1:1.
+  - Re-export `EntryFailure` and `ParseReport` from `manifest`.
+- Nothing outside `crates/fm-tarpack/src/manifest/` calls `parse` or `load`
+  yet (`grep -rn "manifest::\(parse\|load\)" crates apps` to confirm). If
+  something does, update the call site and say so in the handoff.
+
+### P5. Export `EntryFailure`
+
+Append `<fm_tarpack::manifest::EntryFailure as ts_rs::TS>::export_all` to
+`EXPORTERS` in `apps/desktop/src-tauri/src/generated_types.rs`, change
+nothing else there, and run the regenerate command. The result adds
+`apps/desktop/src/lib/generated/EntryFailure.ts`
+(`{ index: number, id: string | null, source: string | null, line: number, errors: Array<Diagnostic> }`);
+`EntryView.ts`, `ManifestView.ts`, and `Diagnostic.ts` must not change.
+`ParseReport` is not exported.
+
+### P6. Tests
+
+In `crates/fm-tarpack/src/manifest/tests.rs`:
+
+- **Helpers.** Add `check_invariants(&ParseReport)`, asserting every
+  invariant listed under Design (`is_complete() == is_valid()`; withheld
+  implies no entries and not valid; every failure non-empty and all errors;
+  `errors` holds no diagnostic with `entry_id` set or a `[[file]] #` prefix).
+  `errors(text)` calls `parse`, checks invariants, asserts `!is_valid()`, and
+  returns `report.errors` plus every failure's errors, sorted by (line, col),
+  so existing assertions keep working. `ok(text)` checks invariants, asserts
+  `is_valid()`, and returns `(report.manifest, report.warnings)`.
+- **Changed expectations.**
+  - `rejects_duplicate_id`: two errors, `(8, …)` "first used on line 4" and
+    `(4, …)` "also used on line 8"; both entries are failures and the
+    manifest has no entries.
+  - `rejects_duplicate_target`: two errors; the new one is on `a` at its
+    `dir` value `(6, 7)`, message contains "also used by file `b`"; the
+    existing `b` location assertions stay.
+  - `rejects_target_that_is_another_entrys_directory`: `errs.len() == 2` in
+    each case, one with `entry_id == Some("a")` located at A's `name` value,
+    one with `Some("b")` located at B's `dir` value, asserted by line and
+    column for both orders (this also closes reviewer nit N2). Count the lines
+    in the fixture; with the fixture as written, A-first puts A's `name` at
+    (6, 8) and B's `dir` at (11, 7), and B-first puts B's `dir` at (6, 7) and
+    A's `name` at (10, 8).
+  - `load_hashes_exact_bytes`: the non-UTF-8 file now returns `Ok`; assert
+    `entries_withheld`, one error at (1, 1) containing "UTF-8", and the hash
+    of those bytes. The missing-file case stays `Err(LoadError::Io(_))`.
+- **New tests.**
+  - `empty_id_is_attributed_by_position` (P1).
+  - `passed_entries_survive_entry_errors`: tables `a` (valid), `b`
+    (`mode = "9"`), `c` (valid) → entries `[a, c]`, one failure with
+    `index == 2`, `id == Some("b")`, `line` of `b`'s `[[file]]` header;
+    `errors` empty; `entries_withheld == false`; `error_count() == 1`;
+    `!manifest.is_complete()`.
+  - `failure_collects_every_error_of_its_table`: one table with a relative
+    `dir`, `mode = "9"`, and `uid = -3` → one failure with three errors, sorted
+    by line, `source == Some(..)`.
+  - `failure_without_id_is_identified_by_position`: a table with `id = 3` and
+    one with no `id` (both with a string `source`) → failures with the right
+    `index`, `id == None`, and `source == Some(..)`.
+  - `duplicate_id_fails_every_table_sharing_it`: three tables with id `a`
+    and one valid `b` → three failures, entries `[b]`, the first failure's
+    error reads "also used on lines" with both later lines.
+  - `duplicate_target_fails_both_entries` and
+    `directory_collision_fails_both_entries`: both entries are failures, a
+    third unrelated entry passes.
+  - `withholding_errors_hide_all_entries`, table-driven over: `version = 2`;
+    no `version`; `version = "1"`; `[defaults]` with `mode = "9"`;
+    `[defaults]` with `normalize_eol = true`; `[defaults]` with `mod = "0644"`;
+    `defaults = 1`; a top-level `[default]` table; `file = 1`. Every fixture
+    except `file = 1` also has one valid `[[file]]` and one broken
+    `[[file]]`. Assert `entries_withheld`, no entries, and the
+    manifest-level error in `errors`; where there are tables, assert the
+    broken one is in `failures` and the valid one is in neither list.
+  - `syntax_error_withholds_everything`: one error, no failures, no
+    warnings, withheld, `manifest.name() == ""`.
+  - `name_and_output_name_errors_keep_entries`: `name = ""`, a missing
+    `name`, and `output_name = "a/b"`, each with one valid `[[file]]` → not
+    withheld, the entry passes, the error is in `errors`, `name()` is `""`
+    where the name failed, `output_name()` is `None` where it failed; still
+    not valid and not complete.
+  - `warnings_do_not_fail_an_entry`: two entries sharing a `source` and one
+    long path → the report is valid, every entry passes, both warnings are
+    present, and `is_complete()` is true.
+- Keep every other existing test passing. `example_manifest_is_valid`
+  additionally asserts `is_complete()`.
+
+### P7. `docs/tarpack-manifest.md`
+
+- **Diagnostics intro.** Change the prefix sentence to: a table without a
+  **non-empty** string `id` starts with `[[file]] #<n>: `, for every error
+  from that table, including `id must not be empty`.
+- **Error table.**
+  - `id` empty row: `[[file]] #2: id must not be empty`.
+  - `id` duplicated row: both messages, and "reported on every table that
+    shares the id".
+  - Duplicate target row: "reported on both entries", both messages.
+  - Target-is-a-directory row: "reported on both entries", both messages
+    (the P3 wording for B).
+- **New section "When the manifest has errors"**, after the warnings table:
+  the "Partial results" rules under Validation, in the reference doc's own
+  words: which entries are shown, what a failure record lists, which
+  manifest-level errors hide every entry and why, which do not, that
+  fixing a failed entry can reveal a new collision, and that nothing can be
+  built until every error is fixed (warnings never block).
+
+### P8. Review nits (small; fix in the same run)
+
+- **N2.** Folded into P6 (`rejects_target_that_is_another_entrys_directory`
+  asserts locations).
+- **N4.** `docs/tarpack-manifest.md` error table: the second "Bad `mode` or
+  `dir_mode`" example is missing its prefix; write it as emitted, e.g.
+  `` defaults.dir_mode: mode `12345` must be an octal string of 1 to 4 digits ``.
+  The "Missing required field" row gains the top-level example
+  `` missing field `version` `` next to the `[[file]]` one.
+- **N5.** `unknown_keys_are_reported_with_validation_errors`: besides the
+  lines, assert each of the five messages (`unsupported version 2`,
+  ``unknown key `bogus` ``, ``[defaults]: unknown key `mod` ``,
+  ``file `a`: unknown key `colour` ``, ``file `b`: dir must be absolute``).
+  In `example_manifest_is_valid`, drop the redundant `let m = &m;`.
+- **N7.** `crates/fm-tarpack/src/manifest/model.rs`, `EntryView`: the
+  `/// Numeric ids that are written to the header.` comment documents only
+  `uid` in rustdoc. Give `uid` and `gid` each their own doc comment
+  (`/// Numeric user id written to the header.` /
+  `/// Numeric group id written to the header.`). Regenerating does not
+  change the TS output unless ts-rs emits doc comments; if it does, the
+  regenerated file is the one to commit.
+
+### Checks before handing to the reviewer
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test -p fm-tarpack
+UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current
+cargo test --workspace            # includes the currency check in check mode
+npm run typecheck && npm run lint && npm run test
+```
+
+`lib/generated/` gains `EntryFailure.ts`; nothing under `apps/desktop/src/`
+outside `lib/generated/` consumes it yet. If something does, report it
+instead of editing UI code. `CLAUDE.md` does not change in this run.

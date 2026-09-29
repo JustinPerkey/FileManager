@@ -1,7 +1,8 @@
 # M4 — Archive writer
 
 Status: awaiting approval
-Project: tarpack   Depends on: M2 (landed), M3 (landed)
+Project: tarpack   Depends on: M2 (landed), M3 (landed, including its
+partial-results follow-up)
 
 ## Goal
 
@@ -20,6 +21,13 @@ What earlier tasks provide:
   manifest's `dir_mode` and default owner. The format, the archive layout, the
   output formats, and the extraction commands are documented in
   `docs/tarpack-manifest.md`. Read it.
+- **M3, partial results.** `manifest::parse(text)` returns a `ParseReport`
+  (`manifest`, `entries_withheld`, `errors`, `failures`, `warnings`,
+  `is_valid()`), and `load` returns `LoadedManifest { path, sha256, report }`.
+  A manifest file with errors still yields a `Manifest`, holding only the
+  entries that passed, and `Manifest::is_complete()` is then `false`.
+  Building such a manifest would silently leave out files the manifest lists,
+  so this task's plan builder refuses it (below).
 - **M3** also provides `fm_tarpack::format`: `ArchiveFormat { Tar, TarGz,
   TarZst, TarXz }`, `extension()`, `extract_command(file_name)`, and the
   decided constants `GZIP_LEVEL = 6`, `ZSTD_LEVEL = 19`,
@@ -174,6 +182,10 @@ Do not change the manifest or format modules, except to add getters you need.
   - A pure function returning the ordered list of `PlannedEntry::Dir { path }`
     and `PlannedEntry::File { id, source, path, mode, owner, normalize_eol }`.
     `path` is the absolute stored name.
+  - First, `PlanError::ManifestIncomplete` when `!manifest.is_complete()`,
+    before looking at assignments. This is the library-level guard behind
+    M6's `canBuild`; it must not be possible to plan an archive from a
+    manifest that had errors.
   - `PlanError::Unassigned(Vec<id>)` lists every entry without a source.
 - **`write_archive(plan, out_path, format, overwrite, progress: impl FnMut(Progress)) -> Result<BuildSummary, BuildError>`**
   1. If `out_path` exists and `overwrite` is false, return
@@ -234,6 +246,8 @@ Do not change the manifest or format modules, except to add getters you need.
 
 ## Acceptance criteria
 
+- `ArchivePlan::new` refuses a manifest that is not complete
+  (`PlanError::ManifestIncomplete`), whatever its assignments.
 - For every format, the archive round-trips exact names, modes, owners, mtimes,
   sizes, and bytes.
 - **Every stored name begins with `/`**, including names of 100 bytes or more,
@@ -263,7 +277,12 @@ Do not change the manifest or format modules, except to add getters you need.
 ## Tests proving completion
 
 `cargo test -p fm-tarpack archive`. All tests run in a `TempDir`, with fixture
-manifests built through M3's `parse`:
+manifests built through M3's `parse` (take `report.manifest` after asserting
+`report.is_valid()`):
+
+- `plan_refuses_incomplete_manifest`: a fixture with one valid and one
+  broken `[[file]]` (for example `mode = "9"`), every passed entry assigned,
+  gives `PlanError::ManifestIncomplete`
 
 - `round_trip_preserves_headers`: parameterised over all four formats
 - `stored_names_are_absolute`: every entry's `path_bytes()` starts with `b'/'`

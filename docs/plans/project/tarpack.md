@@ -315,13 +315,17 @@ accepted in `[defaults]`: conversion must be a deliberate per-file choice.
 
 Every error reports its line and column. Every error inside a `[[file]]`
 table, including unknown keys, wrong types, and missing fields, names that
-entry's `id`. A manifest with any error cannot be built. The rules:
+entry's `id`. A table without a non-empty string `id` (no `id`, a non-string
+one, or `id = ""`) is named by position, `[[file]] #<n>: `, for every error
+from it, including `id must not be empty` (M3 re-review). A manifest with
+any error cannot be built; §3.2.1 says what is still shown. The rules:
 
 - `version` is supported.
 - The top-level `name` is non-empty. (That is its only rule; the separator
   rules below are for the per-file `name`.)
 - Unknown keys are rejected, so typos surface instead of being ignored.
-- `id` values are unique and non-empty.
+- `id` values are unique and non-empty. A duplicate is reported on every
+  table sharing the id.
 - `dir` is an absolute POSIX path: it starts with `/`, has no `..` or `.`
   segments, no empty segment except a trailing `/`, no backslashes, and no
   NUL. `.` is rejected because `/opt/./x` and `/opt/x` are the same directory
@@ -330,11 +334,12 @@ entry's `id`. A manifest with any error cannot be built. The rules:
   are not `.` or `..`.
 - `output_name`, when present, is non-empty and has no `/`, `\`, or NUL.
 - The final target paths (`dir` + `name`) are unique. Paths are compared
-  case-sensitively, because the target is Linux. The error points at `name`
-  when it is set, else at `dir`.
+  case-sensitively, because the target is Linux. The error is reported on
+  both entries, each pointing at its `name` when set, else at its `dir`.
 - No target path is also a directory of another entry (equal to another
   entry's `dir` or an ancestor of it), since the archive cannot hold
-  `/opt/gateway` as both a file and a directory (M3 review N5).
+  `/opt/gateway` as both a file and a directory (M3 review N5). Reported on
+  both entries.
 - `mode` and `dir_mode` are octal strings of 1 to 4 digits.
 - `uid` and `gid` fit in `u32`. `uname` and `gname` are 1 to 32 bytes.
 - `normalize_eol` is a boolean.
@@ -353,6 +358,48 @@ These produce **warnings**, not errors:
 - A stored path (the absolute target path, leading `/` included) is 100 bytes
   or longer. The writer then emits a GNU long-name record for it.
 - The manifest has no `[[file]]` entries.
+
+### 3.2.1 Partial results *(decided by the human, 2026-09-29)*
+
+The human's answer to the gap "an invalid manifest shows whatever entries
+were readable, but `parse` returns none": *show the ones that passed, collect
+the ones that failed in a report, and notify the user that there were
+errors.* The planner's rules for it:
+
+- **Passed** means no error is attributed to the entry's `[[file]]` table.
+  Warnings never fail an entry.
+- **Failed** entries become one `EntryFailure { index, id, source, line, errors }`
+  each, in manifest order, with every error of that table.
+- **Cross-entry errors fail every entry involved**: all tables sharing a
+  duplicate id (assignments and remembered sources are keyed by id, so
+  showing one would attach the other's file), both entries of a duplicate
+  target, and both entries of a file/directory collision. Each gets its own
+  diagnostic. Target comparisons see only tables that resolved, so fixing a
+  failed entry can reveal a new collision.
+- **Manifest-level errors that withhold every entry**: TOML syntax, a file
+  that is not UTF-8, `version` (missing, wrong type, not 1), any `[defaults]`
+  error, an unknown top-level key (possibly a misspelt `[defaults]`), and
+  `file` not being an array. Each means no entry can be read as its author
+  meant it. Entry failures from the same pass are still reported.
+- **Manifest-level errors that do not**: `name` and `output_name`. The name
+  falls back to the file stem in the session, and `output_name` to none.
+- **Building is blocked while any error exists.** Building the passed
+  entries alone would silently drop files the manifest lists, which the
+  "never silent" invariant forbids. Three layers enforce it: M3's
+  `Manifest::is_complete()`, M4's `PlanError::ManifestIncomplete`, and M6's
+  `canBuild` / `ManifestInvalid`. Warnings never block.
+- **Working while errors exist.** The user may assign files to passed
+  entries and pick the format and output. The remembered sources of failed
+  entries are not pruned while errors exist (M5's `restore_all`, used by
+  M6), so a typo in one entry does not erase its remembered file.
+- **Notification.** The session carries `errorCount`
+  (manifest-level errors plus every failed entry's errors). The UI tells the
+  user whenever it is above 0. How is the ui-designer's decision.
+
+API: `parse(text) -> ParseReport { manifest, entries_withheld, errors, failures, warnings }`
+and `load(path) -> Result<LoadedManifest { path, sha256, report }, LoadError::Io>`.
+Only `EntryFailure` is a new boundary type. `ManifestView`, `EntryView`, and
+`Diagnostic` are unchanged.
 
 ### 3.3 Archive semantics *(decided)*
 
@@ -487,7 +534,15 @@ M3 landed in f04c008 with review gaps. Its task plan now ends with a "Review
 follow-up" section. That follow-up runs as its own implementer run on the same
 task plan, and lands **before M4 and M5 start**: it changes `EntryView` and
 `ManifestView` (regenerating `lib/generated/`) and the parse pipeline both
-depend on.
+depend on. It landed in f9fc7b2.
+
+M3's task plan then gained a **"Partial results follow-up"** (P1–P8, §3.2.1),
+another separate implementer run on the same task plan. It also lands
+**before M4 and M5 start**: it changes the signatures of `parse` and `load`,
+adds `Manifest::is_complete()` (which M4's plan builder checks), and adds
+the boundary type `EntryFailure` that M6 carries. M4 gains
+`PlanError::ManifestIncomplete`, M5 gains `RememberedState::restore_all`, and
+M6's session gains the failure fields; those are in their task plans.
 
 ## 5. Handoff to ui-designer
 
@@ -509,6 +564,13 @@ The UI is written in [`tarpack-ui.md`](tarpack-ui.md). Its constraints are:
     to copy it.
   - Entries with `normalizeEol` are visibly marked.
   - Progress has a `verifying` phase after writing.
+- **New from the partial-results decision (§3.2.1):**
+  - A manifest with errors still shows its passed entries.
+  - Failed entries are listed in a report, each with all of its errors.
+  - Manifest-level errors are shown, and when one withholds every entry the
+    UI says so rather than showing an empty table.
+  - The user is notified that there were errors whenever `errorCount > 0`.
+  - Build stays blocked (`manifestInvalid`) until the error count is 0.
 
   The full list of contract changes is in §6.3.
 
@@ -661,6 +723,29 @@ Added after the M3 review (2026-09-29):
 30. **No `unsafe` in `format.rs`** (N3). `with_extension` uses the cfg'd
     `OsStrExt`/`OsStringExt` APIs, with a non-UTF-8 test per platform.
 
+Added after the partial-results decision and the M3 re-review (2026-09-29):
+
+31. **Partial results** (human's decision; planner's rules in §3.2.1).
+    `parse` returns a `ParseReport` with the passed entries, one
+    `EntryFailure` per failed table, manifest-level errors, and warnings.
+    `LoadError::Invalid` is removed: a readable file always loads.
+32. **An entry passes only when no error is attributed to it; cross-entry
+    errors fail every entry involved** and are reported on each. The
+    alternative, excluding only the later entry of a duplicate, would attach
+    a remembered file by id to whichever table came first.
+33. **Withholding errors.** Syntax, UTF-8, `version`, `[defaults]`, unknown
+    top-level keys, and `file` not an array hide every entry; `name` and
+    `output_name` errors do not.
+34. **Build is blocked while any error exists**, enforced in M3
+    (`is_complete`), M4 (`PlanError::ManifestIncomplete`), and M6
+    (`canBuild`, `ManifestInvalid`).
+35. **Assignments work while errors exist, and failed entries' remembered
+    sources are kept** (M5 `restore_all`; M6 prunes only when the manifest
+    is valid).
+36. **An empty `id` is attributed like a missing one** (`[[file]] #<n>: `)
+    for every error from its table, `id must not be empty` included (M3
+    re-review).
+
 ### 6.3 UI-facing contract changes (for the ui-designer)
 
 All of these are owned by M6 (with types from M3–M5) and generated into
@@ -677,6 +762,22 @@ All of these are owned by M6 (with types from M3–M5) and generated into
   With no manifest loaded, `format` is `"tar"`, `formats` lists all four, and
   `outputPath` and `suggestedOutputName` are `null` (decision 11).
 - `TarpackSession.manifest.entries[]` gains `normalizeEol: boolean`.
+- **Partial results (§3.2.1).** `TarpackSession.manifest` gains:
+  - `entriesWithheld: boolean`: a manifest-level error hides every entry, and
+    `entries` is `[]`;
+  - `failedEntries: EntryFailure[]`, one per `[[file]]` table with errors, in
+    manifest order, where
+    `EntryFailure = { index: number, id: string | null, source: string | null, line: number, errors: Diagnostic[] }`
+    (`index` is the 1-based table position, `line` its `[[file]]` header);
+  - `errorCount: number`, the manifest-level errors plus every failed entry's
+    errors; above 0 means "notify the user" and blocks the build.
+
+  `manifest.errors` now holds **only** manifest-level errors; entry errors
+  are in `failedEntries`. `manifest.entries` holds only passed entries, and
+  `readyCount` / `totalCount` count only those. `name` falls back to the
+  file stem when the manifest's `name` is in error. Assign, clear, drop,
+  `setFormat`, and `setOutput` keep working while errors exist; assigning a
+  failed entry's id fails with `UnknownEntry`.
 - Each entry is `EntryView` (from M3) plus `assigned` and `status`:
   `{ id, source, targetPath, mode, modeText, owner, uid, gid, normalizeEol, assigned, status }`.
   `mode` is `"0755"`, `modeText` is `"rwxr-xr-x"`, and `owner` is
