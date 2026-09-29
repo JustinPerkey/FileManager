@@ -1,0 +1,164 @@
+# Tar Packager manifest and archive reference
+
+The single source for the manifest format, the archive layout, the output
+formats, and extraction on the target. A working example is
+`examples/tarpack/example.toml`.
+
+A **manifest** is a TOML file, edited by hand outside the program. It lists a
+fixed set of files and, for each, the Linux directory it goes to inside the
+archive and its permissions. The user supplies the actual Windows file for each
+entry when packaging.
+
+## Format (version 1)
+
+```toml
+version = 1
+name = "Gateway deploy"
+output_name = "gateway.tar.zst"
+
+[defaults]
+mode = "0644"
+dir_mode = "0755"
+uid = 0
+gid = 0
+uname = "root"
+gname = "root"
+
+[[file]]
+id = "gateway-bin"
+source = "gateway"
+dir = "/opt/gateway/bin"
+mode = "0755"
+```
+
+`version = 1` is frozen. A future change adds `version = 2` handling and never
+reinterprets version 1 files. Unknown keys are errors at every level, so typos
+surface.
+
+### Top level
+
+| Field | Required | Meaning |
+|---|---|---|
+| `version` | yes | Must be `1`. |
+| `name` | yes | Display name. Must not be empty. |
+| `output_name` | no | Suggested Save name. Must not be empty or contain `/`, `\` or NUL. A known archive suffix also picks the default format. |
+| `[defaults]` | no | Table. Every field optional. |
+| `[[file]]` | no | Zero or more entries. Zero is valid and warns. |
+
+### `[defaults]`
+
+| Field | Default | Meaning |
+|---|---|---|
+| `mode` | `"0644"` | File permissions, octal string of 1 to 4 digits, at most `07777`. |
+| `dir_mode` | `"0755"` | Permissions of directory entries the archive creates. |
+| `uid` | `0` | Numeric owner. Must fit in `u32`. |
+| `gid` | `0` | Numeric group. Must fit in `u32`. |
+| `uname` | `"root"` | Owner name, 1 to 32 bytes. |
+| `gname` | `"root"` | Group name, 1 to 32 bytes. |
+
+`normalize_eol` is **not** accepted here: conversion must be a deliberate
+per-file choice. The unknown-key rule rejects it with a location.
+
+### `[[file]]`
+
+| Field | Required | Default | Meaning |
+|---|---|---|---|
+| `id` | yes | | Stable key; last-used locations are stored against it. Not empty, unique. |
+| `source` | yes | | Expected Windows file name, used to match drops. Not empty, no `/`, `\` or NUL, not `.` or `..`. |
+| `dir` | yes | | Linux directory inside the archive. Absolute. |
+| `name` | no | `source` | Rename inside the archive. Same rules as `source`. |
+| `mode` | no | `defaults.mode` | Permissions. |
+| `uid`, `gid`, `uname`, `gname` | no | the defaults | Per-file owner overrides. |
+| `normalize_eol` | no | `false` | Per file only. When `true`, every CRLF pair becomes LF when writing; a lone CR is kept. When `false` or absent, the bytes are copied exactly. |
+
+The stored path of an entry is `dir` with its trailing `/` trimmed, then `/`,
+then `name`, for example `/opt/gateway/bin/gateway`.
+
+## Diagnostics
+
+Every diagnostic has a line and column (1-based) and names the entry `id` where
+there is one. All validation errors are reported together. A TOML syntax error,
+a wrong type, or a missing required field stops at the first one, because the
+document cannot be read past it. Any error makes the manifest unbuildable.
+
+### Errors
+
+| Rule | Example message |
+|---|---|
+| `version` is not `1` | `unsupported version 2; this program reads version 1` |
+| Unknown key | `unknown field `colour`, expected one of ...` |
+| Missing required field | `missing field `dir`` |
+| Wrong type | `invalid type: integer `644`, expected a string` |
+| `id` empty | `id must not be empty` |
+| `id` duplicated | `file `a`: duplicate id (first used on line 4)` |
+| `dir` not absolute | `file `a`: dir must be absolute (start with `/`)` |
+| `dir` has a backslash or NUL | `file `a`: dir must not contain a backslash or NUL` |
+| `dir` has a `..` segment | `file `a`: dir must not contain a `..` segment` |
+| `dir` has an empty segment (other than the trailing one) | `file `a`: dir must not contain an empty segment (`//`)` |
+| `name` or `source` empty, has `/`, `\`, NUL, or is `.`/`..` | `file `a`: source must not be `.` or `..`` |
+| `output_name` empty or has `/`, `\`, NUL | `output_name must not be empty or contain `/`, `\` or NUL` |
+| Two entries with the same stored path (case-sensitive) | `file `b`: target path `/x/a` is already used by file `a`` |
+| Bad `mode` or `dir_mode` | `file `a`: mode: mode `0898` is not an octal string` / `mode `17777` must be an octal string of 1 to 4 digits` |
+| `uid` or `gid` does not fit in `u32` | `file `a`: uid `-3` does not fit in u32` |
+| `uname` or `gname` empty or over 32 bytes | `file `a`: gname must be 1 to 32 bytes, got 33` |
+| Manifest `name` empty | `name must not be empty` |
+
+### Warnings
+
+They do not block a build.
+
+| Rule | Example message |
+|---|---|
+| Two entries share a `source`, compared case-insensitively. A drop cannot tell them apart, so the user picks those files per row. | `file `b`: source `cfg.TXT` matches file `a` (compared case-insensitively); a dropped file cannot tell them apart, so pick their files per row` |
+| A stored path is 100 bytes or longer, leading `/` included. The writer emits a GNU long-name record. | `file `a`: stored path `/...` is 100 bytes or longer (153 bytes); the archive will use a GNU long-name record` |
+| No `[[file]]` entries | `the manifest has no [[file]] entries` |
+
+## Archive layout
+
+- Names are stored **absolute** (`/opt/gateway/bin/gateway`).
+- Directory entries are emitted for every ancestor of an entry except `/`, with
+  `dir_mode` and the default owner.
+- The format is GNU tar, with long-name records for names of 100 bytes or more.
+- mtime is the source file's modification time.
+
+## Output formats
+
+| Format | Extension | Compression | Target decompression memory |
+|---|---|---|---|
+| Tar | `.tar` | none | none |
+| TarGz | `.tar.gz` | gzip level 6 | negligible (fixed 32 KiB window) |
+| TarZst | `.tar.zst` | zstd level 19, window log 23 (8 MiB) | bounded by the 8 MiB window |
+| TarXz | `.tar.xz` | xz preset 6 (8 MiB dictionary) | about 9 MiB |
+
+The constants live in `crates/fm-tarpack/src/format.rs` and are decisions, not
+tuning knobs. The target is a low-power armv7. zstd's decompression memory is
+set by the window, not the level, so long mode and levels 20-22 are excluded
+because they raise the window. xz presets 7-9 need 17-65 MiB and are excluded.
+**zstd is recommended for the armv7 target**, because it decompresses fastest.
+
+**Default format.** `output_name`'s suffix picks it when it is one of `.tar`,
+`.tar.gz`, `.tgz`, `.tar.zst`, `.tar.xz` (ASCII-case-insensitive, longest suffix
+first); otherwise the default is Tar. The last format the user chose for a
+manifest overrides this.
+
+## Extracting on the target
+
+```sh
+tar --no-overwrite-dir -xpPf archive.tar
+tar -z --no-overwrite-dir -xpPf archive.tar.gz
+tar --zstd --no-overwrite-dir -xpPf archive.tar.zst
+tar -J --no-overwrite-dir -xpPf archive.tar.xz
+```
+
+- `-P` is **required**. Without it, GNU and BusyBox tar strip the leading `/`
+  and extract relative to the current directory.
+- `-p` applies the modes, and when run as root GNU tar also applies the owners.
+- `--no-overwrite-dir` keeps the mode and owner of directories that already
+  exist on the target (such as `/etc`), while new directories still get
+  `dir_mode`.
+- `--zstd` needs GNU tar 1.31 or newer and the `zstd` program.
+- A listing without extraction is `tar -tvPf <file>`, with the matching
+  decompression flag (`-z`, `--zstd`, `-J`).
+
+A file name outside `[A-Za-z0-9._+-]` is wrapped in single quotes in the
+commands the program shows.
