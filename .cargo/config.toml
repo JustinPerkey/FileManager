@@ -1,0 +1,5 @@
+[env]
+# ts-rs: the only writer of apps/desktop/src/lib/generated is
+# apps/desktop/src-tauri/src/generated_types.rs. A stray #[ts(export)] writes
+# here, inside the ignored target dir, never into a crate.
+TS_RS_EXPORT_DIR = { value = "target/ts-rs-stray", relative = true }

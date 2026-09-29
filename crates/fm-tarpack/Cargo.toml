@@ -1,0 +1,12 @@
+[package]
+name = "fm-tarpack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fm-core = { path = "../fm-core" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

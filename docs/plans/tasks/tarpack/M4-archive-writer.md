@@ -127,7 +127,21 @@ encoder chosen by format:
   **without** `-P` into a temp dir with `-C`. GNU tar then strips the leading
   `/` and prints a notice.
 - The crate has no tauri dependency.
-- Types that cross to the UI derive `ts_rs::TS`.
+- Types that cross to the UI derive `ts_rs::TS` (via the workspace `ts-rs`
+  dependency, which M3 added to this crate). Export them through the export
+  test that M1 created:
+  - the test lives at `apps/desktop/src-tauri/src/generated_types.rs`;
+  - append one entry per root type to its `EXPORTERS` list,
+    `<fm_tarpack::path::Type as ts_rs::TS>::export_all`;
+  - regenerate with
+    `UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current`
+    (recorded in `CLAUDE.md`, with the PowerShell form);
+  - never hand-edit, and never use `#[ts(export)]`.
+- **Parallel with M5.** M5 also appends to `EXPORTERS` and
+  regenerates `lib/generated/`. If M5 merges first, resolve any conflict
+  in `EXPORTERS` by keeping both sets of entries. Then re-run the regenerate
+  command. Never hand-merge generated files. If you merge first, M5 does
+  the same.
 - **No `bigint` crosses the boundary.** ts-rs generates `u64`/`i64` as TS
   `bigint`, which the UI cannot use as a number. Every `u64` (or `usize`/`i64`)
   field in an exported type carries `#[ts(type = "number")]`. Values stay far
@@ -146,7 +160,11 @@ encoder chosen by format:
 - `crates/fm-tarpack/Cargo.toml`: adds `tar`, `sha2`, `flate2`, `zstd`, and
   `liblzma`. `tempfile` is already present or allowed.
 - `.github/workflows/ci.yml`, only if a C compiler install step is needed
-- Regenerated TS types
+- `apps/desktop/src-tauri/src/generated_types.rs`: append the exporters for
+  `BuildSummary`, `NormalizedEntry`, `Progress`, and `BuildPhase` (and any
+  other boundary type this task adds). Change nothing else in the file.
+- Regenerated TS types in `apps/desktop/src/lib/generated/`, written by the
+  regenerate command
 
 Do not change the manifest or format modules, except to add getters you need.
 
@@ -302,8 +320,9 @@ manifests built through M3's `parse`:
   supports them (probe `tar --zstd --version` and skip with a printed note if
   it is unsupported).
 
-Also run `cargo clippy -p fm-tarpack --all-targets -- -D warnings`, and confirm
-both CI jobs are green.
+Also run `cargo test -p filemanager generated_types_are_current`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and confirm both CI
+jobs are green. Both jobs run `cargo test --workspace`.
 
 ## Out of scope
 

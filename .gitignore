@@ -32,3 +32,7 @@ dist
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Tauri
+/apps/desktop/src-tauri/gen/
+/apps/desktop/src-tauri/target/

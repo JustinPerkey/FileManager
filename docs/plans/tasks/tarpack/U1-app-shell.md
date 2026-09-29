@@ -38,6 +38,12 @@ child owning its own scrolling.
   `tools: { id, label, view }[]`, currently empty.
 - `apps/desktop/src/lib/`: implementer-owned. Do not edit it.
 - The Tauri minimum window size is 800×560.
+- `npm run lint` already includes `eslint-plugin-jsx-a11y` (recommended
+  rules), and fails on any finding. Fix findings in the markup. Do not disable
+  the rules.
+- `src/test-setup.ts` already registers Testing Library's `afterEach(cleanup)`
+  (Vitest runs with `globals: false`). Tests do not need their own cleanup.
+- The webview CSP allows inline `style` attributes and no inline scripts.
 
 **The tarpack registry entry.** Add `{ id: "tarpack", label: "Tar Packager",
 view: TarpackView }`, where `TarpackView` is a placeholder in

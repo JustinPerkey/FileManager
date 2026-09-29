@@ -74,6 +74,19 @@ and line-ending treatment that will be written.
 - **Verify failure is safe.** On `VerifyFailed` nothing is saved and an
   existing output file is left byte-for-byte unchanged; the copy says so.
 
+**Platform constraints from M1** (factual notes added by the planner after
+the M1 review; they change no design decision):
+
+- **CSP.** The webview Content Security Policy allows inline `style`
+  attributes and `<style>`. It allows no inline scripts and nothing remote:
+  no CDN fonts, images, or scripts. Fonts and assets ship with the frontend,
+  and images may also be `data:` URIs.
+- **Accessibility lint.** `npm run lint` already includes
+  `eslint-plugin-jsx-a11y` (recommended rules), and fails on any finding. UI
+  tasks do not add it, and do not disable its rules.
+- **Test cleanup.** `src/test-setup.ts` already registers Testing Library's
+  `afterEach(cleanup)`.
+
 ## 2. Design tokens touched (new)
 
 All tokens are defined in `apps/desktop/src/styles/tokens.css`. Dark mode is

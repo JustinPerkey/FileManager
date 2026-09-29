@@ -62,7 +62,9 @@ dependencies beyond the system and WebView2.
 ### 2.2 Layout, designed for many tools
 
 ```
-Cargo.toml                    workspace
+Cargo.toml                    workspace; [workspace.dependencies] pins ts-rs
+.cargo/config.toml            [env] TS_RS_EXPORT_DIR -> target/ (M1); static CRT (M7)
+.gitattributes                lib/generated/** eol=lf (Windows CI checkout)
 crates/
   fm-core/                    shared, tool-agnostic: app data dirs, versioned
                               JSON state store (namespaced per tool), atomic
@@ -73,9 +75,14 @@ crates/
                               No tauri dep.
 apps/desktop/
   src-tauri/                  Tauri v2 shell (binary `filemanager`)
-    src/lib.rs                builder, plugins, invoke_handler
-    src/tools/mod.rs          tool registry: each tool's commands and state
-    src/tools/tarpack.rs      tarpack commands, events, manifest watcher
+    src/lib.rs                builder, plugins, then tools::register(); never
+                              invoke_handler or setup
+    src/tools/mod.rs          tool registry: the only .invoke_handler (one
+                              generate_handler! for all tools), the only
+                              .setup, and every tool's .manage(...)
+    src/tools/tarpack.rs      tarpack commands, state, manifest watcher
+    src/generated_types.rs    #[cfg(test)] ts-rs export: currency check and
+                              opt-in update mode (owns lib/generated/)
   src/                        React frontend
     lib/                      ── implementer-owned seam ──
       generated/              TS types generated from Rust (ts-rs)
@@ -91,14 +98,31 @@ docs/tarpack-manifest.md      manifest and archive reference, incl. extraction
 
 **Adding a tool** is a fixed recipe, written into `CLAUDE.md` by Milestone 1:
 
-1. Add a crate `crates/fm-<tool>` with no tauri dependency.
-2. Add a module `src-tauri/src/tools/<tool>.rs` whose commands are all prefixed
-   `<tool>_` and registered through `tools/mod.rs`.
-3. Add a typed wrapper `src/lib/<tool>.ts`.
-4. Add a view folder `src/tools/<tool>/` and one entry in `tools/registry.ts`.
-5. Keep persisted state under the tool's own namespace in `fm-core`'s store.
+1. Add a crate `crates/fm-<tool>` with no tauri dependency. If it has
+   boundary types, add `ts-rs = { workspace = true }` and derive `ts_rs::TS`.
+2. Add a module `src-tauri/src/tools/<tool>.rs`. It contributes only
+   `#[tauri::command]` functions prefixed `<tool>_`, a managed-state
+   constructor if needed, and optionally a `setup(app)` function. It never
+   touches the `Builder`.
+3. In `tools/mod.rs::register`, add the tool's state with `.manage(...)`, add
+   its commands to the **single** `tauri::generate_handler![...]`, and call its
+   `setup` from the single `.setup(...)`.
+4. Append its boundary types to `EXPORTERS` in
+   `src-tauri/src/generated_types.rs` and run the regenerate command (§2.4).
+5. Add a typed wrapper `src/lib/<tool>.ts`, a view folder `src/tools/<tool>/`,
+   and one entry in `tools/registry.ts`.
+6. Keep persisted state under the tool's own namespace in `fm-core`'s store.
+
+**Why one handler** (M1 review, P2-3): Tauri's `Builder::invoke_handler` and
+`Builder::setup` each replace any earlier call. A registry shaped as "each tool
+calls `invoke_handler` on the builder" silently drops every tool's commands
+but the last one. Only `tools::register` calls them, once each, and a
+shell-crate test (`builder_hooks_only_in_tool_registry`) enforces it.
 
 Tools never import each other. Anything two tools share moves into `fm-core`.
+
+The hook test skips comment lines (lines whose trimmed start is `//`), so doc
+comments may name `invoke_handler` and `setup` freely (re-review A).
 
 ### 2.3 The core/UI boundary
 
@@ -109,6 +133,28 @@ Tools never import each other. Anything two tools share moves into `fm-core`.
   `#[derive(ts_rs::TS)]` and generated into `src/lib/generated/`. A test fails if
   the generated files are stale. This makes the "defined once, mirrored" rule
   mechanical.
+- **Who generates** (M1 review, P1-1 and P1-2):
+  - The export is a `#[cfg(test)]` module in the shell crate,
+    `apps/desktop/src-tauri/src/generated_types.rs`. The shell is the only
+    crate that depends on every `fm-*` crate, and M6's own boundary types live
+    in its private `tools` module, which only an in-crate unit test can name.
+    The first implementation put the test in `fm-tarpack`, which cannot see
+    either.
+  - One `EXPORTERS` list names every root type. `generated_types_are_current`
+    compares a fresh temp-dir export with the committed folder.
+  - With `UPDATE_GENERATED=1`, the same test rewrites the folder: it clears
+    everything except `.gitkeep`, then copies the fresh export in. It refuses
+    to run when `CI` is set.
+  - `#[ts(export)]` is not used. `.cargo/config.toml` points
+    `TS_RS_EXPORT_DIR` into `target/` as a backstop, so a stray one cannot
+    write `./bindings` into a crate.
+  - `.gitattributes` forces LF in `lib/generated/`, because the Windows runner
+    checks out CRLF by default and the byte comparison would fail.
+- **One `ts-rs` path** (P3-10): `ts-rs` is declared once in
+  `[workspace.dependencies]`, and each crate with boundary types depends on it
+  directly (`{ workspace = true }`). The derive expands to `::ts_rs` paths, so
+  the first implementation's `pub use ts_rs` re-export from `fm-core` is
+  dropped.
 - Session state (the loaded manifest, the assignments, the output path, the
   chosen archive format) lives in Rust as Tauri-managed state. Every tarpack
   command returns a full `TarpackSession` snapshot, and the UI renders it. The
@@ -126,22 +172,57 @@ npm run tauri:build                                # portable Windows exe (tauri
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-npm run typecheck && npm run lint && npm run test  # frontend (vitest)
+npm run typecheck && npm run lint && npm run test  # frontend (vitest; lint includes jsx-a11y)
+UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current   # regenerate lib/generated/
 ```
 
-CI (GitHub Actions) has two jobs:
+`npm run lint` includes `eslint-plugin-jsx-a11y` (recommended), from M1
+(P3-9). Accessibility is a requirement, so the lint is in place before the
+first UI task, not added by it.
 
-- **ubuntu-latest:** fmt, clippy, and tests for the `fm-*` crates, plus the
-  frontend typecheck, lint, and tests. Needs a C compiler (preinstalled).
-- **windows-latest:** tests for the `fm-*` crates, plus `tauri build
-  --no-bundle`, on the MSVC toolchain. This is the authoritative platform. M7
-  uploads the exe as an artifact.
+CI (GitHub Actions) has two jobs. **Both run `cargo test --workspace`**, so
+the shell crate's tests run on both platforms (P1-2). Those include the
+generated-types checks and M6's `tools::tarpack` tests.
+
+- **ubuntu-latest:**
+  - installs `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libsoup-3.0-dev`, and
+    `libjavascriptcoregtk-4.1-dev`, then builds the frontend;
+  - runs fmt, then clippy and tests for the whole workspace;
+  - runs the frontend typecheck, lint, and tests;
+  - runs the tauri-dependency check on the `fm-*` crates.
+
+  It needs a C compiler, which is preinstalled.
+- **windows-latest:**
+  - builds the frontend;
+  - runs `cargo test --workspace`, then `tauri build --no-bundle`, on the
+    MSVC toolchain.
+
+  This is the authoritative platform. M7 uploads the exe as an artifact.
+
+Rejected alternative: keep Linux on `fm-*` only and run the workspace tests
+only on Windows. That leaves the fast job blind to the shell crate, and the
+Linux container used by agents already has the webkit packages. Running both
+costs CI minutes and nothing else.
+
+**Tauri-dependency check** (P2-4, re-review B): for each `fm-*` crate:
+
+1. `cargo pkgid -p <crate>` must succeed. With `-i`, `cargo tree` ignores a
+   `-p` that matches nothing: it exits 0 and prints the whole inverse tree. So
+   without this step a misspelled name would pass, or fail for the wrong
+   reason.
+2. `cargo tree -p <crate> -i tauri -e normal,build,dev` must then fail with
+   cargo's "did not match any packages" message.
+
+The first implementation passed on any non-zero exit. Success (tauri found)
+or any other failure now fails the step.
 
 ### 2.5 Distribution *(decided, Q8)*
 
 A **portable `.exe`**, no installer. `npm run tauri:build` runs
-`tauri build --no-bundle`. The frontend is embedded in the binary. Consequences
-M7 handles:
+`tauri build --no-bundle`. The frontend is embedded in the binary.
+`tauri.conf.json` has `bundle.active: false` and **no `bundle.targets`**. The
+first implementation's `"targets": ["nsis"]` named an installer and is removed
+(M1 review, P3-6). Consequences M7 handles:
 
 - The C runtime is linked statically (`+crt-static` for
   `x86_64-pc-windows-msvc`), so the exe runs without the VC++ redistributable.
@@ -150,6 +231,33 @@ M7 handles:
   Windows 10/11. It cannot bootstrap it. The README states the requirement.
 - State stays in `%APPDATA%\FileManager\` (Q5), not beside the exe. "Portable"
   means no installer, not a self-contained data folder.
+
+### 2.6 Webview security *(decided by the planner, M1 review P3-7)*
+
+The first implementation shipped `"csp": null`. M1 replaces it with:
+
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost;
+object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+```
+
+- The app loads nothing remote. `connect-src ipc: http://ipc.localhost` is
+  what Tauri v2 IPC needs on Windows.
+- Inline styles are allowed because React `style` attributes are a normal UI
+  tool (for example a progress bar width). Inline scripts are not allowed.
+  `dangerousDisableAssetCspModification: ["style-src"]` stops Tauri appending
+  hashes to `style-src`, which would otherwise make browsers ignore
+  `'unsafe-inline'`. Tauri still hashes `script-src`.
+- `devCsp` adds the Vite dev server (`ws://` and `http://localhost:1420`) to
+  `connect-src`. If React-refresh needs it, `devCsp` also gets
+  `script-src 'unsafe-inline'`, and the production policy stays unchanged.
+- `tauri:dev` cannot run in the Linux agent container, so `devCsp` is
+  unverified at implementation time. A one-time `npm run tauri:dev` on
+  Windows, done by the human or orchestrator, is part of M1 landing
+  (re-review C). If it shows a CSP violation, only `devCsp` is loosened.
+- Changing the CSP is a reviewed decision, recorded in `CLAUDE.md`
+  Invariants.
 
 ## 3. The manifest and the archive
 
@@ -470,6 +578,42 @@ Added after the ui-designer's contract review:
     M7 end-to-end check shows it failing in the packaged exe, a follow-up
     backend task adds `tauri-plugin-clipboard-manager` with a
     `writeClipboardText` wrapper.
+
+Added after the M1 review (2026-09-29):
+
+15. **The ts-rs export lives in the shell crate** and has an opt-in update
+    mode (`UPDATE_GENERATED=1`). Both CI jobs run `cargo test --workspace`,
+    and Linux installs the webkit2gtk dev packages. See §2.3 and §2.4.
+16. **Only `tools::register` calls `invoke_handler` and `setup`**, once each.
+    Tool modules contribute command fns and state constructors. See §2.2.
+17. **The tauri-dependency check matches cargo's message**, not just the exit
+    code. See §2.4.
+18. **"Both CI jobs green on the pushed branch" stays M1's done condition.**
+    The implementer cannot prove it before a push, so the implementer run ends
+    at local checks and review. The orchestrator pushes and confirms, and M1 is
+    not landed until then. Re-review C adds a second landing condition: a
+    one-time `npm run tauri:dev` on Windows (§2.6).
+19. **No bundle targets; restrictive CSP.** See §2.5 and §2.6.
+20. **RTL cleanup is explicit** (`afterEach(cleanup)` in `test-setup.ts`),
+    because the Vitest config keeps `globals: false`.
+21. **`eslint-plugin-jsx-a11y` lands in M1**, not in U1. See §2.4.
+22. **`ts-rs` is a workspace dependency used directly by each crate.**
+    `fm-core` does not re-export it. See §2.3.
+
+Added after the M1 re-review (2026-09-29):
+
+23. **The hook test counts code lines only.** It skips lines whose trimmed
+    start is `//` in every file it scans. Without that, the `//!` example in
+    `tools/mod.rs` would make M6's correct code fail. See §2.2.
+24. **The tauri-dependency check verifies each crate with `cargo pkgid` first.**
+    See §2.4.
+25. **The `TS_RS_EXPORT_DIR` backstop gets a one-time manual check in M1.**
+    M1 temporarily adds a probe type with `#[ts(export)]`, confirms it lands
+    in `target/ts-rs-stray/` and not in `bindings/`, then reverts.
+26. **Parallel M4 and M5 regenerate, never merge.** Both append to `EXPORTERS`
+    and regenerate `lib/generated/`. Whichever merges second re-runs the
+    regenerate command after resolving `EXPORTERS`, and never hand-merges
+    generated files.
 
 ### 6.3 UI-facing contract changes (for the ui-designer)
 

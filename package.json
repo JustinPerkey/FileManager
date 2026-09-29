@@ -1,0 +1,12 @@
+{
+  "name": "filemanager-root",
+  "private": true,
+  "workspaces": ["apps/desktop"],
+  "scripts": {
+    "tauri:dev": "npm run tauri -w apps/desktop -- dev",
+    "tauri:build": "npm run tauri -w apps/desktop -- build --no-bundle",
+    "typecheck": "npm run typecheck -w apps/desktop",
+    "lint": "npm run lint -w apps/desktop",
+    "test": "npm run test -w apps/desktop"
+  }
+}
