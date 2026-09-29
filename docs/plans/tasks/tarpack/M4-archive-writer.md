@@ -6,10 +6,11 @@ partial-results follow-up)
 
 ## Goal
 
-Given a validated manifest, a Windows source file for every entry, and a chosen
-output format, write a correct archive atomically, verify it, and report a
-summary. The archive stores absolute names and is uncompressed, gzip, zstd, or
-xz.
+Given a manifest's parse report, a Windows source file for every entry that
+passed validation, and a chosen output format, write a correct archive of the
+passed entries atomically, verify it, and return a summary that is also the
+build's final report: it names every entry left out and every manifest error.
+The archive stores absolute names and is uncompressed, gzip, zstd, or xz.
 
 ## Context
 
@@ -22,12 +23,39 @@ What earlier tasks provide:
   output formats, and the extraction commands are documented in
   `docs/tarpack-manifest.md`. Read it.
 - **M3, partial results.** `manifest::parse(text)` returns a `ParseReport`
-  (`manifest`, `entries_withheld`, `errors`, `failures`, `warnings`,
-  `is_valid()`), and `load` returns `LoadedManifest { path, sha256, report }`.
-  A manifest file with errors still yields a `Manifest`, holding only the
-  entries that passed, and `Manifest::is_complete()` is then `false`.
-  Building such a manifest would silently leave out files the manifest lists,
-  so this task's plan builder refuses it (below).
+  (Clone, Debug):
+
+  ```rust
+  pub struct ParseReport {
+      pub manifest: Manifest,          // passed entries only, manifest order
+      pub entries_withheld: bool,      // a manifest-level error hides every entry
+      pub errors: Vec<Diagnostic>,     // manifest-level errors
+      pub failures: Vec<EntryFailure>, // failed [[file]] tables, manifest order
+      pub warnings: Vec<Diagnostic>,
+  }
+  // is_valid(): errors and failures both empty
+  // error_count() -> u32: errors.len() + every failure's errors.len()
+  ```
+
+  `load` returns `LoadedManifest { path, sha256, report }`. A manifest file
+  with errors still yields a `Manifest` holding only the entries that passed
+  (`Manifest::is_complete()` is then `false`, a description only).
+  `EntryFailure { index: u32, id: Option<String>, source: Option<String>, line: u32, errors: Vec<Diagnostic> }`
+  and `Diagnostic` are exported to TS already (`lib/generated/EntryFailure.ts`,
+  `Diagnostic.ts`). The rules for which entries pass are in
+  `docs/tarpack-manifest.md` ("When the manifest has errors").
+- **Building with errors** (decided by the human, 2026-09-29: *"A single
+  error does not block builds but is included as an error in the final
+  report."*). Errors do not stop a build. This task builds the passed
+  entries, and carries every failed entry (with all its errors), every
+  manifest-level error, and every warning into the `BuildSummary`, which is
+  the build's final report. That is how "never silent" is kept: nothing the
+  manifest lists is left out of an archive unless the result of that same
+  build names it. The only error-related refusal is when no entry passed
+  (entries withheld, every entry failed, or the manifest lists none):
+  there is nothing to build. The report goes back to the caller only.
+  Nothing about it is written into the archive, and no sidecar or log file
+  is written.
 - **M3** also provides `fm_tarpack::format`: `ArchiveFormat { Tar, TarGz,
   TarZst, TarXz }`, `extension()`, `extract_command(file_name)`, and the
   decided constants `GZIP_LEVEL = 6`, `ZSTD_LEVEL = 19`,
@@ -129,6 +157,12 @@ encoder chosen by format:
 - Destructive operations are never silent. An existing output file is replaced
   only when the caller passes `overwrite = true`. A failure part way through
   leaves no output file and no temp file, and names the entry that failed.
+- Leaving an entry out is never silent. A plan can only be made from a whole
+  `ParseReport`, and every successful build's `BuildSummary` lists what was
+  left out and why. There is no API that plans an archive from a bare
+  `Manifest`.
+- The archive holds exactly the passed entries and their parent
+  directories: no extra entry, comment, or metadata about the errors.
 - Tests never touch real user files; everything happens in a `TempDir`.
 - **No test ever runs `tar` with `-P` in extract mode.** That would write to the
   real `/`. System-tar tests list with `-tPf` (read-only), or extract
@@ -170,7 +204,9 @@ encoder chosen by format:
 - `.github/workflows/ci.yml`, only if a C compiler install step is needed
 - `apps/desktop/src-tauri/src/generated_types.rs`: append the exporters for
   `BuildSummary`, `NormalizedEntry`, `Progress`, and `BuildPhase` (and any
-  other boundary type this task adds). Change nothing else in the file.
+  other boundary type this task adds). `BuildSummary` references M3's
+  `EntryFailure` and `Diagnostic`; `export_all` rewrites them unchanged, and
+  their generated files must not change. Change nothing else in the file.
 - Regenerated TS types in `apps/desktop/src/lib/generated/`, written by the
   regenerate command
 
@@ -178,15 +214,23 @@ Do not change the manifest or format modules, except to add getters you need.
 
 ## Design
 
-- **`ArchivePlan::new(&Manifest, &Assignments) -> Result<ArchivePlan, PlanError>`**
-  - A pure function returning the ordered list of `PlannedEntry::Dir { path }`
-    and `PlannedEntry::File { id, source, path, mode, owner, normalize_eol }`.
+- **`ArchivePlan::new(&ParseReport, &Assignments) -> Result<ArchivePlan, PlanError>`**
+  - A pure function. It plans from `report.manifest` (the passed entries)
+    and returns the ordered list of `PlannedEntry::Dir { path }` and
+    `PlannedEntry::File { id, source, path, mode, owner, normalize_eol }`.
     `path` is the absolute stored name.
-  - First, `PlanError::ManifestIncomplete` when `!manifest.is_complete()`,
-    before looking at assignments. This is the library-level guard behind
-    M6's `canBuild`; it must not be possible to plan an archive from a
-    manifest that had errors.
-  - `PlanError::Unassigned(Vec<id>)` lists every entry without a source.
+  - It also copies the rest of the report into the plan, as the build's
+    report: `left_out: Vec<EntryFailure>` (`report.failures`, in order),
+    `manifest_errors: Vec<Diagnostic>` (`report.errors`), `warnings`
+    (`report.warnings`), and `error_count` (`report.error_count()`). It does
+    **not** refuse because the report has errors.
+  - First, `PlanError::NoEntries` when `report.manifest.entries()` is empty
+    (entries withheld, every entry failed, or none listed), before looking
+    at assignments. There is nothing to build.
+  - Then `PlanError::Unassigned(Vec<id>)` lists every passed entry without a
+    source. Failed entries need no source; they are not in the archive.
+  - There is no public constructor that takes a bare `&Manifest`, so no
+    caller can plan the passed entries without their report.
 - **`write_archive(plan, out_path, format, overwrite, progress: impl FnMut(Progress)) -> Result<BuildSummary, BuildError>`**
   1. If `out_path` exists and `overwrite` is false, return
      `BuildError::OutputExists` before touching anything.
@@ -224,7 +268,20 @@ Do not change the manifest or format modules, except to add getters you need.
      - `extract_command`: `format.extract_command(<output file name, display string>)`;
      - `normalized_entries: Vec<NormalizedEntry { id, crlf_replaced: u64 }>`,
        listing every `normalize_eol` entry, including those with 0
-       replacements.
+       replacements;
+     - the final report, from the plan:
+       - `built_ids: Vec<String>`: the ids of the file entries written, in
+         archive order;
+       - `left_out: Vec<EntryFailure>`: every failed entry, none of which is
+         in the archive, each with all its errors;
+       - `manifest_errors: Vec<Diagnostic>`: the manifest-level errors;
+       - `warnings: Vec<Diagnostic>`;
+       - `error_count: u32`: `manifest_errors.len()` plus every `left_out`
+         entry's errors; 0 means the archive holds every entry the manifest
+         lists.
+
+     A failed build returns its `BuildError` as before; the report travels
+     only in a successful build's summary.
 - `Progress { phase: BuildPhase /* Writing | Verifying */, entry_id: Option<String>, bytes_done: u64, bytes_total: u64 }`.
   The rules are a UI contract; implement them exactly:
   - Both phases use the same `bytes_total`, the uncompressed stream size.
@@ -239,15 +296,27 @@ Do not change the manifest or format modules, except to add getters you need.
   - On failure, events stop at the point of failure.
   - There is no third phase.
   `BuildSummary`, `NormalizedEntry`, `Progress`, and `BuildPhase` derive
-  `ts_rs::TS` with camelCase field names.
+  `ts_rs::TS` with camelCase field names. The generated `BuildSummary` is
+  `{ path, format, entries, files, dirs, bytes, uncompressedBytes, sha256Hex, extractCommand, normalizedEntries, builtIds, leftOut, manifestErrors, warnings, errorCount }`,
+  with `leftOut: Array<EntryFailure>`, `manifestErrors` and `warnings` as
+  `Array<Diagnostic>`, and every number as `number`.
 - `BuildError` variants: `OutputExists`, `SourceMissing`, `SourceUnreadable`,
   `SourceChanged { id }`, `Io`, `VerifyFailed`. Each carries the entry id where
   there is one.
 
 ## Acceptance criteria
 
-- `ArchivePlan::new` refuses a manifest that is not complete
-  (`PlanError::ManifestIncomplete`), whatever its assignments.
+- A report with failed entries or manifest-level errors, but at least one
+  passed entry, plans and builds: the archive holds exactly the passed
+  entries and their directories, and the summary's `left_out`,
+  `manifest_errors`, `warnings`, and `error_count` equal the report's.
+- `ArchivePlan::new` fails with `PlanError::NoEntries`, whatever the
+  assignments, when no entry passed: entries withheld, every entry failed, or
+  a valid manifest with no entries.
+- A valid report builds with `left_out` and `manifest_errors` empty and
+  `error_count == 0`.
+- Nothing about the errors is written into the archive, and the build
+  writes no file other than the output.
 - For every format, the archive round-trips exact names, modes, owners, mtimes,
   sizes, and bytes.
 - **Every stored name begins with `/`**, including names of 100 bytes or more,
@@ -277,12 +346,27 @@ Do not change the manifest or format modules, except to add getters you need.
 ## Tests proving completion
 
 `cargo test -p fm-tarpack archive`. All tests run in a `TempDir`, with fixture
-manifests built through M3's `parse` (take `report.manifest` after asserting
-`report.is_valid()`):
+reports built through M3's `parse` (pass the `ParseReport` to
+`ArchivePlan::new`; for fixtures meant to be valid, assert
+`report.is_valid()` first):
 
-- `plan_refuses_incomplete_manifest`: a fixture with one valid and one
-  broken `[[file]]` (for example `mode = "9"`), every passed entry assigned,
-  gives `PlanError::ManifestIncomplete`
+- `plan_builds_passed_entries_and_carries_failures`: `a` valid, `b` with
+  `mode = "9"`, `c` valid, and `name = ""`; `a` and `c` assigned, `b` not →
+  the plan has `a` and `c` only, `left_out` is `[b]` with its error,
+  `manifest_errors` has the name error, and `error_count == 2`
+- `plan_refuses_when_no_entry_passed`: table-driven over `version = 2`
+  (withheld), a manifest whose only entry fails, and a valid manifest with
+  no `[[file]]` → `PlanError::NoEntries` in each, even with assignments
+- `unassigned_ignores_failed_entries`: with `b` failed and unassigned, and
+  every passed entry assigned, planning succeeds
+- `build_with_errors_writes_only_passed_entries_and_reports_them`: build the
+  first fixture for one format; read the archive back and assert its entries
+  are exactly `a`, `c`, and their directories (nothing mentions `b` or the
+  errors); the summary's `built_ids == ["a", "c"]`, `left_out`,
+  `manifest_errors`, `warnings`, and `error_count` equal the report's; the
+  output directory holds only the output file
+- `valid_build_reports_no_errors`: a valid fixture → `left_out` and
+  `manifest_errors` empty, `error_count == 0`, `built_ids` every entry
 
 - `round_trip_preserves_headers`: parameterised over all four formats
 - `stored_names_are_absolute`: every entry's `path_bytes()` starts with `b'/'`
@@ -326,7 +410,9 @@ manifests built through M3's `parse` (take `report.manifest` after asserting
 - `summary_hash_computed_during_verify_matches_file`: the summary hash equals
   a fresh SHA-256 of the persisted file, for all four formats
 - `generated_types_use_number`: the generated `BuildSummary.ts`, `Progress.ts`,
-  and `NormalizedEntry.ts` contain no `bigint`
+  and `NormalizedEntry.ts` contain no `bigint`, and `BuildSummary.ts` has
+  `errorCount: number` and imports `EntryFailure` and `Diagnostic` rather
+  than redefining them
 - `zstd_frame_window_is_bounded`: read the frame header of the output (for
   example with `zstd::zstd_safe` frame parameters, or by parsing the
   Window_Descriptor), and assert a window of at most 8 MiB (2^23)
@@ -347,6 +433,8 @@ jobs are green. Both jobs run `cargo test --workspace`.
 
 - Drop matching and remembered locations or format (M5).
 - Tauri commands and threading, output-extension handling (M6).
+- Persisting the report anywhere (a sidecar, a log, or inside the archive).
+  It is returned to the caller only.
 - Multithreaded compression, zstd long mode, xz presets above 6, other formats.
 - Static CRT linking for the release exe (M7).
 

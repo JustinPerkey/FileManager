@@ -10,7 +10,9 @@ Project: tarpack   Depends on: M1 (landed)
 Turn a manifest file into a `ParseReport`: a `Manifest` holding the entries
 that passed validation, one failure record per entry that did not, the
 manifest-level errors, and the warnings, each diagnostic with a line and
-column. Only a manifest with no errors at all can be built. Define the `ArchiveFormat` enum shared by
+column. Errors do not block a build: the archive writer (M4) builds the
+passed entries and carries this report's failures and errors into the build's
+result, so the report must be complete and exact. Define the `ArchiveFormat` enum shared by
 the writer and the remembered state. Write the manifest and archive reference
 doc that later tasks use as the single source of the format.
 
@@ -90,8 +92,9 @@ starts with ``file `<id>`: ``. If the table has no `id` that is a
 **non-empty** string (no `id`, a non-string `id`, or `id = ""`), `entry_id` is
 `None` and the message starts with `[[file]] #<n>: `, `n` being the 1-based
 position of the table. That applies to every error from that table, including
-`id must not be empty` itself and the cross-entry errors below. Any error makes
-the manifest unbuildable; "Partial results" below says what is still shown.
+`id must not be empty` itself and the cross-entry errors below. An error
+fails the entry it belongs to, or is a manifest-level error; "Partial
+results" below says what is still shown and built.
 
 - `version` is not `1`.
 - Top-level `name` is empty. (Only non-empty is required. The separator and
@@ -204,11 +207,19 @@ trusted:
   empty; `output_name` of the wrong type, empty, or containing a separator or
   NUL. The partial manifest's name is then the empty string, and its
   `output_name` is `None`.
-- **Building is blocked while any error exists**, manifest-level or entry.
-  Building only the passed entries would silently leave out files the
-  manifest lists, which the "never silent" rule forbids. `Manifest::is_complete()`
-  is `true` only when the report has no errors, and the archive plan builder
-  (M4) refuses an incomplete manifest. Warnings never block.
+- **Errors do not block building** (decided by the human, 2026-09-29: *"A
+  single error does not block builds but is included as an error in the
+  final report."*). The archive is built from the passed entries. The
+  archive plan builder (M4) takes the whole `ParseReport`, so every failed
+  entry and every manifest-level error travels into the build's result as
+  an error, with the warnings. That is how the "never silent" rule is met: a
+  file the manifest lists is never left out of an archive without the
+  build's own result naming it. When no entry passed (entries withheld,
+  every entry failed, or none listed) there is nothing to build. This task
+  builds nothing; its part is that the report is complete and exact,
+  because the build result will show it as it is. Warnings never block.
+  `Manifest::is_complete()` describes whether the manifest holds every entry
+  its file lists; it is not a build gate.
 
 `docs/tarpack-manifest.md` states these rules too.
 
@@ -374,8 +385,9 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
   - Constructible only through validation, so no later code can hold an
     invalid entry. A `Manifest` from a report with errors holds only the
     passed entries, and says so: `pub fn is_complete(&self) -> bool` is
-    `false`. Code that builds an archive checks it (M4's plan builder refuses
-    an incomplete manifest).
+    `false`. This is a description, not a build gate: M4's plan builder
+    takes the whole `ParseReport`, so the failures travel with the passed
+    entries into the build's result.
   - `dir_mode` and the default owner are also resolved and exposed.
 - `Diagnostic { severity, line, col, entry_id: Option<String>, message }`
 - `pub fn load(path: &Path) -> Result<LoadedManifest, LoadError>`:
@@ -389,7 +401,9 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
 - `pub fn parse(text: &str) -> ParseReport` holds the pure core that the tests
   exercise.
 - `ParseReport` (Rust only, not exported; M6 builds its session from the
-  parts):
+  parts, and M4's `ArchivePlan::new` takes it by reference to carry the
+  failures, errors, and warnings into the build's result). It derives
+  `Clone` and `Debug`:
 
   ```rust
   pub struct ParseReport {
@@ -404,6 +418,9 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
       pub fn error_count(&self) -> u32; // errors.len() + every failure's errors.len()
   }
   ```
+
+  `error_count()` is the number a build's result reports as its errors, so
+  it counts every error exactly once.
 
   Invariants, which the tests check on every report they build:
   `manifest.is_complete() == is_valid()`; `entries_withheld` implies
@@ -481,7 +498,8 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
   formats, and the extraction commands with `-P`.
 - A manifest with errors yields a report whose passed entries, failures,
   manifest-level errors, and `entries_withheld` follow "Partial results"
-  exactly, and whose `Manifest` is incomplete.
+  exactly, and whose `Manifest` is incomplete. Nothing in the crate treats
+  `is_complete()` or `is_valid()` as a reason to refuse building.
 - Every error from a `[[file]]` table without a non-empty string `id`,
   `id must not be empty` included, starts with `[[file]] #<n>: ` and has
   `entry_id: None`.
@@ -817,6 +835,11 @@ API under Design, and the both-entries reporting of cross-entry errors. P1
 (the empty-id prefix) comes first because P2 and P3 build on the attribution
 it introduces. P8 lists small review nits to fix in the same run.
 
+Errors do **not** block building (the human's decision, stated under
+"Partial results"). Nothing in this run refuses to build or treats
+`is_complete()` / `is_valid()` as a gate: the API is a complete, exact
+report, and M4 carries it into the build's result.
+
 ### P1. An empty `id` is attributed by position
 
 Today `raw.rs` already reports a `[[file]]` table with `id = ""` under
@@ -901,7 +924,9 @@ Implement the API under Design exactly.
   derives under Design), and a private `complete: bool` on `Manifest`, set by
   `Manifest::new`'s new last parameter, with `pub fn is_complete(&self) -> bool`.
   Its doc comment says a `Manifest` that is not complete holds only the
-  entries that passed, and must never be built.
+  entries that passed, and that building one is allowed only through the
+  whole `ParseReport` (M4's `ArchivePlan::new`), so that what was left out
+  is reported. Do not write "must never be built".
 - `crates/fm-tarpack/src/manifest/raw.rs`: `RawFileSlot` gains, besides P1's
   `index`, `source: Option<String>` (read from the raw table like `id`, when
   it is a string) and `at: usize` (the table's span start: its `[[file]]`
@@ -921,7 +946,8 @@ Implement the API under Design exactly.
     when it passed its rule, else `None`; `dir_mode` and the default owner as
     resolved (built-in values where `[defaults]` failed); `complete` is
     `is_valid()`.
-  - `validate` returns `ParseReport` instead of a `Result`.
+  - `validate` returns `ParseReport` instead of a `Result`. `ParseReport`
+    derives `Clone` and `Debug`.
 - `crates/fm-tarpack/src/manifest/mod.rs`:
   - `parse(text) -> ParseReport`. The syntax-error path returns the report
     described under Design (empty incomplete manifest, withheld, the one
@@ -1032,8 +1058,13 @@ In `crates/fm-tarpack/src/manifest/tests.rs`:
   the "Partial results" rules under Validation, in the reference doc's own
   words: which entries are shown, what a failure record lists, which
   manifest-level errors hide every entry and why, which do not, that
-  fixing a failed entry can reveal a new collision, and that nothing can be
-  built until every error is fixed (warnings never block).
+  fixing a failed entry can reveal a new collision, and what building does
+  while errors exist: the archive holds only the entries that passed; every
+  failed entry and every manifest-level error is listed as an error in the
+  build's result, with the warnings; nothing about the errors is written
+  into the archive or beside it; and when no entry passed there is nothing
+  to build. Warnings never block. (M4 implements the building; this section
+  documents the rule so the reference is complete.)
 
 ### P8. Review nits (small; fix in the same run)
 
