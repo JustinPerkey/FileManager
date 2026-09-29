@@ -170,8 +170,21 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
   `Diagnostic.line`/`col` are `u64`) carries `#[ts(type = "number")]`. Prefer
   `u32` for line, column, and mode.
 - Types that will cross to the UI derive `ts_rs::TS` and are exported to
-  `apps/desktop/src/lib/generated/` by the existing export test from M1.
-  Regenerate them, and never hand-edit.
+  `apps/desktop/src/lib/generated/` by the export test M1 created:
+  - The test lives in the shell crate, at
+    `apps/desktop/src-tauri/src/generated_types.rs`.
+  - Append one entry per root type to its `EXPORTERS` list, written
+    `<fm_tarpack::path::Type as ts_rs::TS>::export_all`. `export_all` also
+    writes the types a root references.
+  - Regenerate with the command recorded in `CLAUDE.md` Commands:
+    `UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current`.
+  - Commit the result. Never hand-edit a generated file.
+  - Do not use `#[ts(export)]`.
+  - Building the shell crate on Linux needs the webkit2gtk dev packages that
+    `CLAUDE.md` lists.
+- `ts-rs` is a workspace dependency. Add it to the crate as
+  `ts-rs = { workspace = true }`, and never pin a version in the crate. Derive
+  it as `ts_rs::TS` directly; `fm-core` does not re-export it.
 
 ## Files
 
@@ -179,7 +192,10 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
 - `crates/fm-tarpack/src/format.rs`: `ArchiveFormat` and the helpers above
 - `crates/fm-tarpack/src/lib.rs`
 - `crates/fm-tarpack/Cargo.toml`: adds `toml` (with spans), `serde`, `sha2`,
-  and `ts-rs`
+  and `ts-rs = { workspace = true }`
+- `apps/desktop/src-tauri/src/generated_types.rs`: append the exporters for
+  `Diagnostic`, `Severity`, `ArchiveFormat`, and `ManifestView` to `EXPORTERS`.
+  Change nothing else in the file.
 - `examples/tarpack/example.toml`: the manifest above, valid
 - `docs/tarpack-manifest.md`: **the reference for the format and for
   extraction.** Later task plans point here instead of restating the format. It
@@ -207,7 +223,8 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
     - `--zstd` needs GNU tar 1.31 or newer and the `zstd` program.
     - A listing without extraction is `tar -tvPf <file>` (with the matching
       decompression flag).
-- Regenerated `apps/desktop/src/lib/generated/*`
+- Regenerated `apps/desktop/src/lib/generated/*`, written by the regenerate
+  command above
 
 ## Design
 
@@ -284,8 +301,16 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
 - `extract_command_quotes_unsafe_names`
 - `default_format_follows_output_name_suffix`
 
-Also run `generated_types_are_current` and
-`cargo clippy -p fm-tarpack --all-targets -- -D warnings`.
+Also run:
+
+- `cargo test -p filemanager generated_types_are_current` (check mode, after
+  regenerating), and confirm that `lib/generated/` holds the four types and
+  what they reference;
+- `cargo clippy --workspace --all-targets -- -D warnings`, because the shell
+  crate changed too.
+
+Both CI jobs run `cargo test --workspace`, so they run the currency check
+too.
 
 ## Out of scope
 

@@ -14,9 +14,38 @@ build the whole tool without touching Rust.
 What exists:
 
 - **M1:** the Tauri shell `apps/desktop/src-tauri`, with the tool registry at
-  `src/tools/mod.rs`. Tool commands are prefixed `<tool>_`. The `ts-rs` export
-  goes to `apps/desktop/src/lib/generated/`, and `lib/tauri.ts` holds the
-  wrappers. Capabilities are in `capabilities/default.json`.
+  `src/tools/mod.rs`. Tool commands are prefixed `<tool>_`. `lib/tauri.ts`
+  holds the wrappers. Capabilities are in `capabilities/default.json`. The
+  CSP is in `tauri.conf.json`: IPC is allowed via `connect-src ipc:
+  http://ipc.localhost`, and nothing remote is allowed. This task needs no
+  CSP change; do not loosen it.
+- **M1, registry rule.** Tauri's `Builder::invoke_handler` and
+  `Builder::setup` each replace any earlier call. So:
+  - `tools::register` in `src/tools/mod.rs` is the only place that calls
+    them, once each;
+  - `src/lib.rs` already calls `tools::register(builder)` and must not
+    change;
+  - the test `tools::tests::builder_hooks_only_in_tool_registry` enforces the
+    rule. It scans the code lines of every `.rs` file under `src/` for
+    `.invoke_handler(` and `.setup(`. Lines whose trimmed start is `//`
+    (`//`, `///`, `//!`) are skipped in every file, so doc comments may name
+    these methods freely. In `tools/mod.rs` it counts at most one code line
+    with each, before `#[cfg(test)]`. Any other file with a code line
+    containing either fails. The `//!` example at the top of `tools/mod.rs` is
+    not counted, so your real calls there make each count exactly 1.
+- **M1, generated types.** The ts-rs export is the `#[cfg(test)]` module
+  `apps/desktop/src-tauri/src/generated_types.rs`, in this crate:
+  - its `EXPORTERS` list already holds the `fm_tarpack` types from M3–M5;
+  - you append this task's root types to it;
+  - regenerate with
+    `UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current`
+    (the PowerShell form is in `CLAUDE.md`);
+  - `#[ts(export)]` is not used;
+  - `ts-rs` is already a `[dependencies]` entry of this crate
+    (`{ workspace = true }`).
+- **M1, CI.** Both CI jobs run `cargo test --workspace`. Linux installs the
+  webkit2gtk dev packages to build this crate. Every test in this crate runs
+  on both platforms.
 - **M2:** `fm_core::{AppDirs, Store, FmError}`
 - **M3:** `fm_tarpack::manifest::{load, LoadedManifest, Diagnostic, ManifestView}`.
   `LoadedManifest.sha256` hashes the exact file bytes. The format is in
@@ -78,12 +107,33 @@ this API.
 
 ## Files
 
-- `apps/desktop/src-tauri/src/tools/{mod.rs, tarpack.rs}`: `tarpack.rs` may be
-  a folder module if it grows
-- `apps/desktop/src-tauri/src/lib.rs`: register through the tool registry
+- `apps/desktop/src-tauri/src/tools/tarpack.rs` (a folder module
+  `tools/tarpack/` if it grows). It contributes only:
+  - the `#[tauri::command]` functions, all named `tarpack_*`;
+  - a constructor for the managed `TarpackState`;
+  - if the watcher needs startup work, `pub(super) fn setup(app: &mut tauri::App)`.
+
+  It never receives or returns the `Builder`. Emitting events from the watcher
+  uses an `AppHandle` taken from the command that opens or reloads the
+  manifest, or from `setup`.
+- `apps/desktop/src-tauri/src/tools/mod.rs`: `register` gains:
+  - `.manage(tarpack::...)`;
+  - the crate's **single** `.invoke_handler(tauri::generate_handler![...])`,
+    listing every `tarpack_*` command;
+  - if needed, the single `.setup(...)` calling `tarpack::setup`.
+
+  Write each call as real code, chained on `builder`. Update the `//!` doc
+  example if the shape changes; it is a comment, so the hook test ignores it.
+  `src/lib.rs` is not edited.
+- `apps/desktop/src-tauri/src/generated_types.rs`:
+  - append the exporters for `TarpackSession`, `ArchiveFormatOption`,
+    `TarpackError`, `TarpackErrorKind`, and the event payload types;
+  - add the two tests below (`generated_types_have_no_bigint`,
+    `error_kind_is_string_union`) next to `generated_types_are_current`.
 - `apps/desktop/src-tauri/capabilities/default.json`
 - `apps/desktop/src-tauri/Cargo.toml`: adds `notify` (or
-  `notify-debouncer-mini`) and depends on `fm-core` and `fm-tarpack`
+  `notify-debouncer-mini`). It already depends on `fm-core`, `fm-tarpack`,
+  and `ts-rs` from M1.
 - `apps/desktop/src/lib/tarpack.ts`, `apps/desktop/src/lib/tauri.ts`, and
   their tests
 - Regenerated `apps/desktop/src/lib/generated/*`
@@ -301,7 +351,7 @@ and `onBuildProgress`, all typed from `lib/generated/`.
 
 ## Tests proving completion
 
-- `cargo test -p filemanager tools::tarpack`, over the plain-function core with
+- `cargo test -p filemanager tools::tarpack` (runs on both CI jobs), over the plain-function core with
   `AppDirs::at(TempDir)` and fixture files in the temp dir:
   - `session_restores_recent_manifest`
   - `open_restores_remembered_sources`
@@ -334,11 +384,14 @@ and `onBuildProgress`, all typed from `lib/generated/`.
   `@tauri-apps/api` mocked, checking that each wrapper calls the right command
   with the right arguments, including `setFormat` and `saveFileDialog` with
   `filters`.
-- `generated_types_are_current`
-- `generated_types_have_no_bigint`: scans `apps/desktop/src/lib/generated/` and
-  fails on any `bigint`
-- `error_kind_is_string_union`: asserts that the generated
-  `TarpackErrorKind.ts` is a union of string literals matching the table
+- In `apps/desktop/src-tauri/src/generated_types.rs`, all run by
+  `cargo test --workspace` on both CI jobs:
+  - `generated_types_are_current`: check mode, after regenerating;
+  - `generated_types_have_no_bigint`: scans `apps/desktop/src/lib/generated/`
+    (read-only) and fails on any `bigint`;
+  - `error_kind_is_string_union`: asserts that the generated
+    `TarpackErrorKind.ts` is a union of string literals matching the table.
+- `tools::tests::builder_hooks_only_in_tool_registry` still passes.
 - The CI shell build on Windows.
 
 ## Out of scope
@@ -348,7 +401,11 @@ and `onBuildProgress`, all typed from `lib/generated/`.
 
 ## Risks
 
-- The Linux CI job does not build the shell. The `tools::tarpack` tests must
-  therefore live where Linux CI can run them, or the Windows job must run them.
-  Put the plain-function core in a module that does not need the Tauri runtime,
-  and make sure one CI job actually runs these tests.
+- Both CI jobs build the shell and run its tests (M1), so the `tools::tarpack`
+  tests run on Linux and Windows. Keep the command logic as plain functions
+  that do not need a running Tauri app, so they stay fast and deterministic.
+  The handlers are thin glue.
+- `generated_types_have_no_bigint` and `error_kind_is_string_union` read the
+  committed files. Always regenerate before running them. Never run them in
+  the same `cargo test` invocation as update mode; the regenerate command's
+  filter already prevents this.

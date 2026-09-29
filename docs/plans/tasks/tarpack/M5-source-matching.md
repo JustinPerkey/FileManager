@@ -45,14 +45,32 @@ format per manifest, in the tool's state store).
   a display string.
 - Tests never touch real user files; build fixture trees in a `TempDir`.
 - The crate has no tauri dependency.
-- UI-facing types derive `ts_rs::TS`.
+- UI-facing types derive `ts_rs::TS` (via the workspace `ts-rs`
+  dependency, which M3 added to this crate). Export them through the export
+  test that M1 created:
+  - the test lives at `apps/desktop/src-tauri/src/generated_types.rs`;
+  - append one entry per root type to its `EXPORTERS` list,
+    `<fm_tarpack::path::Type as ts_rs::TS>::export_all`;
+  - regenerate with
+    `UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current`
+    (recorded in `CLAUDE.md`, with the PowerShell form);
+  - never hand-edit, and never use `#[ts(export)]`.
+- **Parallel with M4.** M4 also appends to `EXPORTERS` and
+  regenerates `lib/generated/`. If M4 merges first, resolve any conflict
+  in `EXPORTERS` by keeping both sets of entries. Then re-run the regenerate
+  command. Never hand-merge generated files. If you merge first, M4 does
+  the same.
 - No `bigint` crosses the boundary: any 64-bit integer field in an exported
   type carries `#[ts(type = "number")]`. `DropOutcome` currently has none.
 
 ## Files
 
 - `crates/fm-tarpack/src/sources/{mod.rs, assignments.rs, matching.rs, remembered.rs}`
-- Regenerated TS types
+- `apps/desktop/src-tauri/src/generated_types.rs`: append the exporters for
+  the UI-facing types this task adds (`EntryStatus`, `DropOutcome`). Change
+  nothing else in the file.
+- Regenerated TS types in `apps/desktop/src/lib/generated/`, written by the
+  regenerate command
 
 ## Design
 
@@ -129,7 +147,8 @@ format per manifest, in the tool's state store).
 
 `symlinks_not_followed` is marked `#[cfg(unix)]`.
 
-Also run `cargo clippy -p fm-tarpack --all-targets -- -D warnings`.
+Also run `cargo test -p filemanager generated_types_are_current` and
+`cargo clippy --workspace --all-targets -- -D warnings`.
 
 ## Out of scope
 

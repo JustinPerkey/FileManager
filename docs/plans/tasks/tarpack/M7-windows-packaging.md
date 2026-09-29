@@ -14,8 +14,12 @@ from Windows to extraction on the Linux target.
 - The app is a Tauri v2 shell at `apps/desktop/src-tauri`. Its settings are in
   `tauri.conf.json`. `npm run tauri:build` already runs `tauri build
   --no-bundle` (from M1), and the exe lands at `target/release/filemanager.exe`.
-- CI is `.github/workflows/ci.yml`. Its `windows-latest` job already runs
+- CI is `.github/workflows/ci.yml`. Its `windows-latest` job already builds
+  the frontend and runs `cargo test --workspace --locked` and then
   `npm run tauri:build` on the MSVC toolchain.
+- `tauri.conf.json` already has `bundle.active: false` with **no
+  `bundle.targets`**, and a restrictive CSP in `app.security` (from M1). Do not
+  add bundle targets. Do not loosen the CSP.
 - **Distribution is a portable `.exe`, with no installer** (the human's
   decision). There is no NSIS or MSI bundle.
 - **The exe links C code.** `fm-tarpack` depends on `zstd` (bundled libzstd)
@@ -24,7 +28,8 @@ from Windows to extraction on the Linux target.
 - **Static C runtime.** By default MSVC binaries import `vcruntime140.dll`,
   which a clean machine may lack, and a portable exe cannot install the VC++
   redistributable. Link the CRT statically for
-  `x86_64-pc-windows-msvc`, by adding to `.cargo/config.toml`:
+  `x86_64-pc-windows-msvc`. `.cargo/config.toml` already exists from M1, with
+  an `[env]` section setting `TS_RS_EXPORT_DIR`. Keep that section, and add:
 
   ```toml
   [target.x86_64-pc-windows-msvc]
@@ -63,7 +68,8 @@ from Windows to extraction on the Linux target.
 
 ## Files
 
-- `.cargo/config.toml`: static CRT for `x86_64-pc-windows-msvc` (above)
+- `.cargo/config.toml`: add the static-CRT target section (above), keeping
+  the existing `[env]` section
 - `apps/desktop/src-tauri/tauri.conf.json`: product name `FileManager`,
   identifier, version, and the icons embedded in the exe
 - `.github/workflows/ci.yml`, in the Windows job, after `tauri:build`:
@@ -158,7 +164,12 @@ Record each step with pass/fail and notes in `docs/tarpack-e2e.md`.
 ## Risks
 
 - `+crt-static` applies to every crate built for the target, including tests.
-  Confirm that `cargo test` still passes on the Windows job after adding it.
+  Confirm that `cargo test --workspace` still passes on the Windows job after
+  adding it.
+- The CSP (from M1) is `default-src 'self'` with IPC allowed and inline
+  styles allowed. If a view works under `tauri:dev` but misbehaves only in the
+  packaged exe, suspect the production CSP. Report the blocked directive; do
+  not remove or loosen the policy in this task.
 - Artifact size: exclude debug symbols from the uploaded artifact. Consider
   `strip = true` and `lto = true` in the release profile if the size is a
   problem. Do not change opt-level without measuring.
