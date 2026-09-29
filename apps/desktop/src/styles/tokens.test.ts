@@ -1,10 +1,5 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import css from "./tokens.css?raw";
 import { expect, test } from "vitest";
-// Vitest runs from apps/desktop (jsdom makes import.meta.url a non-file URL).
-const css = readFileSync(resolve(process.cwd(), "src/styles/tokens.css"), "utf8");
-
-
 
 function block(selectorStart: string): Record<string, string> {
   const start = css.indexOf(selectorStart);
@@ -19,6 +14,7 @@ function block(selectorStart: string): Record<string, string> {
 }
 
 function lum(hex: string): number {
+  expect(hex).toMatch(/^#[0-9a-f]{6}$/i);
   const n = parseInt(hex.slice(1), 16);
   const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => {
     const c = v / 255;

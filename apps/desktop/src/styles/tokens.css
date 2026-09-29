@@ -1,5 +1,5 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #f7f7f8;
   --surface: #ffffff;
   --surface-sunken: #eef0f2;
@@ -27,6 +27,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #16171a;
     --surface: #1e2024;
     --surface-sunken: #121316;
@@ -44,6 +45,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #16171a;
   --surface: #1e2024;
   --surface-sunken: #121316;
