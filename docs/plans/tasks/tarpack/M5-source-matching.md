@@ -1,7 +1,8 @@
 # M5 — Source matching and remembered locations
 
 Status: awaiting approval
-Project: tarpack   Depends on: M2 (landed), M3 (landed). May run alongside M4.
+Project: tarpack   Depends on: M2 (landed), M3 (landed, including its
+partial-results follow-up). May run alongside M4.
 
 ## Goal
 
@@ -16,6 +17,14 @@ What earlier tasks provide:
 - **M3:** `fm_tarpack::manifest`, with validated `Manifest` and `Entry`. Each
   entry has a stable `id` and a `source`, the expected Windows file name. The
   format is in `docs/tarpack-manifest.md`.
+- **M3, partial results.** `manifest::parse(text)` returns a `ParseReport`;
+  build test fixtures from `report.manifest` after asserting
+  `report.is_valid()`. A manifest file with errors still yields a `Manifest`
+  that holds only the entries that passed (`is_complete()` is `false`). M6
+  calls this task's matching and restore functions on such a manifest too,
+  so the user can assign files while fixing the manifest. The remembered
+  sources of entries that failed must survive that: see `restore_all`
+  below.
 - **M3:** `fm_tarpack::format::ArchiveFormat { Tar, TarGz, TarZst, TarXz }`
   (serde, `ts_rs::TS`), and `Manifest::default_format()`, which gives the format
   implied by the manifest's `output_name` suffix, or `Tar`.
@@ -105,6 +114,12 @@ format per manifest, in the tool's state store).
     stores all three.
   - `restore(&self, manifest_path, &Manifest) -> Assignments`. Ids no longer in
     the manifest are dropped. The next `remember` prunes them from state.
+  - `restore_all(&self, manifest_path) -> Assignments` returns every
+    remembered source for that manifest, unfiltered. M6 uses it instead of
+    `restore` when the manifest has errors, so that an entry which failed
+    validation (its id is not among the passed entries) keeps its remembered
+    file through the next `remember`: a typo in one entry must not erase
+    that entry's remembered location.
   - `restore_output(&self, manifest_path) -> Option<PathBuf>` returns the
     remembered last output.
   - `restore_format(&self, manifest_path, &Manifest) -> ArchiveFormat` returns
@@ -140,6 +155,10 @@ format per manifest, in the tool's state store).
 - `pick_accepts_any_name`
 - `remembered_locations_restore_with_missing_status`
 - `removed_ids_are_pruned`
+- `restore_all_keeps_ids_not_in_manifest`: remember sources for `a` and `b`,
+  then `restore_all` returns both while `restore` against a manifest with
+  only `a` returns only `a`; `remember` with the `restore_all` result keeps
+  `b` across a restart
 - `recent_manifests_mru_capped`
 - `last_format_restored_per_manifest`
 - `format_falls_back_to_output_name_then_tar`

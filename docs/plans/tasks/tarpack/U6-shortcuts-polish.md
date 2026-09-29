@@ -18,19 +18,39 @@ That loop must take a few keystrokes, not a mouse trip.
 **What exists.** Under `src/tools/tarpack/`:
 
 - `TarpackView.tsx`, `ManifestHeader.tsx` (Open…, Recent, Reload, Edit in
-  editor), and `ManifestErrors.tsx`;
+  editor), and `ManifestErrors.tsx`. A manifest with errors still opens:
+  entries that passed are in the table, and `ManifestErrors` is the **error
+  region** for the rest. It has a notice that is always visible while
+  `session.manifest.errorCount > 0` ("3 errors in this manifest", a
+  consequence line, a **Show errors** / **Hide errors** toggle, and Edit in
+  editor), and a collapsible, focusable report body
+  (`id="manifest-error-report"`) listing the whole-manifest errors and each
+  failed entry with all of its errors, through `FailureList.tsx` and
+  `DiagnosticList.tsx`. A polite live-region announcer in `TarpackView`
+  announces the error count after each open, reload, and session restore.
+  `TarpackView` has a `showErrors()` handler that expands the report and
+  moves focus to it (it does nothing when `errorCount` is 0);
 - `EntryTable.tsx`, with per-row Browse… and Clear, `EntryStatus.tsx`, and
   `EolMarker.tsx` (the non-interactive "CRLF → LF" marker on rows whose line
   endings are converted);
 - `DropResult.tsx`;
 - `BuildBar.tsx` (output path with Choose…, the **Format** picker — a labelled
-  native `<select>` over the four formats tar, gzip, zstd, xz — and the
-  **Create archive** button), `FormatPicker.tsx`, and `BuildProgress.tsx`
-  (two labelled steps, "Writing" then "Verifying", each 0 → 100%);
+  native `<select>` over the four formats tar, gzip, zstd, xz — the status
+  text, **Show errors** when the manifest has errors, and the **Create
+  archive** button), `FormatPicker.tsx`, and `BuildProgress.tsx` (two
+  labelled steps, "Writing" then "Verifying", each 0 → 100%). **Errors do
+  not block the build** (decided by the human): Create archive follows
+  `session.canBuild`, which is true with errors as long as at least one
+  entry passed, every passed entry is ready, and an output is chosen. The bar
+  then shows a note such as "2 files will be left out; errors will be listed
+  after the build";
 - `BuildResult.tsx`: on success, the SHA-256 and the target extraction command
   (for example `tar --zstd --no-overwrite-dir -xpPf gateway.tar.zst`), each
   with a **Copy** button, the list of entries whose line endings were
-  converted, and Show in folder; on error, a message and a Details
+  converted, and Show in folder; when the build left files out, a heading
+  such as "Created gateway.tar.zst with 2 files left out" and the final
+  report (`BuildReport.tsx`: Left out of the archive, Manifest errors,
+  Warnings) with **Copy report**; on error, a message and a Details
   disclosure.
 - `errorMessages.ts`: the single, exhaustive
   `Record<TarpackErrorKind, …>` of user-facing error copy (17 kinds). When
@@ -59,19 +79,27 @@ access to them; it adds no new behaviour.
 | Ctrl+O | Open manifest… | always |
 | F5 or Ctrl+R | Reload manifest | a manifest is loaded |
 | Ctrl+E | Edit in editor | a manifest is loaded |
-| Ctrl+Enter | Create archive | `session.canBuild` |
+| Ctrl+Enter | Create archive | `session.canBuild` (true even when the manifest has errors) |
+| F8 | Show errors: expand the error report and move focus to it (`showErrors()`) | a manifest is loaded and `errorCount > 0` |
 | Up / Down | Move between table rows | focus is in the table |
 | Enter | Browse… for the focused row | a row is focused |
 | Delete | Clear the focused row | the row is assigned |
-| Escape | Dismiss the drop result or build result | one is visible |
+| Escape | Dismiss the drop result or build result | one is visible (Escape never collapses the error report) |
 
 - Shortcuts are ignored while `ConfirmDialog` is open or a build is running.
 - Ctrl+R and F5 must not reload the webview; call `preventDefault`.
+- Ctrl+Enter follows `session.canBuild` only. Never add an `errorCount`
+  condition to it, and never open a dialog because errors exist: building
+  with errors is allowed, and the result reports what was left out.
+- F8 is the "go to errors" key (it is the next-error key in common Windows
+  editors, and sits beside F5 in this scheme). It calls the same
+  `showErrors()` as the bar's **Show errors**.
 - The table uses a roving `tabindex`: one row is in the tab order, and the
   arrow keys move between rows.
 - The Format picker gets no shortcut of its own: it is reached with Tab and
   operated with the native `<select>` keys (arrows, type-ahead, Alt+Down).
-  Verify that order: Choose…, Format, Create archive.
+  Verify that order: Choose…, Format, Show errors (only when the manifest has
+  errors), Create archive.
 - A **Keyboard shortcuts** help button in the header (a quiet `Button` with
   the `keyboard` icon and a visible label) opens a popover listing the table
   above. Use the native `popover` attribute, anchored under the button, with
@@ -79,7 +107,8 @@ access to them; it adds no new behaviour.
   not a modal. Render keys in `<kbd>` at `--font-size-sm` on
   `--surface-sunken` with a 1 px `--border`. Escape closes it and returns
   focus to the button. Visible shortcut hints (`title` and `aria-keyshortcuts`) go
-  on the corresponding buttons.
+  on the corresponding buttons, including `aria-keyshortcuts="F8"` on the
+  build bar's **Show errors**.
 
 ### Polish targets
 
@@ -99,15 +128,25 @@ access to them; it adds no new behaviour.
   no glyph icons; no literal `font-size`; no `box-shadow` except
   `--shadow-overlay`; no colored border thicker than 1 px except the drop
   overlay's dashed border and the focus ring.
-- The layout is intact at 200% text size and at the 800×560 minimum.
+- The layout is intact at 200% text size and at the 800×560 minimum,
+  including the worst case: the error report expanded, a build result with
+  its report, and the sticky bar all at once. The view scrolls, the table
+  and every control stay reachable, and nothing is clipped or overlaps the
+  bar.
 - No color-only meaning anywhere. Re-check the status icons, the CRLF → LF
-  marker, the progress step label, banners, and overlay.
+  marker, the progress step label, banners, overlay, the error region, the
+  bar's left-out note, and the result heading with files left out.
 - Long unbroken strings wrap or truncate as designed at 800 px and 200% text:
-  Windows paths (middle-truncated), long-name warning messages and the
-  extraction command (wrapped, never truncated).
+  Windows paths (middle-truncated), long-name warning messages, error
+  messages in both reports, and the extraction command (wrapped, never
+  truncated). Both reports stay within `40vh` and scroll inside themselves.
 - Consistent spacing on the `--space-*` scale, with no one-off pixel values.
 - All copy is plain and short. Re-read every string. Keep the no-manifest build bar
   honest: the Format picker (showing "tar (.tar)") and Choose… stay disabled.
+  Keep the error copy honest: say "error", never "problem"; nothing says
+  errors block or prevent building, except the "no files can be built"
+  cases; the summary never says "All … ready" while files are left out; and
+  nothing suggests the build report is saved or logged.
 
 **Rules that bind this task.**
 
@@ -159,7 +198,11 @@ How to run it:
 - Ctrl+R and F5 do not reload the webview.
 - Roving focus in the table works with Up and Down, and Enter and Delete act
   on the focused row.
-- The shortcuts help is reachable by keyboard and lists every shortcut.
+- The shortcuts help is reachable by keyboard and lists every shortcut,
+  including F8.
+- F8 moves focus to the error report when `errorCount > 0`, and does nothing
+  otherwise. Ctrl+Enter builds a `canBuild: true` session that has errors,
+  with no dialog.
 - The `/impeccable audit` report (with detector output, or a stated reason it
   could not run) has no open P0 or P1 findings, and its health score is
   included in your report.
@@ -167,17 +210,22 @@ How to run it:
   shows the accent dot. `DESIGN.md` no longer lists the drift.
 - The vocabulary sweep above finds nothing.
 - Axe passes with no violations on every `TarpackView` state: no manifest,
-  invalid, partial, ready, building (writing and verifying), success (with the
-  extraction command and normalised entries), and error.
-- Tab order through the build bar is Choose…, Format, Create archive, and the
-  Format picker is fully usable without a mouse.
+  errors with entries shown (report expanded and collapsed), errors with
+  entries withheld, partial, ready, ready with files left out, building
+  (writing and verifying), success (with the extraction command and
+  normalised entries), success with files left out (with the report), and
+  error.
+- Tab order through the build bar is Choose…, Format, Show errors (when the
+  manifest has errors), Create archive, and the Format picker is fully usable
+  without a mouse.
 
 ## Tests proving completion
 
 `npm run test`:
 
 - `useTarpackShortcuts.test.tsx`: each shortcut, its active and inactive
-  conditions, and suppression during the dialog and the build.
+  conditions (F8 with and without errors; Ctrl+Enter on a `canBuild: true`
+  session with errors), and suppression during the dialog and the build.
 - `EntryTable.keyboard.test.tsx`: roving focus, Enter, and Delete.
 - `ShortcutsHelp.test.tsx`: opens from the button by keyboard, lists every
   shortcut, and closes on Escape, returning focus.

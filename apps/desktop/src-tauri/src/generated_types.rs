@@ -15,7 +15,13 @@ type Exporter = fn(&ts_rs::Config) -> Result<(), ts_rs::ExportError>;
 /// `<path::Type as ts_rs::TS>::export_all`. `export_all` also writes the types
 /// it references. Later tasks append to this list (fm-tarpack types from M3
 /// onward, shell types from M6).
-const EXPORTERS: &[Exporter] = &[];
+const EXPORTERS: &[Exporter] = &[
+    <fm_tarpack::manifest::Diagnostic as ts_rs::TS>::export_all,
+    <fm_tarpack::manifest::Severity as ts_rs::TS>::export_all,
+    <fm_tarpack::format::ArchiveFormat as ts_rs::TS>::export_all,
+    <fm_tarpack::manifest::ManifestView as ts_rs::TS>::export_all,
+    <fm_tarpack::manifest::EntryFailure as ts_rs::TS>::export_all,
+];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");
 

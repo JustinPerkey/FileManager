@@ -19,6 +19,9 @@ hosts several independent tools; the first is the Tar Packager (`tarpack`).
 - `docs/plans/tasks/<slug>/` — task plans: one self-contained brief per
   implementer or ui-implementer run (`M<n>-*.md` backend, `U<n>-*.md` UI).
   `docs/plans/README.md` defines both kinds.
+- `.claude/settings.json` — enables the `impeccable` plugin (marketplace
+  `pbakaus/impeccable`): one skill, `impeccable:impeccable`, whose
+  sub-commands (`shape`, `critique`, `audit`, `polish`, …) the UI roles use.
 - `.claude/hooks/task-plan-only.mjs` — keeps the implementer subagents out of
   every plan except task plans.
 - `PRODUCT.md`, `DESIGN.md` — the `impeccable` skill's context: durable product
@@ -39,6 +42,10 @@ crates/
   fm-core/                    shared, tool-agnostic library. No tauri dependency.
   fm-tarpack/                 Tar Packager domain library. Depends on fm-core only.
                               No tauri dependency.
+    src/manifest/             parse, validate, model, views
+    src/format.rs             ArchiveFormat, compression constants
+examples/tarpack/             example manifests, valid, used by tests through include_str!
+docs/tarpack-manifest.md      the manifest, archive-layout, and extraction reference
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, eslint.config.js, index.html
   src-tauri/                  package and binary name: filemanager

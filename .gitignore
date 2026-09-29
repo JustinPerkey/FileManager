@@ -36,3 +36,6 @@ Thumbs.db
 # Tauri
 /apps/desktop/src-tauri/gen/
 /apps/desktop/src-tauri/target/
+
+# impeccable skill working files (critique snapshots)
+.impeccable/

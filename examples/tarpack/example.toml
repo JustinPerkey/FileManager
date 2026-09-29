@@ -1,0 +1,35 @@
+# Tar Packager manifest
+version = 1
+name = "Gateway deploy"
+output_name = "gateway.tar.zst"  # optional: suggested Save name; a known archive suffix also picks the default format
+
+[defaults]                       # optional table; each field optional; shown values are the built-in defaults
+mode = "0644"                    # file permissions, octal string
+dir_mode = "0755"                # permissions for directory entries the archive creates
+uid = 0
+gid = 0
+uname = "root"
+gname = "root"
+
+[[file]]
+id = "gateway-bin"               # stable key; last-used locations are stored against it
+source = "gateway"               # expected Windows file name; used to match drops
+dir = "/opt/gateway/bin"         # Linux directory inside the archive
+# name = "gateway"               # optional rename; defaults to `source`
+mode = "0755"                    # optional; defaults to defaults.mode
+# uid, gid, uname, gname         # optional per-file overrides of defaults
+
+[[file]]
+id = "gateway-conf"
+source = "gateway.conf"
+dir = "/etc/gateway"
+mode = "0640"
+gname = "gateway"
+gid = 990
+
+[[file]]
+id = "gateway-start"
+source = "start.sh"
+dir = "/opt/gateway/bin"
+mode = "0755"
+normalize_eol = true             # optional, per file only, default false: CRLF -> LF when writing

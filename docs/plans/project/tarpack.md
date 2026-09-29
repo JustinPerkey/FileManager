@@ -6,6 +6,13 @@ into §2–§4 and into every backend task plan. Decisions still marked
 *(proposed)* are the planner's recommendations that follow from those answers
 (§6.2). They stand unless the human overrides them.
 
+On 2026-09-29 the human overruled decision 34 ("building is blocked while any
+error exists"): *"A single error does not block builds but is included as an
+error in the final report."* §3.2.1 states the replacement rules, and
+decisions 37–41 record them with their reasons. The M3 partial-results
+follow-up, M4, and M6 are updated to match. The UI consequences are handed to
+the ui-designer (§5).
+
 UI project plan: [`tarpack-ui.md`](tarpack-ui.md). Task plans:
 [`../tasks/tarpack/`](../tasks/tarpack/).
 
@@ -313,21 +320,45 @@ accepted in `[defaults]`: conversion must be a deliberate per-file choice.
 
 ### 3.2 Validation
 
-Every error reports its line and column. A manifest with any error cannot be
-built. The rules:
+Every error reports its line and column. Every error inside a `[[file]]`
+table, including unknown keys, wrong types, and missing fields, names that
+entry's `id`. A table without a non-empty string `id` (no `id`, a non-string
+one, or `id = ""`) is named by position, `[[file]] #<n>: `, for every error
+from it, including `id must not be empty` (M3 re-review). A manifest with
+errors still builds from the entries that passed, and the build's report
+names everything it left out; §3.2.1 says what is shown and what is built.
+The rules:
 
 - `version` is supported.
+- The top-level `name` is non-empty. (That is its only rule; the separator
+  rules below are for the per-file `name`.)
 - Unknown keys are rejected, so typos surface instead of being ignored.
-- `id` values are unique and non-empty.
-- `dir` is an absolute POSIX path: it starts with `/`, has no `..` segments, no
-  backslashes, and no NUL.
-- `name` and `source` have no `/` or `\`.
+- `id` values are unique and non-empty. A duplicate is reported on every
+  table sharing the id.
+- `dir` is an absolute POSIX path: it starts with `/`, has no `..` or `.`
+  segments, no empty segment except a trailing `/`, no backslashes, and no
+  NUL. `.` is rejected because `/opt/./x` and `/opt/x` are the same directory
+  and would slip past the duplicate-target check (M3 review B2).
+- Per-file `name` and `source` are non-empty, have no `/`, `\`, or NUL, and
+  are not `.` or `..`.
 - `output_name`, when present, is non-empty and has no `/`, `\`, or NUL.
 - The final target paths (`dir` + `name`) are unique. Paths are compared
-  case-sensitively, because the target is Linux.
-- `mode` is octal and at most `07777`.
-- `uid` and `gid` fit in `u32`. `uname` and `gname` are at most 32 bytes.
+  case-sensitively, because the target is Linux. The error is reported on
+  both entries, each pointing at its `name` when set, else at its `dir`.
+- No target path is also a directory of another entry (equal to another
+  entry's `dir` or an ancestor of it), since the archive cannot hold
+  `/opt/gateway` as both a file and a directory (M3 review N5). Reported on
+  both entries.
+- `mode` and `dir_mode` are octal strings of 1 to 4 digits.
+- `uid` and `gid` fit in `u32`. `uname` and `gname` are 1 to 32 bytes.
 - `normalize_eol` is a boolean.
+
+**Reporting.** A TOML syntax error stops at the first. Everything else
+(unknown keys, missing fields, wrong types, and the rules above) is collected
+and reported together. The only limit is that one `[defaults]` or `[[file]]`
+table reports at most one wrong-type or missing-field error, and its value
+rules wait until it deserializes (M3 review B3). `docs/tarpack-manifest.md`
+states this.
 
 These produce **warnings**, not errors:
 
@@ -336,6 +367,78 @@ These produce **warnings**, not errors:
 - A stored path (the absolute target path, leading `/` included) is 100 bytes
   or longer. The writer then emits a GNU long-name record for it.
 - The manifest has no `[[file]]` entries.
+
+### 3.2.1 Partial results *(decided by the human, 2026-09-29)*
+
+The human's answer to the gap "an invalid manifest shows whatever entries
+were readable, but `parse` returns none": *show the ones that passed, collect
+the ones that failed in a report, and notify the user that there were
+errors.* The planner's rules for it:
+
+- **Passed** means no error is attributed to the entry's `[[file]]` table.
+  Warnings never fail an entry.
+- **Failed** entries become one `EntryFailure { index, id, source, line, errors }`
+  each, in manifest order, with every error of that table.
+- **Cross-entry errors fail every entry involved**: all tables sharing a
+  duplicate id (assignments and remembered sources are keyed by id, so
+  showing one would attach the other's file), both entries of a duplicate
+  target, and both entries of a file/directory collision. Each gets its own
+  diagnostic. Target comparisons see only tables that resolved, so fixing a
+  failed entry can reveal a new collision.
+- **Manifest-level errors that withhold every entry**: TOML syntax, a file
+  that is not UTF-8, `version` (missing, wrong type, not 1), any `[defaults]`
+  error, an unknown top-level key (possibly a misspelt `[defaults]`), and
+  `file` not being an array. Each means no entry can be read as its author
+  meant it. Entry failures from the same pass are still reported.
+- **Manifest-level errors that do not**: `name` and `output_name`. The name
+  falls back to the file stem in the session, and `output_name` to none.
+- **Errors do not block building** *(decided by the human, 2026-09-29,
+  overruling the earlier "blocked while any error exists")*. The human's
+  words: *"A single error does not block builds but is included as an error
+  in the final report."* The build writes the passed entries. Every failed
+  entry, with all its errors, and every manifest-level error is carried into
+  the build's final report as an error; warnings are carried too and never
+  block. That is how the "never silent" invariant is met without blocking:
+  nothing the manifest lists is left out of an archive unless the result of
+  that same build names it, and the build bar says beforehand how many
+  entries will be left out.
+- **Nothing to build.** With no passed entries (entries withheld, every entry
+  failed, or the manifest lists none) there is nothing to put in an archive,
+  so the build is unavailable with a stated reason: M6's
+  `buildBlockedReason: "noEntries"` and error kind `NoEntries`, M4's
+  `PlanError::NoEntries`. This is the only way errors affect whether a build
+  can run. It also covers a valid manifest with no `[[file]]` entries, which
+  before could build an empty archive.
+- **No extra confirmation.** Building with errors opens no dialog. The
+  pre-build state (the build bar) says how many entries will be left out and
+  that the errors will be listed in the result. The overwrite confirmation is
+  unchanged and is still the only build dialog.
+- **The report is part of the build's result.** M4's `ArchivePlan::new` takes
+  the whole `ParseReport`, not a bare `Manifest`, and copies the failures,
+  the manifest-level errors, and the warnings into the plan; `write_archive`
+  returns them in `BuildSummary` (`builtIds`, `leftOut: EntryFailure[]`,
+  `manifestErrors`, `warnings`, `errorCount`). No code path can plan an
+  archive from the passed entries without carrying what was left out.
+- **Where the report goes.** It is returned to the UI in `BuildSummary` and
+  shown in the build result. Nothing is written into the archive, which
+  holds exactly the passed entries and their directories, and no sidecar or
+  log file is written: the plans define none, and a file beside the output
+  would be one the user did not ask for and the target does not expect.
+- `Manifest::is_complete()` stays, as a description (the manifest holds every
+  entry its file lists), not as a build gate.
+- **Working while errors exist.** The user may assign files to passed
+  entries and pick the format and output. The remembered sources of failed
+  entries are not pruned while errors exist (M5's `restore_all`, used by
+  M6), so a typo in one entry does not erase its remembered file.
+- **Notification.** The session carries `errorCount`
+  (manifest-level errors plus every failed entry's errors). The UI tells the
+  user whenever it is above 0, and a build's result repeats the count and
+  the errors. How is the ui-designer's decision.
+
+API: `parse(text) -> ParseReport { manifest, entries_withheld, errors, failures, warnings }`
+and `load(path) -> Result<LoadedManifest { path, sha256, report }, LoadError::Io>`.
+Only `EntryFailure` is a new boundary type. `ManifestView`, `EntryView`, and
+`Diagnostic` are unchanged.
 
 ### 3.3 Archive semantics *(decided)*
 
@@ -466,14 +569,37 @@ also here when it changes the index below.
 
 M2 and M3 can run in parallel, and so can M4 and M5.
 
+M3 landed in f04c008 with review gaps. Its task plan now ends with a "Review
+follow-up" section. That follow-up runs as its own implementer run on the same
+task plan, and lands **before M4 and M5 start**: it changes `EntryView` and
+`ManifestView` (regenerating `lib/generated/`) and the parse pipeline both
+depend on. It landed in f9fc7b2.
+
+M3's task plan then gained a **"Partial results follow-up"** (P1–P8, §3.2.1),
+another separate implementer run on the same task plan. It also lands
+**before M4 and M5 start**: it changes the signatures of `parse` and `load`,
+adds `ParseReport` (which M4's plan builder takes whole) and
+`Manifest::is_complete()`, and adds the boundary type `EntryFailure` that M4's
+`BuildSummary` and M6's session carry. M4's plan builder takes the
+`ParseReport`, refuses only when no entry passed (`PlanError::NoEntries`),
+and returns the failures in `BuildSummary`; M5 gains
+`RememberedState::restore_all`; M6's session gains the failure fields and
+drops the error block from `canBuild`. Those are in their task plans.
+
+The build-with-errors decision (decisions 37–41) arrived before any of these
+landed, so it changes plans only: M3's follow-up (wording in P4, P6, P7), M4,
+and M6. M5 is unaffected. The UI changes it causes are listed in §5 for the
+ui-designer.
+
 ## 5. Handoff to ui-designer
 
 The UI is written in [`tarpack-ui.md`](tarpack-ui.md). Its constraints are:
 
 - The UI renders `TarpackSession` and never keeps its own copy.
 - It calls only `lib/` wrappers.
-- Build is disabled with a stated reason unless the manifest is valid, every
-  entry is `Ready`, and an output path is set.
+- Build is disabled with a stated reason unless at least one entry passed
+  validation, every passed entry is `Ready`, and an output path is set.
+  Manifest errors alone do not disable it (decision 37).
 - Overwriting an existing output needs an explicit confirmation.
 - A drop shows its matched, unmatched, and ambiguous results.
 - **New from the §6 answers:**
@@ -486,6 +612,26 @@ The UI is written in [`tarpack-ui.md`](tarpack-ui.md). Its constraints are:
     to copy it.
   - Entries with `normalizeEol` are visibly marked.
   - Progress has a `verifying` phase after writing.
+- **New from the partial-results decision (§3.2.1):**
+  - A manifest with errors still shows its passed entries.
+  - Failed entries are listed in a report, each with all of its errors.
+  - Manifest-level errors are shown, and when one withholds every entry the
+    UI says so rather than showing an empty table.
+  - The user is notified that there were errors whenever `errorCount > 0`.
+- **New from the build-with-errors decision (decisions 37–41), replacing
+  "build stays blocked until the error count is 0":**
+  - `buildBlockedReason` no longer has `"manifestInvalid"`. It gains
+    `"noEntries"`, first after `"noManifest"`, for "no entry passed" (entries
+    withheld, all failed, or none listed). `TarpackErrorKind`
+    `ManifestInvalid` is replaced by `NoEntries`; there are still 17 kinds.
+  - With errors and at least one passed entry, the build bar enables
+    **Create archive** once the passed entries are ready and an output is
+    set, and states beforehand how many entries will be left out and that
+    the errors will be listed in the result. No extra confirmation dialog.
+  - The build result is the final report: besides what it shows today, it
+    lists every left-out entry with its errors, every manifest-level error,
+    and the warnings, from `BuildSummary`, and says plainly when the archive
+    is missing files the manifest lists.
 
   The full list of contract changes is in §6.3.
 
@@ -615,6 +761,92 @@ Added after the M1 re-review (2026-09-29):
     regenerate command after resolving `EXPORTERS`, and never hand-merges
     generated files.
 
+Added after the M3 review (2026-09-29):
+
+27. **Two-stage manifest parse.** `toml::de::DeTable::parse` first, then a
+    walk that reports unknown keys and deserializes each top-level scalar,
+    `[defaults]`, and each `[[file]]` separately. This attributes serde errors
+    to the entry `id` (review B1) and lets unknown keys and type errors sit
+    alongside validation errors (B3). TOML syntax still stops at the first.
+28. **`.` segments in `dir` are errors** (B2), and **a target that is another
+    entry's directory is an error** (N5). See §3.2.
+29. **One entry-view shape** (N1). `EntryView` is
+    `{ id, source, targetPath, mode, modeText, owner, uid, gid, normalizeEol }`.
+    `mode` is the four-digit octal string (`"0755"`), `modeText` is symbolic
+    (`"rwxr-xr-x"`), and `owner` is `"uname:gname"`. The numeric `uid`/`gid`
+    also cross, because they are what the header carries, and the UI may show
+    them. `ManifestView` is `{ name, outputName, entries }`, with **no**
+    `defaultFormat`: the UI's format is always `session.format`.
+    `outputName` stays, because the session's `manifest.outputName` comes from
+    it. M6 does not embed `ManifestView` whole. Its session entry type
+    flattens `EntryView` (`#[serde(flatten)]`) and adds `assigned` and
+    `status`, so the entry fields are defined once, in M3.
+30. **No `unsafe` in `format.rs`** (N3). `with_extension` uses the cfg'd
+    `OsStrExt`/`OsStringExt` APIs, with a non-UTF-8 test per platform.
+
+Added after the partial-results decision and the M3 re-review (2026-09-29):
+
+31. **Partial results** (human's decision; planner's rules in §3.2.1).
+    `parse` returns a `ParseReport` with the passed entries, one
+    `EntryFailure` per failed table, manifest-level errors, and warnings.
+    `LoadError::Invalid` is removed: a readable file always loads.
+32. **An entry passes only when no error is attributed to it; cross-entry
+    errors fail every entry involved** and are reported on each. The
+    alternative, excluding only the later entry of a duplicate, would attach
+    a remembered file by id to whichever table came first.
+33. **Withholding errors.** Syntax, UTF-8, `version`, `[defaults]`, unknown
+    top-level keys, and `file` not an array hide every entry; `name` and
+    `output_name` errors do not.
+34. ~~**Build is blocked while any error exists.**~~ **Superseded by
+    decision 37** (the human, 2026-09-29). `is_complete` stays in M3 as a
+    description only; `PlanError::ManifestIncomplete`, the `canBuild` error
+    block, `"manifestInvalid"`, and the `ManifestInvalid` kind are dropped.
+35. **Assignments work while errors exist, and failed entries' remembered
+    sources are kept** (M5 `restore_all`; M6 prunes only when the manifest
+    is valid).
+36. **An empty `id` is attributed like a missing one** (`[[file]] #<n>: `)
+    for every error from its table, `id must not be empty` included (M3
+    re-review).
+
+Added after the human overruled decision 34 (2026-09-29):
+
+37. **Errors do not block building** (the human: *"A single error does not
+    block builds but is included as an error in the final report."*). The
+    archive holds the passed entries; every failed entry and every
+    manifest-level error is an error in the build's final report, and
+    warnings are reported too. Reason for the old rule, now answered: it
+    blocked because a partial archive would silently drop files. Reporting
+    every dropped entry in the result of the build that dropped it, and
+    announcing the count before the build, makes the drop visible instead of
+    silent, which is what the invariant requires. The human prefers a usable
+    test build over a blocked one.
+38. **"Nothing to build" is the only error-related block.** Zero passed
+    entries (withheld, all failed, or none listed) gives
+    `buildBlockedReason: "noEntries"`, `TarpackErrorKind::NoEntries`
+    (replacing `ManifestInvalid`, so the union keeps 17 kinds), and
+    `PlanError::NoEntries`. A valid manifest with no files is included: an
+    empty archive is never what the user wants, and one rule is simpler for
+    the UI than two. Order of reasons: `noManifest`, `noEntries`,
+    `entriesNotReady`, `noOutput`.
+39. **The report is carried by the library, not assembled by the shell.**
+    `ArchivePlan::new(&ParseReport, &Assignments)` copies the failures,
+    manifest-level errors, and warnings into the plan, and `BuildSummary`
+    returns them: `builtIds: string[]`, `leftOut: EntryFailure[]`,
+    `manifestErrors: Diagnostic[]`, `warnings: Diagnostic[]`, and
+    `errorCount: number`. `EntryFailure` and `Diagnostic` are M3's types,
+    reused, not redefined. Alternative rejected: keep `ArchivePlan` on a bare
+    `Manifest` and let M6 attach the failures. That leaves a library path
+    that builds a partial archive with no record of what it left out.
+40. **No extra confirmation for building with errors.** The build bar states
+    beforehand how many entries will be left out and that the errors will be
+    listed in the result; that, plus the report, is enough. A modal on every
+    test build of a manifest being fixed would be dismissed by habit.
+41. **The report goes to the UI only.** It is not written into the archive
+    (no metadata entry, no comment) and not into a sidecar or log file. The
+    archive's content must be exactly the manifest's passed entries and
+    their directories, and a file beside the output is one the user did not
+    ask for. If a persisted report is wanted later, it is a new decision.
+
 ### 6.3 UI-facing contract changes (for the ui-designer)
 
 All of these are owned by M6 (with types from M3–M5) and generated into
@@ -631,6 +863,38 @@ All of these are owned by M6 (with types from M3–M5) and generated into
   With no manifest loaded, `format` is `"tar"`, `formats` lists all four, and
   `outputPath` and `suggestedOutputName` are `null` (decision 11).
 - `TarpackSession.manifest.entries[]` gains `normalizeEol: boolean`.
+- **Partial results (§3.2.1).** `TarpackSession.manifest` gains:
+  - `entriesWithheld: boolean`: a manifest-level error hides every entry, and
+    `entries` is `[]`;
+  - `failedEntries: EntryFailure[]`, one per `[[file]]` table with errors, in
+    manifest order, where
+    `EntryFailure = { index: number, id: string | null, source: string | null, line: number, errors: Diagnostic[] }`
+    (`index` is the 1-based table position, `line` its `[[file]]` header);
+  - `errorCount: number`, the manifest-level errors plus every failed entry's
+    errors; above 0 means "notify the user". It does **not** block the build
+    (decision 37).
+
+  `manifest.errors` now holds **only** manifest-level errors; entry errors
+  are in `failedEntries`. `manifest.entries` holds only passed entries, and
+  `readyCount` / `totalCount` count only those. `name` falls back to the
+  file stem when the manifest's `name` is in error. Assign, clear, drop,
+  `setFormat`, and `setOutput` keep working while errors exist; assigning a
+  failed entry's id fails with `UnknownEntry`.
+- **Build with errors (decisions 37–41).**
+  - `canBuild` is true when a manifest is loaded, at least one entry passed,
+    every passed entry is `ready`, and `outputPath` is set, whatever
+    `errorCount` is.
+  - `buildBlockedReason` is
+    `null | "noManifest" | "noEntries" | "entriesNotReady" | "noOutput"`, the
+    first failing condition in that order. `"manifestInvalid"` is gone;
+    `"noEntries"` means `manifest.entries` is empty (withheld, every entry
+    failed, or none listed).
+  - `tarpack_build` builds the passed entries and returns the report in
+    `BuildSummary` (below). With no passed entries it fails with `NoEntries`.
+- Each entry is `EntryView` (from M3) plus `assigned` and `status`:
+  `{ id, source, targetPath, mode, modeText, owner, uid, gid, normalizeEol, assigned, status }`.
+  `mode` is `"0755"`, `modeText` is `"rwxr-xr-x"`, and `owner` is
+  `"root:root"` (`uname:gname`). `uid` and `gid` are numbers (decision 29).
 - `outputPath` is always normalised to end with the current format's extension.
 - New command `tarpack_set_format(format)` returns `TarpackSession`, and
   `lib/tarpack.ts` gains `setFormat(format)`.
@@ -645,8 +909,20 @@ All of these are owned by M6 (with types from M3–M5) and generated into
   - `normalizedEntries: { id: string, crlfReplaced: number }[]`.
 
   `bytes` is now the size of the output file on disk. Every numeric field
-  (`entries`, `files`, `dirs`, `bytes`, `uncompressedBytes`, `crlfReplaced`)
-  is TS `number`, never `bigint` (decision 9).
+  (`entries`, `files`, `dirs`, `bytes`, `uncompressedBytes`, `crlfReplaced`,
+  `errorCount`) is TS `number`, never `bigint` (decision 9).
+- `BuildSummary` also carries the final report (decision 39):
+  - `builtIds: string[]`: the ids of the file entries in the archive, in
+    manifest order (every passed entry);
+  - `leftOut: EntryFailure[]`: every failed entry, none of which is in the
+    archive, each with all its errors (the same records as the session's
+    `failedEntries` when the build started);
+  - `manifestErrors: Diagnostic[]`: the manifest-level errors (entries are
+    never withheld in a build that ran, so these are the non-withholding
+    ones: `name`, `output_name`);
+  - `warnings: Diagnostic[]`;
+  - `errorCount: number`: `manifestErrors.length` plus every `leftOut[i]`'s
+    errors; 0 means the archive holds everything the manifest lists.
 - The `tarpack://build-progress` payload becomes
   `{ phase: "writing" | "verifying", entryId: string | null, bytesDone: number, bytesTotal: number }`.
   - The byte counts are uncompressed tar-stream bytes, so they are comparable
@@ -660,8 +936,11 @@ All of these are owned by M6 (with types from M3–M5) and generated into
     (decision 12).
 - `TarpackError` is `{ kind: TarpackErrorKind, message: string, entryId?: string }`.
   `TarpackErrorKind` is a closed string-literal union (decision 8):
-  `"NoManifest" | "ManifestUnreadable" | "ManifestInvalid" | "ManifestChangedOnDisk" | "UnknownEntry" | "NotAFile" | "NoOutput" | "EntriesNotReady" | "OutputExists" | "PathExists" | "SourceMissing" | "SourceUnreadable" | "SourceChanged" | "VerifyFailed" | "BuildInProgress" | "OpenerFailed" | "Io"`.
+  `"NoManifest" | "ManifestUnreadable" | "NoEntries" | "ManifestChangedOnDisk" | "UnknownEntry" | "NotAFile" | "NoOutput" | "EntriesNotReady" | "OutputExists" | "PathExists" | "SourceMissing" | "SourceUnreadable" | "SourceChanged" | "VerifyFailed" | "BuildInProgress" | "OpenerFailed" | "Io"`.
   Newly relevant to the UI copy:
+  - `NoEntries` (replaces `ManifestInvalid`, decision 38): there is no entry
+    that can be built, because every entry is withheld or failed, or the
+    manifest lists none. Defensive: `canBuild` already blocks it.
   - `SourceChanged`: a source's size changed during the build.
   - `VerifyFailed`: the archive failed its post-write check. Nothing was saved,
     and any existing file is unchanged (decision 13).

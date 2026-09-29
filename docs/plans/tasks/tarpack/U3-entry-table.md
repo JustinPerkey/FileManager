@@ -1,13 +1,15 @@
 # U3 — Entry table with per-row status
 
 Status: awaiting approval
-Project: tarpack   Depends on: U2 (landed), M6 (landed)
+Project: tarpack   Depends on: U2 (landed), M6 (landed; this task reads its
+partial-results fields `entriesWithheld` and `failedEntries`)
 
 ## Goal
 
 Show every manifest entry with its expected file, the Windows file assigned to
 it, its Linux target, its permissions, its owner, whether its line endings are
-converted, and whether it is ready. This table is the heart of the view.
+converted, and whether it is ready, and say plainly when files are left out
+because of manifest errors. This table is the heart of the view.
 
 ## Context
 
@@ -23,11 +25,25 @@ writer then replaces every CRLF pair with LF for that file (lone CR bytes are
 kept). This changes file contents, so it must be visible on the row, not only
 in the manifest. Typical use: a shell script edited on Windows.
 
+**A manifest with errors still opens (decided by the human).** Entries whose
+`[[file]]` table has no error **pass** and are listed in this table as usual.
+Entries with errors **fail**: they are not in `entries`, they will be left out
+of the archive, and U2 lists them, with every error, in an error report above
+the table. Some manifest-level errors (TOML syntax, `version`, `[defaults]`,
+…) **withhold** every entry, and `entries` is then empty. Errors do not block
+the build: the archive is built from the passed entries, and the build's
+result lists what was left out. This table therefore has to be honest about
+what it is *not* showing: its summary never says "All … ready" while files
+are left out, and an empty table says why it is empty. Failed entries are
+never rows.
+
 **What exists.**
 
-- `src/tools/tarpack/TarpackView.tsx` (U2) holds the `TarpackSession` state and
+- `src/tools/tarpack/TarpackView.tsx` (U2) holds the `TarpackSession` state,
+  renders the error region (notice and report) above the table slot, and
   reserves a slot for the table.
-- `session.manifest.entries` is a list of
+- `session.manifest.entries` holds the **passed** entries only, in manifest
+  order. It is a list of
   `{ id, source, targetPath, mode, modeText, owner, normalizeEol, assigned, status }`.
   Check `src/lib/generated/` for the exact types:
   - `status` is `"ready"`, `"missing"`, or `"unassigned"`;
@@ -38,7 +54,11 @@ in the manifest. Typical use: a shell script edited on Windows.
   - `mode` is the octal string, like `0755`;
   - `owner` is like `root:root`;
   - `assigned` is the Windows path, or `null`.
-- `session.readyCount` and `session.totalCount` are also provided.
+- `session.readyCount` and `session.totalCount` are also provided; both count
+  passed entries only.
+- `session.manifest.failedEntries` is a list with one element per failed
+  entry; this task uses only its length. `session.manifest.entriesWithheld`
+  is `true` when a manifest-level error hides every entry.
 - The tokens you use are in `src/styles/tokens.css`: `--ok`, `--danger`,
   `--text-muted`, `--font-mono`, `--surface`, `--surface-sunken`, `--border`,
   `--font-size-sm` and `--font-size-md`, and the `--space-*` scale.
@@ -58,7 +78,7 @@ in the manifest. Typical use: a shell script edited on Windows.
 
 | Component | Path | Props | States |
 | --- | --- | --- | --- |
-| `EntryTable` | `src/tools/tarpack/EntryTable.tsx` | `entries, onBrowse(id), onClear(id)` | empty / populated |
+| `EntryTable` | `src/tools/tarpack/EntryTable.tsx` | `entries, failedCount, entriesWithheld, onBrowse(id), onClear(id)` | populated / populated with files left out / no files / every file failed / withheld |
 | `EntryStatus` | `src/tools/tarpack/EntryStatus.tsx` | `status` | Ready / Missing / Not assigned |
 | `EolMarker` | `src/tools/tarpack/EolMarker.tsx` | — | rendered only for entries with `normalizeEol` |
 
@@ -127,17 +147,39 @@ in the manifest. Typical use: a shell script edited on Windows.
 - Use no measurement in render: truncation is computed from string length
   and CSS, never `getBoundingClientRect` in a loop.
 
-Above the table, a summary line reads "5 of 6 files ready", or "All 6 files
-ready" when complete. When at least one entry has `normalizeEol`, append
-" · 1 file converts line endings to LF" (or "N files …"), so the conversion is
-announced once without scanning every row.
+`TarpackView` passes `failedCount = manifest.failedEntries.length` and
+`entriesWithheld = manifest.entriesWithheld`.
+
+Above the table, a summary line:
+
+- "5 of 6 files ready", or "All 6 files ready" only when every listed entry
+  is ready **and** `failedCount` is 0. With `failedCount > 0`, never say
+  "All": "6 of 6 files ready".
+- When `failedCount > 0`, append " · 1 file left out (errors)" or
+  " · N files left out (errors)", so the count of listed files is never
+  mistaken for the whole manifest.
+- When at least one entry has `normalizeEol`, append " · 1 file converts
+  line endings to LF" (or "N files …"), so the conversion is announced once
+  without scanning every row.
 
 The summary line is a sentence at `--font-size-md`, not a big-number tile.
+Separators " · " are `aria-hidden`; the clauses read as one sentence.
 
-When the manifest has no `[[file]]` entries, show "This manifest lists no
-files." instead of an empty table. Follow it with a `--text-muted` line that
-names the next step: "Add a [[file]] entry to the manifest, then Reload."
-Render `[[file]]` in mono.
+When `entries` is empty, render no `<table>` and no summary. Show one sentence
+at `--font-size-md`, then a `--text-muted` line naming the next step. Choose
+the case in this order:
+
+- `entriesWithheld`: "No files are listed. A manifest error hides them until
+  it's fixed." / "The errors are listed above. Fix them in your editor, then
+  Reload.";
+- otherwise `failedCount > 0`: "No files are listed. Every file in this
+  manifest has errors." / "The errors are listed above. Fix them in your
+  editor, then Reload.";
+- otherwise: "This manifest lists no files." / "Add a [[file]] entry to the
+  manifest, then Reload." Render `[[file]]` in mono.
+
+The error report itself is U2's and sits above; do not repeat its content or
+add a second route to it here.
 
 **Rules that bind this task.**
 
@@ -191,8 +233,13 @@ How to run it:
   `.num`.
 - Changing one entry's status re-renders only that row (a render-count test
   on a 2,000-row fixture).
-- The summary line is correct for mixed, all-ready, and empty cases, and adds
-  the line-ending clause only when some entry has `normalizeEol`.
+- The summary line is correct for mixed and all-ready cases, and adds the
+  line-ending clause only when some entry has `normalizeEol`.
+- With `failedCount > 0` the summary never starts with "All", and includes
+  "1 file left out (errors)" / "N files left out (errors)".
+- With `entries` empty, the withheld, every-file-failed, and no-files
+  sentences each appear in their case, with their next-step line, and no
+  `<table>` is rendered. No failed entry ever appears as a row.
 - There is no horizontal page scroll at 800×560, and the layout holds at 200%
   text size.
 
@@ -200,9 +247,11 @@ How to run it:
 
 `npm run test`:
 
-- `EntryTable.test.tsx`: a mixed-status fixture, the summary line, the
-  empty-manifest message, the Clear-disabled state, and that each button calls
-  its prop with the right id.
+- `EntryTable.test.tsx`: a mixed-status fixture, the summary line (mixed,
+  all ready with and without `failedCount`, and the left-out clause singular
+  and plural), the three empty messages (withheld, every file failed, no
+  files), the Clear-disabled state, and that each button calls its prop with
+  the right id.
 - `EntryStatus.test.tsx`: the label per status.
 - `EolMarker.test.tsx` (or cases in `EntryTable.test.tsx`): marker present
   with its accessible text for a `normalizeEol` row, absent otherwise, and the
@@ -217,12 +266,14 @@ How to run it:
 
 ## States covered
 
-Empty manifest (with its next-step line), partial (mixed statuses), all
-ready, rows with and without line-ending conversion, long and non-UTF-8
+Empty manifest (with its next-step line), entries withheld, every entry
+failed, partial (mixed statuses), all ready, all listed files ready with files
+left out, rows with and without line-ending conversion, long and non-UTF-8
 names, and 2,000 rows.
 
 ## Out of scope
 
+- The error report and error notice (U2).
 - The Browse dialog, Clear, and drop wiring (U4).
 - The build bar (U5).
 - Row keyboard shortcuts (U6).

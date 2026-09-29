@@ -1,7 +1,9 @@
 # U4 — Drag-and-drop and per-row assignment
 
 Status: awaiting approval
-Project: tarpack   Depends on: U3 (landed), M6 (landed). May run alongside U5.
+Project: tarpack   Depends on: U3 (landed), M6 (landed; this task reads its
+partial-results fields `entriesWithheld`, `failedEntries`, and `errorCount`).
+May run alongside U5.
 
 ## Goal
 
@@ -19,10 +21,34 @@ window, or by picking a file for one row, and show clearly what a drop did.
   **unmatched**. A drop never replaces a file that is already assigned and
   present; that comes back as unmatched with the reason "already assigned".
 
+**Working while the manifest has errors (decided by the human).** A manifest
+with errors still opens. Entries with no error of their own **pass** and are
+in `session.manifest.entries`; entries with errors **fail**, are left out of
+the table, and are listed by U2's error report. Errors do not block the
+build: the archive is built from the passed entries. So the user keeps
+preparing the build while fixing the manifest: dropping files, Browse…, and
+Clear all work on the passed entries, whatever `errorCount` is. The backend
+enforces the rest:
+
+- drop matching never considers failed entries, so a file that belongs to a
+  failed entry comes back **unmatched**;
+- `assign` or `clear` with a failed entry's id rejects with `UnknownEntry`
+  (it cannot happen from the table, which lists only passed entries);
+- the remembered file of a failed entry is kept, and comes back on its own
+  once the entry is fixed and the manifest reloaded.
+
+When `entries` is empty (a manifest-level error **withholds** every entry,
+every entry failed, or the manifest lists none), there is nothing a drop could
+match.
+
 **What exists.**
 
 - `TarpackView.tsx` holds the `TarpackSession` state. `EntryTable.tsx` (U3)
   calls `onBrowse(id)` and `onClear(id)`.
+- From the session: `session.manifest` is `null` or has `entries` (passed
+  entries only), `entriesWithheld: boolean`, `failedEntries` (use only its
+  length), and `errorCount: number` (above 0 whenever the manifest has
+  errors).
 - `src/lib/tarpack.ts` (M6; read it for exact signatures) provides:
   - `assignDropped(paths)`, which returns `{ session, outcome }`
   - `assign(id, path)`, which returns a session
@@ -71,7 +97,11 @@ window, or by picking a file for one row, and show clearly what a drop did.
 | Component | Path | Props | States |
 | --- | --- | --- | --- |
 | `DropZone` | `src/app/DropZone.tsx` (shared) | `enabled, disabledReason, label, onDrop(paths)` | idle / hover / disabled |
-| `DropResult` | `src/tools/tarpack/DropResult.tsx` | `outcome, onDismiss` | matched / unmatched / ambiguous |
+| `DropResult` | `src/tools/tarpack/DropResult.tsx` | `outcome, hasFailedEntries, onDismiss` | matched / unmatched / unmatched with failed entries / ambiguous |
+
+`TarpackView` passes `hasFailedEntries = manifest.failedEntries.length > 0`.
+`DropZone` is shared and knows nothing about manifests: `TarpackView` computes
+`enabled` and `disabledReason` as below.
 
 ### Behaviour
 
@@ -83,8 +113,17 @@ window, or by picking a file for one row, and show clearly what a drop did.
   `folder` icon before it. The plate keeps the text at AA contrast over the
   translucent fill. The overlay does not steal focus, and it disappears on
   leave or drop.
-- **Disabled** when there is no manifest, or the manifest has errors. The
-  overlay then reads "Open a valid manifest first", and drops are ignored.
+- **Enabled** whenever a manifest is loaded, `entries` is non-empty, and no
+  build is running, **including when the manifest has errors**. Errors alone
+  never disable drops, Browse…, or Clear.
+- **Disabled** otherwise. The overlay still appears on a drag, shows the
+  reason in place of the drop label (same plate, with the `info` icon), and
+  drops are ignored (no `lib` call). The reason, in this order:
+  - no manifest: "Open a manifest first";
+  - `entries` empty and (`entriesWithheld` or `failedEntries` non-empty):
+    "Fix the manifest errors first. No files can be matched yet.";
+  - `entries` empty otherwise: "This manifest lists no files";
+  - building (wired in U5; accept the flag now): "A build is running".
 - **After a drop**, `DropResult` appears above the table. It is a
   `role="status"` region with `aria-live="polite"` and one line per non-empty
   bucket, for example:
@@ -99,6 +138,18 @@ window, or by picking a file for one row, and show clearly what a drop did.
   `--border` (no tinted fill and no side stripe). It is dismissed with a quiet
   `Button` using the `x` icon and the name "Dismiss drop result", and it is
   replaced by the next drop.
+- **Unmatched files while entries have errors.** When `hasFailedEntries` is
+  true, an unmatched file may belong to a failed entry, so "not in the
+  manifest" would be wrong. Then:
+  - the unmatched line reads "1 not matched: notes.txt" (or "N not
+    matched: …") instead of "… not in the manifest: …";
+  - one more line follows it, in `--text-muted` with the `info` icon:
+    "Files for entries with errors can't be matched until those errors are
+    fixed."
+
+  Do not try to work out which unmatched file belongs to which failed entry;
+  that is matching logic, and it stays in Rust. The "already assigned"
+  reason, when present, is shown as before.
 - **Browse…** on a row opens `openFileDialog`, starting in the folder of the
   row's current or last assignment when there is one. The chosen path goes to
   `assign(id, path)`. A cancelled dialog does nothing.
@@ -151,7 +202,13 @@ How to run it:
   returned session and outcome.
 - Every bucket renders correctly, including the "already assigned" reason. The
   live-region text matches the outcome.
-- Disabled drops show the reason and make no `lib` call.
+- Disabled drops show the reason for each case (no manifest, entries
+  withheld or every entry failed, no files) and make no `lib` call.
+- With `errorCount > 0` and non-empty `entries`, drops, Browse…, and Clear
+  are enabled and call `lib` exactly as with a clean manifest.
+- With failed entries, the unmatched line reads "not matched" and the hint
+  line appears; without failed entries it reads "not in the manifest" and
+  there is no hint.
 - The overlay label is on a `--surface` plate, and each result line has its
   icon, so meaning never depends on color or the dashed border alone.
 - Browse and Clear call the right functions with the right id, and a cancelled
@@ -164,18 +221,25 @@ How to run it:
 `npm run test`, with `onDragDrop` and `openFileDialog` mocked:
 
 - `DropZone.test.tsx`: hover, leave, drop, and disabled.
-- `DropResult.test.tsx`: each bucket, combined buckets, and dismiss.
+- `DropResult.test.tsx`: each bucket, combined buckets, dismiss, and the
+  unmatched wording and hint with and without failed entries.
 - `TarpackView.assign.test.tsx`: the Browse flow, cancelled Browse, Clear,
-  and a `NotAFile` rejection.
+  a `NotAFile` rejection, a drop plus Browse on a session with
+  `errorCount > 0` and passed entries (enabled, `lib` called), and the
+  disabled reasons for a withheld, an every-entry-failed, and a no-files
+  session.
 - Axe checks with the overlay and the result visible.
 
 ## States covered
 
-Idle, drag hover, disabled, result (each bucket), dialog cancelled, and
-command error.
+Idle, drag hover, disabled (no manifest, entries withheld or every entry
+failed, no files, building), enabled with manifest errors, result (each
+bucket, with and without failed entries), dialog cancelled, and command
+error.
 
 ## Out of scope
 
+- The error report and notice (U2).
 - The build bar (U5).
 - Keyboard shortcuts (U6).
 - Any matching logic in TS.

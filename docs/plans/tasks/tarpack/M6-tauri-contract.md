@@ -1,7 +1,8 @@
 # M6 — Tauri commands, events, watcher, and the typed client
 
 Status: awaiting approval
-Project: tarpack   Depends on: M4 (landed), M5 (landed)
+Project: tarpack   Depends on: M4 (landed), M5 (landed); M3's partial-results
+follow-up (landed before M4 and M5)
 
 ## Goal
 
@@ -47,19 +48,50 @@ What exists:
   webkit2gtk dev packages to build this crate. Every test in this crate runs
   on both platforms.
 - **M2:** `fm_core::{AppDirs, Store, FmError}`
-- **M3:** `fm_tarpack::manifest::{load, LoadedManifest, Diagnostic, ManifestView}`.
-  `LoadedManifest.sha256` hashes the exact file bytes. The format is in
-  `docs/tarpack-manifest.md`.
+- **M3:** `fm_tarpack::manifest::{load, LoadedManifest, LoadError, ParseReport, EntryFailure, Diagnostic, ManifestView, EntryView}`.
+  `load(path)` returns `LoadedManifest { path, sha256, report: ParseReport }`,
+  and fails only with `LoadError::Io` (unreadable file). A readable file
+  always loads, whatever its errors. `LoadedManifest.sha256` hashes the exact
+  file bytes. `ParseReport` is
+  `{ manifest, entries_withheld, errors, failures: Vec<EntryFailure>, warnings }`
+  with `is_valid()` and `error_count() -> u32`:
+  - `manifest` holds only the entries that passed; `Manifest::is_complete()`
+    equals `is_valid()`;
+  - `errors` are the manifest-level errors (outside every `[[file]]` table);
+  - `failures` has one `EntryFailure { index, id, source, line, errors }` per
+    `[[file]]` table with errors, in manifest order (`EntryFailure` is
+    already exported to `lib/generated/`);
+  - `entries_withheld` is `true` when a manifest-level error (syntax, not
+    UTF-8, `version`, `[defaults]`, an unknown top-level key, `file` not an
+    array) means no entry can be trusted, so the manifest has no entries;
+  - when `name` is in error the manifest's name is `""`, and when
+    `output_name` is in error it is `None`.
+
+  The rules are in `docs/tarpack-manifest.md` ("When the manifest has
+  errors"). The format is in
+  `docs/tarpack-manifest.md`. `ManifestView::from(&Manifest)` gives
+  `{ name, output_name, entries: Vec<EntryView> }` (no default format), and
+  `EntryView` is `{ id, source, target_path, mode, mode_text, owner, uid, gid, normalize_eol }`
+  in `crates/fm-tarpack/src/manifest/model.rs`, serialised camelCase:
+  `mode` is `"0755"`, `modeText` is `"rwxr-xr-x"`, `owner` is `"root:root"`.
+  Both are already exported to `lib/generated/`.
 - **M3:** `fm_tarpack::format::ArchiveFormat { Tar, TarGz, TarZst, TarXz }`
   with `ALL`, `extension()`, `from_file_name()` (recognises `.tar`,
   `.tar.gz`, `.tgz`, `.tar.zst`, and `.tar.xz`, case-insensitively), and
   `with_extension()`, and `filter_extension()` (`"tar"`, `"gz"`, `"zst"`,
   or `"xz"`: the last suffix without its dot, as a Save-dialog filter needs).
   `Manifest::default_format()` exists too.
-- **M4:** `fm_tarpack::archive::{ArchivePlan, write_archive, BuildSummary, BuildError, Progress, BuildPhase}`.
-  `write_archive(plan, out_path, format, overwrite, progress)`. `BuildSummary`
-  carries `format`, `bytes` (on disk), `uncompressed_bytes`, `sha256_hex`,
-  `extract_command`, and `normalized_entries`. `Progress` carries
+- **M4:** `fm_tarpack::archive::{ArchivePlan, PlanError, write_archive, BuildSummary, BuildError, Progress, BuildPhase}`.
+  `ArchivePlan::new(&ParseReport, &Assignments)` plans the passed entries
+  and copies the report's failures, manifest-level errors, and warnings into
+  the plan. It does not refuse because of errors. It fails with
+  `PlanError::NoEntries` when no entry passed (withheld, all failed, or none
+  listed), and with `PlanError::Unassigned(ids)` for passed entries without
+  a source. `write_archive(plan, out_path, format, overwrite, progress)`.
+  `BuildSummary` carries `format`, `bytes` (on disk), `uncompressed_bytes`,
+  `sha256_hex`, `extract_command`, and `normalized_entries`, and the build's
+  final report: `built_ids`, `left_out: Vec<EntryFailure>`,
+  `manifest_errors: Vec<Diagnostic>`, `warnings`, and `error_count: u32`. `Progress` carries
   `phase: Writing | Verifying`, `entry_id: Option`, `bytes_done`, and
   `bytes_total`, in uncompressed bytes. Each phase ends with an event where
   `bytes_done == bytes_total` and `entry_id` is `None`. After that last
@@ -72,7 +104,8 @@ What exists:
   `RememberedState` has
   `remember(manifest_path, &Assignments, output, format)`, `restore`,
   `restore_output`, `restore_format` (remembered, else the manifest default),
-  and `touch_recent`.
+  `restore_all` (every remembered source for the manifest, unfiltered), and
+  `touch_recent`.
 
 **The boundary.** You own all Rust and `apps/desktop/src/lib/`. You do not
 create components, views, or styles; the `ui-implementer` builds those from
@@ -87,6 +120,19 @@ this API.
 - The UI must never build an archive the user did not see. `tarpack_build`
   re-reads the manifest file, and if its hash differs from the loaded one it
   fails with `ManifestChangedOnDisk`, writing nothing.
+- **Errors do not block building** (decided by the human, 2026-09-29: *"A
+  single error does not block builds but is included as an error in the
+  final report."*). A build writes the passed entries. The session shows
+  the passed entries, reports the failed ones, and tells the UI how many
+  errors there are before the build; the `BuildSummary` returned by the
+  build lists every left-out entry and every manifest-level error as
+  errors, with the warnings. That is how "never silent" is kept: nothing is
+  left out of an archive without the build's own result naming it. The only
+  error-related block is "nothing to build": no entry passed
+  (`buildBlockedReason: "noEntries"`). Building with errors needs no extra
+  confirmation from the backend; the overwrite confirmation is unchanged.
+  The report is returned to the UI only: this task writes no sidecar or log
+  file and adds nothing to the archive.
 - An existing output file is overwritten only when the UI passes
   `overwrite: true`, after the user confirms.
 - **The backend owns format and extension logic** (decided). The UI gets the
@@ -146,10 +192,14 @@ this API.
 {
   manifest: null | {
     path, name, outputName, hash,
-    entries: [{ id, source, targetPath, mode, modeText, owner,
-                normalizeEol: boolean,
+    entries: [{ ...EntryView,        // id, source, targetPath, mode, modeText, owner, uid, gid, normalizeEol
                 assigned: string|null, status: "ready"|"missing"|"unassigned" }],
-    errors: Diagnostic[], warnings: Diagnostic[]
+                                     // passed entries only, manifest order
+    entriesWithheld: boolean,        // a manifest-level error hides every entry; entries is []
+    errors: Diagnostic[],            // manifest-level errors only (outside every [[file]] table)
+    failedEntries: EntryFailure[],   // one per [[file]] table with errors, manifest order
+    errorCount: number,              // errors.length + every failedEntries[i].errors.length
+    warnings: Diagnostic[]
   },
   outputPath: string | null,         // always ends with the extension of the `formats` entry whose `format` equals `format`
   format: ArchiveFormat,             // "tar" | "tarGz" | "tarZst" | "tarXz"; "tar" when manifest is null
@@ -157,12 +207,24 @@ this API.
   suggestedOutputName: string | null,// file name for the Save dialog, current extension
   readyCount, totalCount,
   canBuild: boolean,
-  buildBlockedReason: null | "noManifest" | "manifestInvalid" | "entriesNotReady" | "noOutput",
+  buildBlockedReason: null | "noManifest" | "noEntries" | "entriesNotReady" | "noOutput",
+                                     // first failing condition, in this order; errors alone never block
   stateWarning: string | null        // from fm-core StoreWarning
 }
 ```
 
 `targetPath` is the absolute stored name (`/opt/...`).
+
+**The entry type reuses M3's `EntryView`; do not redefine its fields.** Define
+the session entry as a struct with `#[serde(flatten)] #[ts(flatten)] view: EntryView`
+plus `assigned: Option<String>` and `status`, so the generated TS is
+`EntryView & { assigned, status }` (or ts-rs's equivalent inlined object). Take
+`name`, `outputName`, and the `EntryView`s from `ManifestView::from(&manifest)`;
+the session manifest adds `path`, `hash`, `errors`, and `warnings` around
+them. The session does not carry a separate default format: `format` is the
+only format field the UI reads. Add a test that serialises one session entry
+and asserts the keys `mode` (`"0755"`), `modeText`, `owner` (`"root:root"`),
+`uid`, `gid`, `assigned`, and `status` sit at the same level.
 
 **`ArchiveFormatOption`** (Rust, exported to TS):
 
@@ -205,9 +267,61 @@ it from `extension`.
   - When a manifest is opened, `format` and `outputPath` come from that
     manifest's remembered state, as above.
 
-When a manifest fails validation, `manifest` is still present, with its `path`,
-its `errors`, and whatever entries were readable, so that the UI can show the
-errors.
+**A manifest with errors** (partial results, decided by the human):
+
+- `tarpack_open_manifest`, `tarpack_reload_manifest`, and the first
+  `tarpack_session()` restore succeed for any readable file, whatever its
+  errors. Only an unreadable file fails, with `ManifestUnreadable`. The
+  watcher is armed either way, so the user's fix is noticed.
+- The session manifest comes from M3's `ParseReport`: `entries` from
+  `ManifestView::from(&report.manifest)` plus `assigned` and `status`;
+  `entriesWithheld`, `errors`, `warnings` as in the report;
+  `failedEntries` is `report.failures`, the `EntryFailure` type unchanged
+  (no redefinition; it is already generated); `errorCount` is
+  `report.error_count()`.
+- `errorCount > 0` is the contract's single "there were errors" flag. The UI
+  uses it to tell the user. It does **not** enter `canBuild`. `errorCount` is
+  a `u32`, so it generates as `number`.
+- **`canBuild` and `buildBlockedReason`.** `canBuild` is true exactly when a
+  manifest is loaded, `entries` (passed entries) is non-empty, every entry is
+  `ready`, and `outputPath` is set. Otherwise `buildBlockedReason` is the
+  first failing condition: `"noManifest"`, then `"noEntries"` (`entries` is
+  empty: withheld, every entry failed, or a valid manifest with no files),
+  then `"entriesNotReady"`, then `"noOutput"`. There is no
+  `"manifestInvalid"`.
+- `name` is the manifest's name, or, when that is empty (possible only when
+  `name` itself is in error), the manifest file's stem, converted lossily for
+  display. `outputName` is `null` when `output_name` is in error.
+  `suggestedOutputName` then falls back to the file stem, as with no
+  `output_name`.
+- `readyCount` and `totalCount` count the passed entries only.
+- **Working while errors exist.** Assign, clear, drop, `setFormat`, and
+  `setOutput` all work on the passed entries, so the user can prepare the
+  build while fixing the manifest. The ids of failed or withheld entries are
+  not in the manifest: `tarpack_assign` and `tarpack_clear` with one fail
+  with `UnknownEntry`, and drop matching never considers them.
+- **Remembered sources are not pruned while errors exist.** A typo in one
+  entry must not erase that entry's remembered file.
+  - When the report is valid, open uses `RememberedState::restore` (ids not
+    in the manifest are dropped), and reload keeps only the assignments whose
+    ids are in the manifest.
+  - When it is not valid, open uses `RememberedState::restore_all`, and
+    reload keeps every assignment it holds. The next `remember` therefore
+    writes back the sources of failed entries too. The session still lists
+    only passed entries.
+- **Build.** `tarpack_build` works whatever `errorCount` is:
+  - With no passed entries it fails with `NoEntries` before re-reading the
+    manifest or touching the output. If it ever reached M4,
+    `PlanError::NoEntries` maps to `NoEntries` too.
+  - Otherwise it checks the manifest hash as always (`ManifestChangedOnDisk`
+    on a mismatch), then plans with `ArchivePlan::new(&loaded.report, &assignments)`
+    using the `ParseReport` of the loaded manifest, so the report matches
+    what the user saw and what is on disk. It never re-derives the failures
+    itself.
+  - The returned `BuildSummary` carries `leftOut`, `manifestErrors`,
+    `warnings`, and `errorCount` straight from M4. With the same loaded
+    manifest, `summary.errorCount == session.manifest.errorCount` and
+    `summary.leftOut` equals `session.manifest.failedEntries`.
 
 **Commands.** Each returns `Result<T, TarpackError>`, where `TarpackError` is
 `{ kind: TarpackErrorKind, message: string, entryId?: string }` and exported to
@@ -230,9 +344,9 @@ switches over it exhaustively, so:
 | --- | --- | --- | --- |
 | `NoManifest` | any command needing a loaded manifest | No manifest is loaded | — |
 | `ManifestUnreadable` | open, reload | The manifest file could not be read (missing, permission) | — |
-| `ManifestInvalid` | build | The manifest has errors (defensive: `canBuild` already blocks this) | — |
+| `NoEntries` | build | No entry can be built: every entry is withheld or failed, or the manifest lists none (defensive: `canBuild` already blocks this); also `PlanError::NoEntries` | — |
 | `ManifestChangedOnDisk` | build | The file hash differs from the loaded one | — |
-| `UnknownEntry` | assign, clear | No entry has that id | the id |
+| `UnknownEntry` | assign, clear | No passed entry has that id (this includes the ids of failed entries) | the id |
 | `NotAFile` | assign | The path is not an existing regular file | the id |
 | `NoOutput` | build | No output path is set (defensive) | — |
 | `EntriesNotReady` | build | An entry is unassigned or missing (defensive; from `PlanError::Unassigned`) | the first id |
@@ -259,7 +373,7 @@ match, so the mapping is reviewable in one place.
 | `tarpack_clear(id)` | `TarpackSession` | Clears the assignment only. |
 | `tarpack_set_output(path)` | `TarpackSession` | Extension normalisation and format switch, as above. |
 | `tarpack_set_format(format)` | `TarpackSession` | Rewrites the `outputPath` extension and remembers the format per manifest. |
-| `tarpack_build(overwrite)` | `BuildSummary` | Runs on `spawn_blocking` with the session's `format`. Errors: `OutputExists`, `ManifestChangedOnDisk`, `SourceMissing`, `SourceUnreadable`, `SourceChanged`, `VerifyFailed`, … |
+| `tarpack_build(overwrite)` | `BuildSummary` | Runs on `spawn_blocking` with the session's `format`. Builds the passed entries even when errors exist; the summary is the final report. Errors: `NoEntries`, `OutputExists`, `ManifestChangedOnDisk`, `SourceMissing`, `SourceUnreadable`, `SourceChanged`, `VerifyFailed`, … |
 | `tarpack_recent_manifests()` | `string[]` | |
 | `tarpack_open_in_editor()` | `()` | Opener plugin, on the manifest path. |
 | `tarpack_reveal_output()` | `()` | Opener plugin; reveal the output in Explorer. |
@@ -269,7 +383,18 @@ Every mutating command persists `RememberedState` afterwards, including the
 current format.
 
 **`BuildSummary`** as the UI sees it (generated from M4's type, camelCase):
-`{ path, format, entries, files, dirs, bytes, uncompressedBytes, sha256Hex, extractCommand, normalizedEntries: [{ id, crlfReplaced }] }`.
+`{ path, format, entries, files, dirs, bytes, uncompressedBytes, sha256Hex, extractCommand, normalizedEntries: [{ id, crlfReplaced }], builtIds, leftOut, manifestErrors, warnings, errorCount }`.
+
+- `builtIds: string[]`: the file entries in the archive, in archive order.
+- `leftOut: EntryFailure[]`: every failed entry, none in the archive, each
+  with all its errors.
+- `manifestErrors: Diagnostic[]`: manifest-level errors (in a build that ran,
+  only the non-withholding ones: `name`, `output_name`).
+- `warnings: Diagnostic[]`.
+- `errorCount: number`: `manifestErrors.length` plus every `leftOut[i]`'s
+  errors; 0 means the archive holds every entry the manifest lists.
+
+This task does not redefine the type; M4 generates it.
 
 **Events.**
 
@@ -324,9 +449,21 @@ and `onBuildProgress`, all typed from `lib/generated/`.
 
 - Every command and event is typed end to end. `npm run typecheck` fails if a
   Rust type changes without regenerating.
-- `canBuild` is true only when a manifest is loaded with no errors, every entry
-  is `ready`, and `outputPath` is set. `buildBlockedReason` names the first
-  failing condition, in the order listed in the contract.
+- `canBuild` is true only when a manifest is loaded, at least one entry
+  passed, every passed entry is `ready`, and `outputPath` is set, whatever
+  `errorCount` is. `buildBlockedReason` names the first failing condition,
+  in the order listed in the contract.
+- A manifest with errors opens: the session lists its passed entries, its
+  failed entries with all their errors, its manifest-level errors, and
+  `errorCount`. With every passed entry ready and an output set, `canBuild`
+  is true. With a withholding error, `entries` is empty, `entriesWithheld`
+  is true, and `canBuild` is false with `"noEntries"`.
+- A build with errors writes exactly the passed entries, and its
+  `BuildSummary` carries `leftOut`, `manifestErrors`, `warnings`, and
+  `errorCount` equal to the session's at the time of the build. No other
+  file is written.
+- A failed entry's remembered source survives opening, editing, and
+  reloading the invalid manifest, and comes back once the entry is fixed.
 - An external edit to the manifest produces exactly one `manifest-changed`
   event.
 - A build after an unseen edit fails with `ManifestChangedOnDisk` and writes
@@ -357,6 +494,36 @@ and `onBuildProgress`, all typed from `lib/generated/`.
   - `open_restores_remembered_sources`
   - `reload_keeps_assignments_by_id`
   - `can_build_reasons_in_order`
+  - `invalid_manifest_session_carries_passed_and_failed_entries`: a fixture
+    with a valid `a`, a `b` with `mode = "9"`, and `name = ""` → `entries`
+    is `[a]`, `failedEntries` has `b` with its error, `errors` has the name
+    error, `errorCount == 2`, `name` is the file stem; with `a` unassigned
+    `buildBlockedReason` is `"entriesNotReady"`, and with `a` assigned and
+    an output set `canBuild` is true
+  - `withheld_manifest_session_has_no_entries`: `version = 2` and a syntax
+    error each give `entriesWithheld: true` and no entries, the open
+    succeeds, and `buildBlockedReason` is `"noEntries"` even with an output
+    set; a valid manifest with no `[[file]]` gives `"noEntries"` too
+  - `assign_rejects_failed_entry_id`: `UnknownEntry` with the id
+  - `build_with_errors_builds_passed_entries_and_reports`: the fixture above
+    with `a` assigned and an output set → the build succeeds; the archive
+    holds `a` and its directories only; the summary has
+    `builtIds == ["a"]`, `leftOut` equal to the session's `failedEntries`,
+    the name error in `manifestErrors`, and `errorCount == 2`; the output
+    directory holds only the output file
+  - `build_refuses_when_no_entries`: a withheld manifest and an all-failed
+    manifest, with an output set → `NoEntries`, nothing written, an existing
+    output unchanged
+  - `invalid_manifest_keeps_remembered_source_of_failed_entry`: remember
+    sources for `a` and `b`; reopen with `b` broken; assign `a` again
+    (a mutating command, so state is persisted); simulate a restart; fix `b`
+    on disk and reload → `b`'s source is restored
+  - `session_manifest_serialises_failure_fields`: the session manifest has
+    the keys `entriesWithheld`, `failedEntries` (each with `index`, `id`,
+    `source`, `line`, `errors`), and `errorCount`
+  - `build_summary_serialises_report_fields`: a serialised summary has the
+    keys `builtIds`, `leftOut`, `manifestErrors`, `warnings`, and
+    `errorCount` at its top level
   - `build_refuses_when_manifest_changed`
   - `build_refuses_existing_output_without_overwrite`
   - `create_from_example_refuses_existing_path`
@@ -368,7 +535,8 @@ and `onBuildProgress`, all typed from `lib/generated/`.
   - `no_manifest_session_defaults_and_rejects_format_and_output`
   - `formats_carry_filter_extension`
   - `error_kinds_map_from_build_errors`: every `BuildError` variant and
-    `PlanError` maps to its kind and `entryId`
+    every `PlanError` variant (`NoEntries` → `NoEntries`,
+    `Unassigned` → `EntriesNotReady`) maps to its kind and `entryId`
   - `build_progress_events_follow_contract`: capture the events of a build
     with two files, and assert:
     - writing reaches `bytesDone == bytesTotal` with `entryId: null`;
