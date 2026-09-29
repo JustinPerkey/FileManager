@@ -1,6 +1,6 @@
 # U1 — App shell, design tokens, and tool navigation
 
-Status: awaiting approval
+Status: done (landed 2026-09-29)
 Project: tarpack   Depends on: M1 (landed)
 
 ## Goal
@@ -122,8 +122,11 @@ Add dev dependencies `@testing-library/react` and `vitest-axe` (or
 
 ## Skill
 
-`impeccable:impeccable` with `craft`, then `impeccable:colorize` to confirm the
-palette.
+`/impeccable` (new work), then `/impeccable colorize` to confirm the palette.
+This task ran under the retired names `impeccable:impeccable` with `craft`, and
+`impeccable:colorize`. Its tokens are now recorded in the root `DESIGN.md`.
+The 2026-09-29 audit gave it 18/20; its one finding (the 3 px accent side
+stripe on the current nav item) is fixed in U6.
 
 ## Acceptance criteria
 

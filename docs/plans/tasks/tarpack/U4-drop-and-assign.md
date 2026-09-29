@@ -52,8 +52,19 @@ window, or by picking a file for one row, and show clearly what a drop did.
 
   `{source}` is the entry's `source` for `entryId`, or "A file".
 - The tokens you use are in `src/styles/tokens.css`: `--drop-overlay`,
-  `--accent`, `--surface`, `--text`, `--text-muted`, `--radius`, and the
-  `--space-*` scale.
+  `--accent`, `--surface`, `--text`, `--text-muted`, `--radius`,
+  `--font-size-md` and `--font-size-lg`, and the `--space-*` scale.
+- U2 built the shared vocabulary; use it and add no parallel version:
+  - `src/app/Button.tsx`: `variant: "primary" | "secondary" | "quiet"`,
+    `icon?`;
+  - `src/app/icons.tsx`: `Icon` with `name: IconName`, including `folder`,
+    `check-circle`, `alert-triangle`, `info`, and `x`;
+  - the `.num` utility class for counts.
+- **Design context.** The root `DESIGN.md` records the visual system ("The
+  Packing List"): flat, tonal, with no shadows at rest. The drop overlay and
+  the confirmation dialog are the only things allowed to float. This is an
+  Operate surface extending that world; the overlay is a state, not a
+  moment of delight.
 
 ### Components
 
@@ -67,8 +78,11 @@ window, or by picking a file for one row, and show clearly what a drop did.
 - `DropZone` subscribes to `onDragDrop`. While a drag is over the window, it
   shows a full-window overlay: the `--drop-overlay` fill, a 2 px dashed
   `--accent` inset border, and a centered label, "Drop files or folders to
-  match them to the manifest". The overlay does not steal focus, and it
-  disappears on leave or drop.
+  match them to the manifest". The label sits on a `--surface` plate with
+  `--radius` and `--space-3 --space-4` padding, at `--font-size-lg`, with the
+  `folder` icon before it. The plate keeps the text at AA contrast over the
+  translucent fill. The overlay does not steal focus, and it disappears on
+  leave or drop.
 - **Disabled** when there is no manifest, or the manifest has errors. The
   overlay then reads "Open a valid manifest first", and drops are ignored.
 - **After a drop**, `DropResult` appears above the table. It is a
@@ -78,8 +92,13 @@ window, or by picking a file for one row, and show clearly what a drop did.
   - "1 not in the manifest: notes.txt"
   - "1 ambiguous: app.dll could be 2 files — use Browse"
 
-  Paths show as file names, with the full path in `title`. It can be
-  dismissed, and it is replaced by the next drop.
+  Paths show as file names, with the full path in `title`. Each line starts
+  with an `Icon`: `check-circle` in `--ok` for matched, `info` in
+  `--text-muted` for not in the manifest, and `alert-triangle` in `--warn`
+  for ambiguous. Counts use `.num`. It sits on `--surface` with a 1 px
+  `--border` (no tinted fill and no side stripe). It is dismissed with a quiet
+  `Button` using the `x` icon and the name "Dismiss drop result", and it is
+  replaced by the next drop.
 - **Browse…** on a row opens `openFileDialog`, starting in the folder of the
   row's current or last assignment when there is one. The chosen path goes to
   `assign(id, path)`. A cancelled dialog does nothing.
@@ -92,7 +111,8 @@ window, or by picking a file for one row, and show clearly what a drop did.
 
 **Rules that bind this task.**
 
-- Tokens only.
+- Tokens only, with font sizes from `--font-size-*`. Use `Button` and `Icon`;
+  no `<button>` and no glyph icons.
 - Everything is keyboard reachable: Browse and Clear are real buttons, and the
   drop result is reachable and dismissible by keyboard.
 - The overlay's meaning is never color-only; it always has its label.
@@ -109,8 +129,20 @@ window, or by picking a file for one row, and show clearly what a drop did.
 
 ## Skill
 
-`impeccable:impeccable` with `craft`, then `impeccable:clarify` for the result
-and overlay copy.
+`/impeccable` (new work inside the established world: extend an existing
+surface), then `/impeccable clarify` for the result and overlay copy.
+
+How to run it:
+
+- Start with the skill's `impeccable context`, which loads the root
+  `PRODUCT.md` and `DESIGN.md`.
+- This is a local extension of an established surface. Per the skill's
+  new-work flow, run no concept round or concept seed, write no direction
+  contract, and do not rewrite `DESIGN.md`.
+- Read the skill's `reference/craft-floor.md` before the first edit.
+- If the skill is not installed, install it with `npx impeccable install`, or
+  follow the reference docs from `github.com/pbakaus/impeccable` by hand. Say
+  which in your report.
 
 ## Acceptance criteria
 
@@ -120,6 +152,8 @@ and overlay copy.
 - Every bucket renders correctly, including the "already assigned" reason. The
   live-region text matches the outcome.
 - Disabled drops show the reason and make no `lib` call.
+- The overlay label is on a `--surface` plate, and each result line has its
+  icon, so meaning never depends on color or the dashed border alone.
 - Browse and Clear call the right functions with the right id, and a cancelled
   dialog makes no call.
 - A rejected `assign` with `NotAFile` shows "{source}: the chosen path is not
