@@ -8,7 +8,7 @@ use tempfile::TempDir;
 
 use super::encode::Decoder;
 use super::eol::{converted_len, CrlfToLf};
-use super::write::{write_archive_with, Hooks};
+use super::write::{temp_prefix, write_archive_with, Hooks};
 use super::*;
 use crate::format::ArchiveFormat;
 use crate::manifest::{parse, ParseReport};
@@ -489,12 +489,16 @@ fn read_failure_while_writing_names_entry_and_writes_nothing() {
     assert!(dir_listing(&fx.out_dir()).is_empty());
 }
 
+// Unit-level: a whole build with a 244-byte name exceeds Windows' MAX_PATH
+// once the temp directory is prepended, so test the prefix itself.
 #[test]
-fn long_output_name_still_builds() {
-    let fx = simple();
-    let out = fx.out_dir().join(format!("{}.tar", "o".repeat(240)));
-    write_archive(&fx.plan(), &out, ArchiveFormat::Tar, false, |_| {}).unwrap();
-    assert!(out.exists());
+fn temp_prefix_caps_long_output_names() {
+    let short = temp_prefix(Path::new("out/a.tar.gz"));
+    assert_eq!(short, ".a.tar.gz.");
+    let long = temp_prefix(&Path::new("out").join(format!("{}.tar", "o".repeat(240))));
+    // tempfile adds 6 random bytes and the ".partial" suffix.
+    assert!(long.len() + 6 + ".partial".len() <= 255);
+    assert!(long.to_string_lossy().starts_with(".ooo"));
 }
 
 #[test]

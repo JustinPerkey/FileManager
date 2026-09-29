@@ -535,7 +535,7 @@ pub(crate) fn write_archive_with(
 
 /// `.<output name>.`, with a long name cut so the temp name (16 bytes longer)
 /// stays inside the 255-byte component limit.
-fn temp_prefix(out_path: &Path) -> std::ffi::OsString {
+pub(crate) fn temp_prefix(out_path: &Path) -> std::ffi::OsString {
     const MAX: usize = 200;
     let name = out_path.file_name().unwrap_or_default();
     let mut prefix = std::ffi::OsString::from(".");
