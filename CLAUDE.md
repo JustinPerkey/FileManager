@@ -1,7 +1,7 @@
 # FileManager
 
 A standalone application repository. It owns its own history, CI, and agent
-chain, and follows the same five-role chain as the Warner Robins repositories.
+chain.
 
 ## Status
 
