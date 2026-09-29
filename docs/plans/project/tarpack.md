@@ -1,8 +1,10 @@
 # Project plan: foundation and the Tar Packager subcomponent
 
-Status: **awaiting approval.** Decisions marked *(proposed)* are the planner's
-recommendation and stand unless the human overrides them. The open questions at
-the end need an answer before the milestone that depends on them starts.
+Status: **awaiting approval to start implementation.** The human answered every
+open question in §6 on 2026-09-29. The answers are recorded in §6.1 and folded
+into §2–§4 and into every backend task plan. Decisions still marked
+*(proposed)* are the planner's recommendations that follow from those answers
+(§6.2). They stand unless the human overrides them.
 
 UI project plan: [`tarpack-ui.md`](tarpack-ui.md). Task plans:
 [`../tasks/tarpack/`](../tasks/tarpack/).
@@ -20,13 +22,17 @@ several subcomponents ("tools"). The first tool, the **Tar Packager**
    or with a file picker.
 3. Remembers the last Windows location used for each entry, so repeat test runs
    need no re-selection.
-4. Writes a `.tar` file when the user clicks a button.
+4. Writes a `.tar` file when the user clicks a button. The human later added
+   compressed variants (§3.4).
+
+**Target system** (from the Q3 answer): armv7, low power, GNU tar with zstd
+available.
 
 ## 2. Foundation decisions
 
 `CLAUDE.md` says the stack is not yet chosen, so Milestone 1 is the foundation.
 
-### 2.1 Stack *(proposed)*
+### 2.1 Stack *(decided, Q1)*
 
 **Tauri v2 shell + Rust workspace crates + React/TypeScript/Vite frontend.**
 
@@ -38,13 +44,20 @@ several subcomponents ("tools"). The first tool, the **Tar Packager**
   dialogs.
 - All filesystem and archive logic is Rust. The frontend only renders state and
   calls commands.
-- Alternative: an all-Rust UI (egui, Slint, or Leptos inside Tauri). This keeps
-  the codebase to one language, but gives weaker design-token and accessibility
-  tooling and does not fit the `impeccable` pipeline. See open question Q1.
+- Rejected alternative: an all-Rust UI (egui, Slint, or Leptos inside Tauri).
+  It keeps the codebase to one language, but gives weaker design-token and
+  accessibility tooling and does not fit the `impeccable` pipeline.
 
 The app runs only on Windows, but every crate outside the Tauri shell must build
 and pass its tests on Linux too. That keeps the core testable in any container,
 and CI also runs it on Windows.
+
+**Native build dependencies (consequence of Q3).** The `zstd` and xz crates
+compile bundled C sources. Windows builds therefore need the MSVC toolchain
+(already required by Tauri), and Linux CI needs a C compiler (`cc`/`gcc`,
+preinstalled on `ubuntu-latest`). `CLAUDE.md` records this as a prerequisite in
+M1. M7 links the C runtime statically, so the portable exe has no DLL
+dependencies beyond the system and WebView2.
 
 ### 2.2 Layout, designed for many tools
 
@@ -55,8 +68,9 @@ crates/
                               JSON state store (namespaced per tool), atomic
                               file write, common error type. No tauri dep.
   fm-tarpack/                 Tar Packager domain: manifest model, parse and
-                              validate, source matching, archive writer.
-                              Depends on fm-core only. No tauri dep.
+                              validate, archive formats, source matching,
+                              archive writer. Depends on fm-core only.
+                              No tauri dep.
 apps/desktop/
   src-tauri/                  Tauri v2 shell (binary `filemanager`)
     src/lib.rs                builder, plugins, invoke_handler
@@ -72,7 +86,7 @@ apps/desktop/
     app/                      shell, navigation, layout (ui-implementer)
     styles/tokens.css         design tokens, light and dark
 examples/tarpack/example.toml sample manifest
-docs/tarpack-manifest.md      manifest reference
+docs/tarpack-manifest.md      manifest and archive reference, incl. extraction
 ```
 
 **Adding a tool** is a fixed recipe, written into `CLAUDE.md` by Milestone 1:
@@ -95,17 +109,19 @@ Tools never import each other. Anything two tools share moves into `fm-core`.
   `#[derive(ts_rs::TS)]` and generated into `src/lib/generated/`. A test fails if
   the generated files are stale. This makes the "defined once, mirrored" rule
   mechanical.
-- Session state (the loaded manifest, the assignments, the output path) lives in
-  Rust as Tauri-managed state. Every tarpack command returns a full
-  `TarpackSession` snapshot, and the UI renders it. The UI keeps no second copy
-  of the truth.
+- Session state (the loaded manifest, the assignments, the output path, the
+  chosen archive format) lives in Rust as Tauri-managed state. Every tarpack
+  command returns a full `TarpackSession` snapshot, and the UI renders it. The
+  UI keeps no second copy of the truth, and does no extension or format logic
+  of its own: the backend supplies the extension list, the suggested file name,
+  and the extraction command.
 
-### 2.4 Commands *(proposed, recorded in `CLAUDE.md` by Milestone 1)*
+### 2.4 Commands *(recorded in `CLAUDE.md` by Milestone 1)*
 
 ```sh
 npm install                                        # once, at repo root
 npm run tauri:dev                                  # run the app
-npm run tauri:build                                # Windows installer / exe
+npm run tauri:build                                # portable Windows exe (tauri build --no-bundle)
 
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -116,21 +132,38 @@ npm run typecheck && npm run lint && npm run test  # frontend (vitest)
 CI (GitHub Actions) has two jobs:
 
 - **ubuntu-latest:** fmt, clippy, and tests for the `fm-*` crates, plus the
-  frontend typecheck, lint, and tests.
-- **windows-latest:** tests for the `fm-*` crates, plus `tauri build`. This is
-  the authoritative platform.
+  frontend typecheck, lint, and tests. Needs a C compiler (preinstalled).
+- **windows-latest:** tests for the `fm-*` crates, plus `tauri build
+  --no-bundle`, on the MSVC toolchain. This is the authoritative platform. M7
+  uploads the exe as an artifact.
 
-## 3. The manifest *(proposed format)*
+### 2.5 Distribution *(decided, Q8)*
+
+A **portable `.exe`**, no installer. `npm run tauri:build` runs
+`tauri build --no-bundle`. The frontend is embedded in the binary. Consequences
+M7 handles:
+
+- The C runtime is linked statically (`+crt-static` for
+  `x86_64-pc-windows-msvc`), so the exe runs without the VC++ redistributable.
+  The `cc`-built zstd and liblzma objects follow the same CRT setting.
+- The exe relies on the Evergreen WebView2 runtime already installed on
+  Windows 10/11. It cannot bootstrap it. The README states the requirement.
+- State stays in `%APPDATA%\FileManager\` (Q5), not beside the exe. "Portable"
+  means no installer, not a self-contained data folder.
+
+## 3. The manifest and the archive
+
+### 3.1 Manifest format *(decided)*
 
 The manifest is TOML: readable, comment-friendly, and safe to hand-edit. The
 user opens any manifest file from anywhere on disk. The app also creates and
-suggests a default folder, `%APPDATA%\FileManager\tarpack\manifests\`.
+suggests a default folder, `%APPDATA%\FileManager\tarpack\manifests\` (Q5).
 
 ```toml
 # Tar Packager manifest
 version = 1
 name = "Gateway deploy"
-output_name = "gateway.tar"      # suggested file name in the Save dialog
+output_name = "gateway.tar.zst"  # suggested Save name; a known archive suffix also picks the default format
 
 [defaults]                       # every field optional; shown values are the built-in defaults
 mode = "0644"                    # file permissions, octal
@@ -155,9 +188,22 @@ dir = "/etc/gateway"
 mode = "0640"
 gname = "gateway"
 gid = 990
+
+[[file]]
+id = "gateway-start"
+source = "start.sh"
+dir = "/opt/gateway/bin"
+mode = "0755"
+normalize_eol = true             # opt-in: CRLF -> LF when writing (Q6)
 ```
 
-### Validation
+Owners (Q4): numeric uid/gid plus user/group names on every entry, defaulting
+to `0`/`0` `root:root`.
+
+`normalize_eol` (Q6) is per file only, boolean, default `false`. It is not
+accepted in `[defaults]`: conversion must be a deliberate per-file choice.
+
+### 3.2 Validation
 
 Every error reports its line and column. A manifest with any error cannot be
 built. The rules:
@@ -168,29 +214,131 @@ built. The rules:
 - `dir` is an absolute POSIX path: it starts with `/`, has no `..` segments, no
   backslashes, and no NUL.
 - `name` and `source` have no `/` or `\`.
+- `output_name`, when present, is non-empty and has no `/`, `\`, or NUL.
 - The final target paths (`dir` + `name`) are unique. Paths are compared
   case-sensitively, because the target is Linux.
 - `mode` is octal and at most `07777`.
 - `uid` and `gid` fit in `u32`. `uname` and `gname` are at most 32 bytes.
+- `normalize_eol` is a boolean.
 
 These produce **warnings**, not errors:
 
 - Two entries share a `source` name. A drop is then ambiguous for them, and the
   user must use the per-row picker.
-- A target path does not fit a plain ustar header. The writer then uses GNU
-  long-name headers.
+- A stored path (the absolute target path, leading `/` included) is 100 bytes
+  or longer. The writer then emits a GNU long-name record for it.
+- The manifest has no `[[file]]` entries.
 
-### Archive semantics *(proposed)*
+### 3.3 Archive semantics *(decided)*
 
 - Entries are written in manifest order, each file preceded by any parent
-  directory entries not yet written.
-- Parent directories get `dir_mode` and the default owner. Because the archive
-  records them explicitly, `tar -xpf` recreates them with those permissions.
-- Paths inside the archive are **relative** (the leading `/` is stripped), which
-  is standard tar practice. Extract with `tar -xpf x.tar -C /` (see Q2).
-- The GNU header format is used, so long paths work.
-- `mtime` is the source file's modification time (see Q7).
-- File bytes are copied verbatim. There is no line-ending conversion (see Q6).
+  directory entries not yet written. The root `/` itself is never emitted.
+- Parent directories get `dir_mode` and the default owner.
+- **Paths stored in the archive are absolute** (Q2): `/opt/gateway/bin/gateway`,
+  and directory entries `/opt/`, `/opt/gateway/`, and so on. The human chose
+  this knowing that GNU and BusyBox tar strip the leading `/` unless `-P` is
+  given. The target extracts with GNU tar using `-P`.
+- **Header writing.** The GNU header format is used. The Rust `tar` crate's
+  `Header::set_path` rejects absolute paths, so M4 writes the name bytes into
+  the header's `name` field directly and appends with `Builder::append` (which
+  does not re-validate the path). Names of 100 bytes or more get a preceding GNU
+  long-name record (`././@LongLink`, typeflag `L`, the name plus a NUL as its
+  data). The ustar `prefix`/`name` split is not used, because GNU headers
+  reuse the prefix bytes for other fields. Mixing the two formats would produce
+  headers that some readers misparse. Tests assert that every stored name
+  begins with `/`.
+- **mtime** is the source file's modification time (Q7), in whole seconds.
+  Directory entries take the newest source mtime in the archive.
+- **Bytes** are copied verbatim, unless the entry has `normalize_eol = true`
+  (Q6). Then every CRLF pair becomes LF. Lone CR bytes are left alone. The
+  header size is the converted size, which the writer learns in a counting pass
+  before it writes the header. If the second pass yields a different size, the
+  source changed mid-build, and the build fails naming the entry.
+
+### 3.4 Output formats *(decided, Q3; parameters decided by the planner)*
+
+The user picks one of four formats at build time:
+
+| Format | Extension | Crate | Setting | Decompression memory on target |
+| --- | --- | --- | --- | --- |
+| Uncompressed | `.tar` | — | — | none |
+| gzip | `.tar.gz` | `flate2` (pure-Rust `miniz_oxide` backend) | level 6 | ~32 KiB window |
+| zstd | `.tar.zst` | `zstd` (bundled libzstd) | level 19, `window_log` capped at 23, content checksum on, no long mode | ~8 MiB window + small buffers |
+| xz | `.tar.xz` | `liblzma` (maintained fork of `xz2`, same API; bundled source, static) | preset 6, CRC64 check, single-threaded | ~9 MiB |
+
+Reasons:
+
+- **Decompression cost is paid on a low-power armv7.** For both zstd and xz,
+  decompression memory is set by the window or dictionary size, not by the
+  compression level. Compression cost is paid on the Windows desktop, where it
+  is cheap.
+- **zstd:** level 19 gives near-maximum ratio. Its default window for large
+  inputs is 8 MiB. Setting `window_log = 23` explicitly makes the bound hold
+  whatever the libzstd version's defaults, and it stays within the default
+  decoder limit (`--memory=128MB`) with no flags on the target. Long-distance
+  mode (`--long`) is off, because it raises the window to 128 MiB and needs a
+  matching flag to decompress. Levels 20–22 ("ultra") raise the window and are
+  rejected. zstd is the recommended format for this target: its decompression
+  is several times faster than xz on ARM.
+- **xz:** preset 6 is xz's default, with an 8 MiB dictionary and about 9 MiB to
+  decompress. Presets 7–9 need 17–65 MiB to decompress and are rejected.
+  `-e`/extreme is not used; it barely helps and costs compression time.
+  Multithreaded encoding is not used, because it splits the stream into blocks
+  and changes memory characteristics on the decoder for no gain here.
+- **gzip:** level 6 is the conventional default. The window is fixed at 32 KiB,
+  so the target cost is negligible. The pure-Rust backend needs no C.
+- **Integrity:** zstd's content checksum and xz's CRC64 let the target's
+  `tar` detect corruption. gzip carries CRC32 by definition.
+
+The format parameters live as named constants in
+`crates/fm-tarpack/src/format.rs`, with these reasons as doc comments.
+
+**Format selection and file name.**
+
+- `ArchiveFormat` is a Rust enum `{ Tar, TarGz, TarZst, TarXz }` exported to
+  TS. It lives in `fm_tarpack::format`, created by M3, so that M4 (encoders) and
+  M5 (remembered choice) can run in parallel.
+- **Default format when a manifest opens:** the last format remembered for that
+  manifest. Otherwise the format implied by the suffix of `output_name` if it is
+  a known archive suffix (`.tar`, `.tar.gz`, `.tgz`, `.tar.zst`, `.tar.xz`,
+  compared case-insensitively). Otherwise `.tar`.
+- **Remembered per manifest** *(decided, recommended by the human)*: the last
+  chosen format is stored with the manifest's other remembered data in the
+  tool's state store, and restored on open.
+- **Extension always follows the format.** The backend owns this logic:
+  - `tarpack_set_format` rewrites the extension of a set output path, replacing
+    a known archive suffix, or appending one if there is none.
+  - `tarpack_set_output(path)`:
+    - If `path` ends with the current format's extension, it is kept.
+    - If it ends with a different known archive suffix, the format switches to
+      match. The user typed that name explicitly, and the switch shows in the
+      session.
+    - Otherwise the current extension is appended.
+  - The session supplies `suggestedOutputName`: the file name for the Save
+    dialog, with the current format's extension. It comes from `output_name`
+    with its suffix normalised, falling back to the manifest file stem.
+  - The session also supplies the list of formats with their extensions, for
+    the Save dialog filter and the format picker.
+- **Extraction command.** `BuildSummary.extractCommand` gives the exact command
+  for the built file, e.g. `tar --zstd --no-overwrite-dir -xpPf gateway.tar.zst`
+  (see §6.2 for `--no-overwrite-dir`). `docs/tarpack-manifest.md` documents the
+  command for every format.
+
+### 3.5 Extraction on the target
+
+| Format | Command |
+| --- | --- |
+| `.tar` | `tar --no-overwrite-dir -xpPf <file>` |
+| `.tar.gz` | `tar -z --no-overwrite-dir -xpPf <file>` |
+| `.tar.zst` | `tar --zstd --no-overwrite-dir -xpPf <file>` (GNU tar ≥ 1.31 with `zstd` installed) |
+| `.tar.xz` | `tar -J --no-overwrite-dir -xpPf <file>` |
+
+- `-P` (`--absolute-names`) is required. Without it, GNU and BusyBox tar strip
+  the leading `/` and extract relative to the current directory.
+- `-p` applies the archive's modes. Run as root, GNU tar also applies the
+  owners.
+- GNU tar also auto-detects compression when reading a file, but the displayed
+  command names the decompressor explicitly, so that it also works when piped.
 
 ## 4. Milestones
 
@@ -202,11 +350,11 @@ also here when it changes the index below.
 | --- | --- | --- | --- |
 | M1 | [`M1-foundation.md`](../tasks/tarpack/M1-foundation.md) | Stack, layout, boundary, commands, CI, `CLAUDE.md` | none |
 | M2 | [`M2-core-state-store.md`](../tasks/tarpack/M2-core-state-store.md) | `fm-core` app dirs, namespaced state store, atomic write | M1 |
-| M3 | [`M3-manifest.md`](../tasks/tarpack/M3-manifest.md) | Manifest model, parsing, validation; `docs/tarpack-manifest.md` | M1 |
-| M4 | [`M4-archive-writer.md`](../tasks/tarpack/M4-archive-writer.md) | Atomic, verified `.tar` writer | M2, M3 |
-| M5 | [`M5-source-matching.md`](../tasks/tarpack/M5-source-matching.md) | Drop/pick matching, remembered locations | M2, M3 |
+| M3 | [`M3-manifest.md`](../tasks/tarpack/M3-manifest.md) | Manifest model, parsing, validation, `ArchiveFormat`; `docs/tarpack-manifest.md` | M1 |
+| M4 | [`M4-archive-writer.md`](../tasks/tarpack/M4-archive-writer.md) | Atomic, verified writer: absolute names, four formats, EOL normalisation | M2, M3 |
+| M5 | [`M5-source-matching.md`](../tasks/tarpack/M5-source-matching.md) | Drop/pick matching, remembered locations and format | M2, M3 |
 | M6 | [`M6-tauri-contract.md`](../tasks/tarpack/M6-tauri-contract.md) | Tauri commands, events, watcher, typed `lib/` client | M4, M5 |
-| M7 | [`M7-windows-packaging.md`](../tasks/tarpack/M7-windows-packaging.md) | Windows bundle and end-to-end check | M6, U6 |
+| M7 | [`M7-windows-packaging.md`](../tasks/tarpack/M7-windows-packaging.md) | Portable exe, static CRT, CI artifact, end-to-end check | M6, U6 |
 
 M2 and M3 can run in parallel, and so can M4 and M5.
 
@@ -220,26 +368,104 @@ The UI is written in [`tarpack-ui.md`](tarpack-ui.md). Its constraints are:
   entry is `Ready`, and an output path is set.
 - Overwriting an existing output needs an explicit confirmation.
 - A drop shows its matched, unmatched, and ambiguous results.
+- **New from the §6 answers:**
+  - The user picks the output format (four options) before building. The UI
+    takes the options and extensions from the session and does no extension
+    logic of its own.
+  - The Save dialog uses `suggestedOutputName` and a filter for the current
+    format.
+  - The build result shows the extraction command, including `-P`, with a way
+    to copy it.
+  - Entries with `normalizeEol` are visibly marked.
+  - Progress has a `verifying` phase after writing.
+
+  The full list of contract changes is in §6.3.
 
 The ordering is:
 
 - UI task 1 needs only M1.
-- UI tasks 2–5 need M6.
+- UI tasks 2–5 need M6. The format picker and extraction command belong to the
+  build bar and result (U5), which consume the M6 contract.
 - M7 needs UI task 6.
 
-## 6. Open questions for the human
+## 6. Decisions
 
-1. **Q1 — UI technology.** Tauri + React/TypeScript (recommended; matches
-   BurgerWeek), or an all-Rust UI (egui/Slint)?
-2. **Q2 — Archive paths.** Relative `opt/...`, extracted with `-C /`
-   (recommended), or absolute `/opt/...`?
-3. **Q3 — Compression.** Plain `.tar` only, or also offer `.tar.gz`?
-4. **Q4 — Owners.** Is numeric uid/gid plus names per file (defaulting to
-   root:root) what the target systems need?
-5. **Q5 — Manifest location.** Open from anywhere, with a default folder under
-   `%APPDATA%` (recommended), or one fixed location?
-6. **Q6 — Line endings.** Files edited on Windows may have CRLF, which breaks
-   shell scripts on Linux. Should there be an opt-in per-file
-   `normalize_eol = true`? The proposed default is no conversion.
-7. **Q7 — mtime.** Use the source file's time (proposed), or the build time?
-8. **Q8 — Distribution.** Installer (MSI/NSIS), or a portable `.exe`?
+### 6.1 Answers to the open questions (resolved 2026-09-29)
+
+| # | Question | Decision |
+| --- | --- | --- |
+| Q1 | UI technology | Tauri v2 + React/TypeScript/Vite, as proposed. §2.1. |
+| Q2 | Archive paths | **Absolute** `/opt/...` names stored in the archive, overriding the relative proposal. The target extracts with GNU tar `-P`. The `tar` crate's `set_path` rejects absolute paths, so M4 writes header name bytes directly, with GNU long-name records for names of 100 bytes or more, and tests that stored names begin with `/`. The extraction command is documented in `docs/tarpack-manifest.md`. §3.3, §3.5. |
+| Q3 | Compression | Four formats chosen at build time: `.tar`, `.tar.gz` (flate2), `.tar.zst` (zstd), `.tar.xz` (xz2/liblzma). Parameters bound decompression memory on armv7: zstd 19 with `window_log` 23, xz preset 6, gzip 6. The Save extension follows the format. The last format is remembered per manifest. §3.4. |
+| Q4 | Owners | Numeric uid/gid plus names per file, default `0`/`0` `root:root`. Accepted. |
+| Q5 | Manifest location | Open from anywhere; default folder `%APPDATA%\FileManager\tarpack\manifests\`. Accepted. |
+| Q6 | Line endings | Opt-in per-file `normalize_eol = true` (CRLF→LF). Default is a byte-for-byte copy. §3.1, §3.3. |
+| Q7 | mtime | The source file's modification time. Accepted. |
+| Q8 | Distribution | Portable `.exe`, no installer. §2.5. |
+| — | Consequence | zstd and liblzma build C code: Windows CI and packaging need MSVC (M1, M7), and Linux CI needs a C compiler (M1). |
+
+### 6.2 Planner decisions arising from the answers *(proposed)*
+
+These follow from the answers above. They stand unless the human overrides
+them.
+
+1. **`liblzma` crate rather than `xz2`.** `liblzma` is the maintained fork with
+   the same API. `xz2` has been unmaintained since 2022. M4 may fall back to
+   `xz2` only if `liblzma` fails to build on either CI job, and must say so in
+   its handoff.
+2. **`ArchiveFormat` lives in `fm_tarpack::format` and is created by M3.**
+   This keeps M4 and M5 parallel.
+3. **`tarpack_set_output` switches the format** when the chosen file name
+   carries a different known archive suffix, instead of appending a second
+   suffix or rejecting the name.
+4. **Default format** comes from the remembered choice, then `output_name`'s
+   suffix, then `.tar`. There is no new manifest key.
+5. **`--no-overwrite-dir` in the documented and displayed extraction command.**
+   The archive carries explicit directory entries such as `/etc/` and `/opt/`.
+   With `-p`, GNU tar by default re-applies the mode and, as root, the owner of
+   directories that already exist. A manifest whose defaults are not
+   `0755 root:root` would therefore alter `/etc` or `/opt` on the target.
+   `--no-overwrite-dir` keeps the metadata of existing directories and still
+   applies `dir_mode` to directories the archive creates. The alternative is to
+   stop emitting directory entries for paths that are likely to exist, which is
+   guesswork. The flag is GNU-only, which matches the stated target.
+6. **Progress gains a phase** (`writing` or `verifying`). Verification
+   decompresses and re-reads the whole archive, and for xz that is long enough
+   to need visible progress.
+7. **`BuildSummary` reports `normalizedEntries`**: each normalised entry's id
+   and the number of CRLF pairs replaced. The user can then see that the
+   conversion happened.
+
+### 6.3 UI-facing contract changes (for the ui-designer)
+
+All of these are owned by M6 (with types from M3–M5) and generated into
+`apps/desktop/src/lib/generated/`:
+
+- New type `ArchiveFormat = "tar" | "tarGz" | "tarZst" | "tarXz"`.
+- New type `ArchiveFormatOption = { format: ArchiveFormat, extension: string }`.
+- `TarpackSession` gains:
+  - `format: ArchiveFormat`;
+  - `formats: ArchiveFormatOption[]` (fixed order: tar, tarGz, tarZst, tarXz);
+  - `suggestedOutputName: string | null`.
+- `TarpackSession.manifest.entries[]` gains `normalizeEol: boolean`.
+- `outputPath` is always normalised to end with the current format's extension.
+- New command `tarpack_set_format(format)` returns `TarpackSession`, and
+  `lib/tarpack.ts` gains `setFormat(format)`.
+- `tarpack_set_output(path)` may change `format` (decision 6.2.3) and may
+  append an extension.
+- `BuildSummary` gains:
+  - `format: ArchiveFormat`;
+  - `uncompressedBytes: number`;
+  - `extractCommand: string`;
+  - `normalizedEntries: { id: string, crlfReplaced: number }[]`.
+
+  `bytes` is now the size of the output file on disk.
+- The `tarpack://build-progress` payload becomes
+  `{ phase: "writing" | "verifying", entryId: string | null, bytesDone, bytesTotal }`.
+  The byte counts are uncompressed tar-stream bytes, so they are comparable
+  across formats.
+- New `TarpackError.kind` value `SourceChanged` (a source's size changed during
+  the build).
+- `lib/tauri.ts`: `saveFileDialog({ defaultPath, filters? })` gains `filters`.
+- `Diagnostic` messages change wording for the long-name warning ("100 bytes or
+  longer, stored path including the leading /"). The shape is unchanged.
