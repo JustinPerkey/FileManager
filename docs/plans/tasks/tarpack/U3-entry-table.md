@@ -6,24 +6,34 @@ Project: tarpack   Depends on: U2 (landed), M6 (landed)
 ## Goal
 
 Show every manifest entry with its expected file, the Windows file assigned to
-it, its Linux target, its permissions, its owner, and whether it is ready. This
-table is the heart of the view.
+it, its Linux target, its permissions, its owner, whether its line endings are
+converted, and whether it is ready. This table is the heart of the view.
 
 ## Context
 
 **Why it matters.** The failure this tool prevents is finding out on the Linux
 machine that a file was missing or had the wrong permissions. The table must
 make "is everything here and correct?" answerable at a glance. It shows the
-exact Linux path and mode that will be written.
+exact Linux path and mode that will be written, and which files will have
+their Windows line endings converted.
+
+**Line-ending conversion (decided).** By default every file is copied byte for
+byte. A manifest entry may opt in with `normalize_eol = true`; the archive
+writer then replaces every CRLF pair with LF for that file (lone CR bytes are
+kept). This changes file contents, so it must be visible on the row, not only
+in the manifest. Typical use: a shell script edited on Windows.
 
 **What exists.**
 
 - `src/tools/tarpack/TarpackView.tsx` (U2) holds the `TarpackSession` state and
   reserves a slot for the table.
 - `session.manifest.entries` is a list of
-  `{ id, source, targetPath, mode, modeText, owner, assigned, status }`. Check
-  `src/lib/generated/` for the exact types:
+  `{ id, source, targetPath, mode, modeText, owner, normalizeEol, assigned, status }`.
+  Check `src/lib/generated/` for the exact types:
   - `status` is `"ready"`, `"missing"`, or `"unassigned"`;
+  - `targetPath` is the absolute name stored in the archive, always starting
+    with `/`, for example `/opt/gateway/bin/gateway`;
+  - `normalizeEol` is a boolean, `true` when CRLF → LF conversion is on;
   - `modeText` is like `rwxr-xr-x`;
   - `mode` is the octal string, like `0755`;
   - `owner` is like `root:root`;
@@ -39,6 +49,7 @@ exact Linux path and mode that will be written.
 | --- | --- | --- | --- |
 | `EntryTable` | `src/tools/tarpack/EntryTable.tsx` | `entries, onBrowse(id), onClear(id)` | empty / populated |
 | `EntryStatus` | `src/tools/tarpack/EntryStatus.tsx` | `status` | Ready / Missing / Not assigned |
+| `EolMarker` | `src/tools/tarpack/EolMarker.tsx` | — | rendered only for entries with `normalizeEol` |
 
 **Columns, in order:**
 
@@ -46,12 +57,26 @@ exact Linux path and mode that will be written.
    Missing uses `--danger` with a warning icon. Not assigned uses
    `--text-muted` with an empty-circle icon. The word is always visible; the
    icon is `aria-hidden`.
-2. **File**: the expected `source` name.
+2. **File**: the expected `source` name. When `normalizeEol` is true, an
+   `EolMarker` follows the name on the same line (wrapping below it if space
+   runs out):
+   - visible text **CRLF → LF** in `--font-mono`, at the table's body size,
+     `--text-muted` on `--surface-sunken`, a 1 px `--border` outline,
+     `--radius`, and `--space-1` horizontal padding (this pair is already
+     verified for WCAG AA);
+   - the arrow is decorative: wrap it so the accessible text is not "CRLF
+     right arrow LF". The marker's accessible text is "line endings converted
+     to LF" (visually hidden), with the visible glyphs `aria-hidden`;
+   - `title` reads "Windows line endings (CRLF) are converted to Linux (LF)
+     when the archive is written";
+   - it is not interactive and not in the tab order; screen readers reach it
+     as part of the File cell. Its meaning never depends on color.
 3. **Windows location**: `assigned` in `--font-mono`, middle-truncated (keep
    the drive and the file name visible), with the full path in `title` and in
    visually hidden text. Show "—" when unassigned. When the status is Missing,
    add the text "(not found)".
-4. **Linux target**: `targetPath` in `--font-mono`.
+4. **Linux target**: `targetPath` in `--font-mono`, rendered verbatim
+   including its leading `/`. Do not strip, join, or rebuild it.
 5. **Mode**: `modeText` in `--font-mono`, followed by the octal value in
    `--text-muted`.
 6. **Owner**: `owner`.
@@ -60,7 +85,9 @@ exact Linux path and mode that will be written.
    wires to `lib`.
 
 Above the table, a summary line reads "5 of 6 files ready", or "All 6 files
-ready" when complete.
+ready" when complete. When at least one entry has `normalizeEol`, append
+" · 1 file converts line endings to LF" (or "N files …"), so the conversion is
+announced once without scanning every row.
 
 When the manifest has no `[[file]]` entries, show "This manifest lists no
 files." instead of an empty table.
@@ -69,7 +96,8 @@ files." instead of an empty table.
 
 - Tokens only.
 - Everything is keyboard reachable and labelled.
-- Status is never color-only.
+- Status is never color-only, and neither is the line-ending marker.
+- No size or modified-time columns (decided: keep the table narrow).
 - The table stays usable with 200 entries: sticky column headers, no layout
   shift when statuses change, and no horizontal page scroll at 800 px. The
   table may scroll horizontally inside its own container if it must, but
@@ -90,8 +118,13 @@ files." instead of an empty table.
 - It is a semantic `<table>` with a `<caption>` (which may be visually hidden)
   and `<th scope="col">` headers.
 - Each status's text label is present in the DOM.
+- A row with `normalizeEol: true` shows the visible **CRLF → LF** marker and
+  exposes "line endings converted to LF" in its accessible name; a row with
+  `normalizeEol: false` shows no marker. The marker is not focusable.
+- `targetPath` renders exactly as given, leading `/` included.
 - Middle truncation keeps the file name visible for a 200-character path.
-- The summary line is correct for mixed, all-ready, and empty cases.
+- The summary line is correct for mixed, all-ready, and empty cases, and adds
+  the line-ending clause only when some entry has `normalizeEol`.
 - There is no horizontal page scroll at 800×560, and the layout holds at 200%
   text size.
 
@@ -103,12 +136,16 @@ files." instead of an empty table.
   empty-manifest message, the Clear-disabled state, and that each button calls
   its prop with the right id.
 - `EntryStatus.test.tsx`: the label per status.
+- `EolMarker.test.tsx` (or cases in `EntryTable.test.tsx`): marker present
+  with its accessible text for a `normalizeEol` row, absent otherwise, and the
+  summary-line clause.
 - `truncateMiddle.test.ts`: if you add a helper under `src/tools/tarpack/`.
-- An axe check on a populated table.
+- An axe check on a populated table that includes a `normalizeEol` row.
 
 ## States covered
 
-Empty manifest, partial (mixed statuses), and all ready.
+Empty manifest, partial (mixed statuses), all ready, and rows with and
+without line-ending conversion.
 
 ## Out of scope
 

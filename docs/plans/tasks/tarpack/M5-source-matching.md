@@ -6,8 +6,8 @@ Project: tarpack   Depends on: M2 (landed), M3 (landed). May run alongside M4.
 ## Goal
 
 Assign Windows files to manifest entries, from drops (files or folders) or from
-explicit picks, and remember each entry's last-used location per manifest
-across app restarts.
+explicit picks, and remember each entry's last-used location, the last output
+path, and the last chosen archive format per manifest across app restarts.
 
 ## Context
 
@@ -16,6 +16,9 @@ What earlier tasks provide:
 - **M3:** `fm_tarpack::manifest`, with validated `Manifest` and `Entry`. Each
   entry has a stable `id` and a `source`, the expected Windows file name. The
   format is in `docs/tarpack-manifest.md`.
+- **M3:** `fm_tarpack::format::ArchiveFormat { Tar, TarGz, TarZst, TarXz }`
+  (serde, `ts_rs::TS`), and `Manifest::default_format()`, which gives the format
+  implied by the manifest's `output_name` suffix, or `Tar`.
 - **M2:** `fm_core::{AppDirs, Store}`. It is namespaced per tool, versioned, and
   atomic, and it reports corrupt files instead of overwriting them.
 - **M4**, if it has landed, defined
@@ -27,7 +30,9 @@ What earlier tasks provide:
 **The user's workflow.** The user rebuilds the same package many times a day.
 They drag a build output folder, or individual files, onto the window, or pick
 a file for one row. The next time they open the same manifest, every row should
-already point at the last file used.
+already point at the last file used, and the output format should be the one
+they last chose for that manifest (the human's decision: remember the last
+format per manifest, in the tool's state store).
 
 **Rules that bind this task.**
 
@@ -41,6 +46,8 @@ already point at the last file used.
 - Tests never touch real user files; build fixture trees in a `TempDir`.
 - The crate has no tauri dependency.
 - UI-facing types derive `ts_rs::TS`.
+- No `bigint` crosses the boundary: any 64-bit integer field in an exported
+  type carries `#[ts(type = "number")]`. `DropOutcome` currently has none.
 
 ## Files
 
@@ -71,12 +78,20 @@ already point at the last file used.
   name, because the user decided.
 - **Remembered state.**
   `RememberedState { per_manifest: BTreeMap<String /* canonical manifest path */, ManifestMemory>, recent_manifests: Vec<PathBuf> /* MRU, max 10 */ }`
-  with `ManifestMemory { sources: BTreeMap<id, PathBuf>, last_output: Option<PathBuf> }`.
+  with `ManifestMemory { sources: BTreeMap<id, PathBuf>, last_output: Option<PathBuf>, last_format: Option<ArchiveFormat> }`.
+  Mark `last_format` (and every `Option` field) `#[serde(default)]`, so a state
+  file without it still loads.
   - It is persisted through `Store::<RememberedState>::load(dirs, "tarpack", "state")`
     with `schema_version = 1`.
-  - `remember(&mut self, manifest_path, &Assignments, output: Option<&Path>)`
+  - `remember(&mut self, manifest_path, &Assignments, output: Option<&Path>, format: ArchiveFormat)`
+    stores all three.
   - `restore(&self, manifest_path, &Manifest) -> Assignments`. Ids no longer in
     the manifest are dropped. The next `remember` prunes them from state.
+  - `restore_output(&self, manifest_path) -> Option<PathBuf>` returns the
+    remembered last output.
+  - `restore_format(&self, manifest_path, &Manifest) -> ArchiveFormat` returns
+    the remembered `last_format`, or `manifest.default_format()` when none is
+    remembered.
   - `touch_recent(path)` moves the path to the front and caps the list at 10.
   - The key is the canonicalized path. On Windows, strip the `\\?\` prefix and
     lowercase it.
@@ -90,6 +105,9 @@ already point at the last file used.
   them, with `Missing` status for deleted files.
 - Removed ids are pruned.
 - The recent list is MRU-ordered and capped at 10.
+- The last format survives a restart per manifest. With nothing remembered, the
+  format falls back to the manifest's `output_name` suffix, then `Tar`. Two
+  manifests remember independent formats.
 
 ## Tests proving completion
 
@@ -105,6 +123,9 @@ already point at the last file used.
 - `remembered_locations_restore_with_missing_status`
 - `removed_ids_are_pruned`
 - `recent_manifests_mru_capped`
+- `last_format_restored_per_manifest`
+- `format_falls_back_to_output_name_then_tar`
+- `state_without_last_format_loads`: a hand-written v1 JSON without the field
 
 `symlinks_not_followed` is marked `#[cfg(unix)]`.
 
@@ -112,7 +133,8 @@ Also run `cargo clippy -p fm-tarpack --all-targets -- -D warnings`.
 
 ## Out of scope
 
-- Writing archives (M4).
+- Writing archives or choosing encoders (M4).
+- Rewriting output-path extensions when the format changes (M6).
 - Tauri commands, file watching, and dialogs (M6).
 
 ## Risks

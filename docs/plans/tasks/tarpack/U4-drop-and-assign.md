@@ -34,6 +34,23 @@ window, or by picking a file for one row, and show clearly what a drop did.
   - `onDragDrop(handler)`, which yields
     `{ type: "enter"|"over"|"leave"|"drop", paths }`;
   - `openFileDialog({ defaultPath })`.
+- Commands reject with `TarpackError`:
+  `{ kind: TarpackErrorKind, message: string, entryId?: string }`, where
+  `entryId` is omitted when absent. `src/tools/tarpack/errorMessages.ts` (U2)
+  exports `errorMessage(error, entries)`, an exhaustive
+  `Record<TarpackErrorKind, …>` of user copy; use it, and do not write your own
+  copy or fallback. `src/app/Banner.tsx` (U2) shows an error banner:
+  `tone, message, action?`. The kinds these commands can raise, and the copy
+  `errorMessage` returns for them:
+
+  | Kind | Raised by | Message |
+  | --- | --- | --- |
+  | `NoManifest` | any | "Open a manifest first." |
+  | `UnknownEntry` | `assign`, `clear` | "That file is no longer in the manifest. Reload and try again." |
+  | `NotAFile` | `assign` | "{source}: the chosen path is not a file." |
+  | `Io` | any | "A file could not be read or written." |
+
+  `{source}` is the entry's `source` for `entryId`, or "A file".
 - The tokens you use are in `src/styles/tokens.css`: `--drop-overlay`,
   `--accent`, `--surface`, `--text`, `--text-muted`, `--radius`, and the
   `--space-*` scale.
@@ -66,6 +83,9 @@ window, or by picking a file for one row, and show clearly what a drop did.
 - **Browse…** on a row opens `openFileDialog`, starting in the folder of the
   row's current or last assignment when there is one. The chosen path goes to
   `assign(id, path)`. A cancelled dialog does nothing.
+- **Errors** from `assignDropped`, `assign`, or `clear` show as an error
+  `Banner` with `errorMessage(error, entries)`, the backend `message` in a
+  collapsed "Details" disclosure, and the session left as it was.
 - **Clear** on a row calls `clear(id)`. The accessible name is "Clear assigned
   file for <source>". The copy and tooltip make clear that it only forgets the
   selection: "Forget this file (nothing is deleted)".
@@ -102,6 +122,8 @@ and overlay copy.
 - Disabled drops show the reason and make no `lib` call.
 - Browse and Clear call the right functions with the right id, and a cancelled
   dialog makes no call.
+- A rejected `assign` with `NotAFile` shows "{source}: the chosen path is not
+  a file." through `errorMessage`, and the table is unchanged.
 
 ## Tests proving completion
 
@@ -109,12 +131,14 @@ and overlay copy.
 
 - `DropZone.test.tsx`: hover, leave, drop, and disabled.
 - `DropResult.test.tsx`: each bucket, combined buckets, and dismiss.
-- `TarpackView.assign.test.tsx`: the Browse flow, cancelled Browse, and Clear.
+- `TarpackView.assign.test.tsx`: the Browse flow, cancelled Browse, Clear,
+  and a `NotAFile` rejection.
 - Axe checks with the overlay and the result visible.
 
 ## States covered
 
-Idle, drag hover, disabled, result (each bucket), and dialog cancelled.
+Idle, drag hover, disabled, result (each bucket), dialog cancelled, and
+command error.
 
 ## Out of scope
 

@@ -17,12 +17,28 @@ tool is the Tar Packager (`tarpack`), which builds a Linux `.tar` from Windows
 files. This task builds no tool logic. It builds the frame every tool plugs
 into.
 
-**Stack.**
+**Stack** (decided by the human):
 
 - A Tauri v2 shell.
 - Rust workspace crates for all domain logic.
 - A React + TypeScript + Vite frontend.
 - npm workspaces at the root.
+
+**Distribution** (decided by the human): a **portable `.exe`**, with no
+installer. `npm run tauri:build` runs `tauri build --no-bundle`. The exe lands
+in the workspace target directory (`target/release/filemanager.exe`). M7 later
+adds static CRT linking and the CI artifact upload. This task only makes the
+unbundled build work.
+
+**Native build prerequisites.** Later tasks add the `zstd` and `liblzma`
+crates, which compile bundled C sources. Record these in `CLAUDE.md` now, so
+that the prerequisite is stated before it bites:
+
+- Windows needs the MSVC toolchain (Visual Studio Build Tools, "Desktop
+  development with C++"), which Tauri already requires.
+- Linux needs a C compiler (`cc`/`gcc`).
+
+This task adds no C dependency itself.
 
 **Layout to create.**
 
@@ -84,7 +100,7 @@ apps/desktop/
 ```sh
 npm install                                        # once, at repo root
 npm run tauri:dev                                  # run the app
-npm run tauri:build                                # Windows bundle
+npm run tauri:build                                # portable Windows exe (tauri build --no-bundle)
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -93,7 +109,7 @@ npm run typecheck && npm run lint && npm run test  # frontend (vitest)
 
 **CI** (GitHub Actions) has two jobs:
 
-- **ubuntu-latest:**
+- **ubuntu-latest** (a C compiler is preinstalled; later tasks rely on it):
   - `cargo fmt --check`;
   - clippy and tests scoped to the `fm-*` crates
     (`-p fm-core -p fm-tarpack`). The Tauri shell needs webkit2gtk to build on
@@ -101,7 +117,7 @@ npm run typecheck && npm run lint && npm run test  # frontend (vitest)
   - frontend typecheck, lint, and test;
   - `cargo tree -p fm-core -i tauri` and `cargo tree -p fm-tarpack -i tauri`
     must find nothing.
-- **windows-latest:** `cargo test -p fm-core -p fm-tarpack` and
+- **windows-latest** (MSVC toolchain, the runner default): `cargo test -p fm-core -p fm-tarpack` and
   `npm run tauri:build`.
 
 **Repository rules that bind this task** (from `CLAUDE.md`):
@@ -116,8 +132,11 @@ Create everything in the layout above. Edit `CLAUDE.md` so that:
 
 - **Status** no longer says the stack is unchosen.
 - **Layout** lists the tree above.
-- **Commands** lists the commands above. Note that the shell builds only on
-  Windows CI, or on Linux with webkit2gtk installed.
+- **Commands** lists the commands above. Note that:
+  - the shell builds only on Windows CI, or on Linux with webkit2gtk installed;
+  - `tauri:build` produces a portable exe, not an installer;
+  - the prerequisites are MSVC on Windows and a C compiler on Linux (see
+    Native build prerequisites above).
 - **Invariants** keeps every existing bullet and adds:
   - the boundary directory `apps/desktop/src/lib/`;
   - generated types in `lib/generated/`, never hand-edited;
@@ -163,4 +182,6 @@ to `.gitignore` if Tauri generates them.
 ## Risks
 
 - Tauri v2 and plugin versions must be pinned together.
+- `tauri build --no-bundle` needs a recent Tauri CLI v2. Pin the CLI version
+  in `apps/desktop/package.json`.
 - Do not add capabilities "for later".
