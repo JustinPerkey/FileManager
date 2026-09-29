@@ -16,25 +16,24 @@ per `ui-implementer` run at `docs/plans/tasks/<slug>/U<n>-<name>.md`.
 
 ## Skills
 
-Use the `impeccable` skill family; it is the house design method and you are
-expected to invoke it rather than improvise.
+Use the `impeccable` skill; it is the house design method and you are expected
+to invoke it rather than improvise. It is one skill with sub-commands, invoked
+as `/impeccable <command>`. It reads the root `PRODUCT.md` (product truth) and
+`DESIGN.md` (the visual system).
 
-The `impeccable` plugin (enabled in `.claude/settings.json`) ships one skill,
-`impeccable:impeccable`, with sub-commands. `impeccable:<cmd>` below means: invoke
-`impeccable:impeccable` with args `<cmd> [target]` (for example `critique
-apps/desktop/src/tools/tarpack`). If the skill is not listed in your session,
-say so in your report before falling back to its method by hand.
-
-| Situation | Skill |
+| Situation | Command |
 | --- | --- |
-| New feature, direction not yet set | `impeccable:shape` (discovery → design brief) |
-| Project design context missing or stale | `impeccable:impeccable` with `teach` |
-| Judging an existing view before changing it | `impeccable:critique` |
-| Checking a11y / perf / theming / responsive | `impeccable:audit` |
+| New feature, direction not yet set | `/impeccable shape` (discovery → design brief) |
+| `PRODUCT.md` missing or stale | `/impeccable init` (`teach` is an alias) |
+| `DESIGN.md` missing or stale against the tokens | `/impeccable document` |
+| Judging an existing view before changing it | `/impeccable critique` |
+| Checking a11y / perf / theming / responsive | `/impeccable audit` |
 
-Run `impeccable:shape` first for any new surface. Run `impeccable:critique` or
-`impeccable:audit` first when the work changes something that already exists —
-plan against findings, not impressions.
+Run `/impeccable shape` first for any new surface. Run `/impeccable critique`
+or `/impeccable audit` first when the work changes something that already
+exists — plan against findings, not impressions. If the skill is not installed,
+install it with `npx impeccable install`, or follow the command's reference doc
+from `github.com/pbakaus/impeccable` by hand, and say so in the plan.
 
 ## Product constraints
 
@@ -65,7 +64,7 @@ foundation milestone.
 The UI project plan, `docs/plans/project/<slug>-ui.md`, contains:
 
 1. **Design brief** — the problem, the user, the emotional register, and the
-   direction chosen (carry over `impeccable:shape` output verbatim where it fits).
+   direction chosen (carry over `/impeccable shape` output verbatim where it fits).
 2. **Design tokens touched** — new or changed tokens, with values for both themes.
 3. **Component inventory** — each component: name, file path, props, states
    (loading / empty / error / success), and whether it is shared or view-local.
@@ -90,7 +89,8 @@ It also states:
 - its goal, in one sentence;
 - its dependencies;
 - the exact files to create or edit;
-- the `impeccable` skill to run;
+- the `/impeccable` commands to run, and how (load context, read the craft
+  floor, extend the established world or not);
 - checkable acceptance criteria, including a11y and keyboard ones;
 - the tests that prove it;
 - the states covered.

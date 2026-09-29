@@ -19,35 +19,10 @@ window, or by picking a file for one row, and show clearly what a drop did.
   **unmatched**. A drop never replaces a file that is already assigned and
   present; that comes back as unmatched with the reason "already assigned".
 
-**Working while the manifest has errors (decided by the human).** A manifest
-with errors still opens. Entries with no error of their own **pass** and are
-in `session.manifest.entries`; entries with errors **fail**, are left out of
-the table, and are listed by U2's error report. The user may keep preparing
-the build while they fix the manifest: dropping files, Browse…, and Clear
-all work on the passed entries. The backend enforces the rest:
-
-- drop matching only considers passed entries. A dropped file meant for a
-  failed entry comes back **unmatched**, because that entry is not in the
-  manifest the backend can trust yet;
-- `assign` or `clear` with a failed entry's id rejects with `UnknownEntry`
-  (it cannot happen from the table, which lists only passed entries);
-- the remembered file of a failed entry is kept, and comes back on its own
-  once the entry is fixed and the manifest reloaded;
-- the archive still cannot be created while any error exists; that is the
-  build bar's job (U5), not this task's.
-
-When a manifest-level error **withholds** every entry
-(`session.manifest.entriesWithheld` is `true`), `entries` is empty and there
-is nothing a drop could match.
-
 **What exists.**
 
 - `TarpackView.tsx` holds the `TarpackSession` state. `EntryTable.tsx` (U3)
   calls `onBrowse(id)` and `onClear(id)`.
-- From the session: `session.manifest` is `null` or has `entries` (passed
-  entries only), `entriesWithheld: boolean`, `failedEntries` (use only its
-  length), and `errorCount: number` (above 0 whenever the manifest has
-  errors).
 - `src/lib/tarpack.ts` (M6; read it for exact signatures) provides:
   - `assignDropped(paths)`, which returns `{ session, outcome }`
   - `assign(id, path)`, which returns a session
@@ -77,8 +52,19 @@ is nothing a drop could match.
 
   `{source}` is the entry's `source` for `entryId`, or "A file".
 - The tokens you use are in `src/styles/tokens.css`: `--drop-overlay`,
-  `--accent`, `--surface`, `--text`, `--text-muted`, `--radius`, and the
-  `--space-*` scale.
+  `--accent`, `--surface`, `--text`, `--text-muted`, `--radius`,
+  `--font-size-md` and `--font-size-lg`, and the `--space-*` scale.
+- U2 built the shared vocabulary; use it and add no parallel version:
+  - `src/app/Button.tsx`: `variant: "primary" | "secondary" | "quiet"`,
+    `icon?`;
+  - `src/app/icons.tsx`: `Icon` with `name: IconName`, including `folder`,
+    `check-circle`, `alert-triangle`, `info`, and `x`;
+  - the `.num` utility class for counts.
+- **Design context.** The root `DESIGN.md` records the visual system ("The
+  Packing List"): flat, tonal, with no shadows at rest. The drop overlay and
+  the confirmation dialog are the only things allowed to float. This is an
+  Operate surface extending that world; the overlay is a state, not a
+  moment of delight.
 
 ### Components
 
@@ -92,18 +78,13 @@ is nothing a drop could match.
 - `DropZone` subscribes to `onDragDrop`. While a drag is over the window, it
   shows a full-window overlay: the `--drop-overlay` fill, a 2 px dashed
   `--accent` inset border, and a centered label, "Drop files or folders to
-  match them to the manifest". The overlay does not steal focus, and it
-  disappears on leave or drop.
-- **Enabled** whenever a manifest is loaded, `entries` is non-empty, and no
-  build is running, **including when the manifest has errors**. Errors alone
-  never disable drops, Browse…, or Clear.
-- **Disabled** otherwise. The overlay still appears on a drag, shows the
-  reason instead of the drop label, and drops are ignored (no `lib` call):
-  - no manifest: "Open a manifest first";
-  - `entries` empty and `errorCount > 0` (withheld, or every entry failed):
-    "Fix the manifest errors first. No files can be matched yet.";
-  - `entries` empty and `errorCount` 0: "This manifest lists no files";
-  - building (wired in U5; accept the flag now): "A build is running".
+  match them to the manifest". The label sits on a `--surface` plate with
+  `--radius` and `--space-3 --space-4` padding, at `--font-size-lg`, with the
+  `folder` icon before it. The plate keeps the text at AA contrast over the
+  translucent fill. The overlay does not steal focus, and it disappears on
+  leave or drop.
+- **Disabled** when there is no manifest, or the manifest has errors. The
+  overlay then reads "Open a valid manifest first", and drops are ignored.
 - **After a drop**, `DropResult` appears above the table. It is a
   `role="status"` region with `aria-live="polite"` and one line per non-empty
   bucket, for example:
@@ -111,19 +92,13 @@ is nothing a drop could match.
   - "1 not in the manifest: notes.txt"
   - "1 ambiguous: app.dll could be 2 files — use Browse"
 
-  Paths show as file names, with the full path in `title`. It can be
-  dismissed, and it is replaced by the next drop.
-- **Unmatched files while the manifest has errors.** When `errorCount > 0`
-  and `failedEntries` is non-empty, an unmatched file may belong to a failed
-  entry, so "not in the manifest" would be wrong. Then:
-  - the unmatched line reads "1 not matched: notes.txt" (or "N not
-    matched: …") instead of "… not in the manifest: …";
-  - one more line follows it: "Files for entries with errors can't be
-    matched until those errors are fixed."
-
-  Do not try to work out which unmatched file belongs to which failed entry;
-  that is matching logic, and it stays in Rust. The "already assigned"
-  reason, when present, is shown as before.
+  Paths show as file names, with the full path in `title`. Each line starts
+  with an `Icon`: `check-circle` in `--ok` for matched, `info` in
+  `--text-muted` for not in the manifest, and `alert-triangle` in `--warn`
+  for ambiguous. Counts use `.num`. It sits on `--surface` with a 1 px
+  `--border` (no tinted fill and no side stripe). It is dismissed with a quiet
+  `Button` using the `x` icon and the name "Dismiss drop result", and it is
+  replaced by the next drop.
 - **Browse…** on a row opens `openFileDialog`, starting in the folder of the
   row's current or last assignment when there is one. The chosen path goes to
   `assign(id, path)`. A cancelled dialog does nothing.
@@ -136,7 +111,8 @@ is nothing a drop could match.
 
 **Rules that bind this task.**
 
-- Tokens only.
+- Tokens only, with font sizes from `--font-size-*`. Use `Button` and `Icon`;
+  no `<button>` and no glyph icons.
 - Everything is keyboard reachable: Browse and Clear are real buttons, and the
   drop result is reachable and dismissible by keyboard.
 - The overlay's meaning is never color-only; it always has its label.
@@ -153,8 +129,20 @@ is nothing a drop could match.
 
 ## Skill
 
-`impeccable:impeccable` with `craft`, then `impeccable:clarify` for the result
-and overlay copy.
+`/impeccable` (new work inside the established world: extend an existing
+surface), then `/impeccable clarify` for the result and overlay copy.
+
+How to run it:
+
+- Start with the skill's `impeccable context`, which loads the root
+  `PRODUCT.md` and `DESIGN.md`.
+- This is a local extension of an established surface. Per the skill's
+  new-work flow, run no concept round or concept seed, write no direction
+  contract, and do not rewrite `DESIGN.md`.
+- Read the skill's `reference/craft-floor.md` before the first edit.
+- If the skill is not installed, install it with `npx impeccable install`, or
+  follow the reference docs from `github.com/pbakaus/impeccable` by hand. Say
+  which in your report.
 
 ## Acceptance criteria
 
@@ -163,13 +151,9 @@ and overlay copy.
   returned session and outcome.
 - Every bucket renders correctly, including the "already assigned" reason. The
   live-region text matches the outcome.
-- Disabled drops show the reason and make no `lib` call, for each reason
-  above.
-- With `errorCount > 0` and non-empty `entries`, drops, Browse…, and Clear
-  are enabled and call `lib` exactly as with a clean manifest.
-- With `errorCount > 0` and failed entries, the unmatched line reads
-  "not matched" and the hint line appears; with `errorCount` 0 it reads
-  "not in the manifest" and there is no hint.
+- Disabled drops show the reason and make no `lib` call.
+- The overlay label is on a `--surface` plate, and each result line has its
+  icon, so meaning never depends on color or the dashed border alone.
 - Browse and Clear call the right functions with the right id, and a cancelled
   dialog makes no call.
 - A rejected `assign` with `NotAFile` shows "{source}: the chosen path is not
@@ -179,23 +163,19 @@ and overlay copy.
 
 `npm run test`, with `onDragDrop` and `openFileDialog` mocked:
 
-- `DropZone.test.tsx`: hover, leave, drop, and disabled (each reason).
-- `DropResult.test.tsx`: each bucket, combined buckets, dismiss, and the
-  unmatched wording and hint with and without manifest errors.
+- `DropZone.test.tsx`: hover, leave, drop, and disabled.
+- `DropResult.test.tsx`: each bucket, combined buckets, and dismiss.
 - `TarpackView.assign.test.tsx`: the Browse flow, cancelled Browse, Clear,
-  a `NotAFile` rejection, and a drop plus Browse on a session with
-  `errorCount > 0` and passed entries (enabled, `lib` called).
+  and a `NotAFile` rejection.
 - Axe checks with the overlay and the result visible.
 
 ## States covered
 
-Idle, drag hover, disabled (no manifest, entries withheld or all failed, no
-files, building), enabled with manifest errors, result (each bucket, with and
-without manifest errors), dialog cancelled, and command error.
+Idle, drag hover, disabled, result (each bucket), dialog cancelled, and
+command error.
 
 ## Out of scope
 
-- The error report and notice (U2).
 - The build bar (U5).
 - Keyboard shortcuts (U6).
 - Any matching logic in TS.

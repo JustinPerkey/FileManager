@@ -148,8 +148,20 @@ are remembered for the manifest.
   same table, so report the difference rather than patching around it.
 - The tokens you use are in `src/styles/tokens.css`: `--surface`,
   `--surface-sunken`, `--border`, `--accent`, `--accent-text`, `--ok`,
-  `--danger`, `--text`, `--text-muted`, `--font-mono`, `--radius`, and the
-  `--space-*` scale.
+  `--danger`, `--text`, `--text-muted`, `--font-mono`, `--radius`,
+  `--font-size-sm/md/lg`, `--shadow-overlay`, and the `--space-*` scale.
+- U2 built the shared vocabulary; use it and add no parallel version:
+  - `src/app/Button.tsx`: `variant: "primary" | "secondary" | "quiet"`,
+    `icon?`, and `aria-busy` support;
+  - `src/app/icons.tsx`: `Icon` with `name: IconName`, including `copy`,
+    `folder`, `check-circle`, `x-circle`, and `x`;
+  - the `.num` utility class (tabular numerals).
+- **Design context.** The root `DESIGN.md` records the visual system ("The
+  Packing List"). This is an Operate surface: the bar is the end of the
+  daily loop, so it stays quiet until the result. **Create archive** is the
+  only accent-filled button in the whole view, and **Replace** in the dialog
+  is the only other primary. Results are inline panels, not toasts, and not
+  metric tiles.
 
 ### Components
 
@@ -171,6 +183,11 @@ are remembered for the manifest.
   - the disabled reason, when there is one;
   - the primary **Create archive** button. The wording is format-neutral;
     never "Create tar".
+
+  The bar is `--surface`, with a 1 px `--border` top rule and padding
+  `--space-3 --space-5`. It has no shadow; stickiness alone separates it.
+  **Choose…** is a secondary `Button` with the `folder` icon. The disabled
+  reason is `--font-size-sm` in `--text-muted`.
 - **`FormatPicker`** is a native `<select>` with a visible `<label>` "Format"
   (not a placeholder), so it is keyboard operable with the platform's
   behaviour and announced as "Format, combo box, zstd (.tar.zst)".
@@ -221,6 +238,12 @@ are remembered for the manifest.
 - **Building: `BuildProgress`**, in place of the disabled reason.
   - A visible step label: "Step 1 of 2 · Writing" then "Step 2 of 2 ·
     Verifying". The phase is always in text, never shown by color alone.
+  - The bar is 6 px tall with a `--surface-sunken` track and an `--accent`
+    fill, and `--radius` on both. The fill moves with `transform: scaleX()`
+    from the left, with a 120 ms linear transition between events. It does
+    not animate `width`. With `prefers-reduced-motion`, there is no
+    transition: the fill jumps to each value, which still shows the state.
+    The percentage beside it uses `.num`, so the digits do not jitter.
   - One determinate progress bar (`role="progressbar"`, `aria-valuemin="0"`,
     `aria-valuemax="100"`, `aria-valuenow`, and an accessible name "Building
     archive"). It fills 0 → 100% from `bytesDone / bytesTotal` in each phase,
@@ -240,13 +263,18 @@ are remembered for the manifest.
     error; no further events arrive.
   - All tarpack controls (bar, format picker, table actions, header actions)
     are disabled, and drops are ignored.
-- **Success: `BuildResult`**, dismissible, with:
+- **Success: `BuildResult`**, an inline panel above the bar: `--surface`
+  with a 1 px `--border` and `--radius`, with no shadow and no tinted fill. Its
+  heading is at `--font-size-lg` with the `check-circle` icon in `--ok`. An
+  error result uses `x-circle` in `--danger`. It is dismissible with a quiet
+  `Button` (the `x` icon, "Dismiss result"), and contains:
   - "Created {file name}", then the full path in `--font-mono`;
   - the format and sizes: "zstd · {files} files, {dirs} folders ·
     {bytes} ({uncompressedBytes} uncompressed)", sizes in KB or MB. For
     `"tar"`, show only one size;
-  - the SHA-256 in `--font-mono` with **Copy**, accessible name "Copy
-    SHA-256";
+  - the SHA-256 in `--font-mono`, wrapping (`overflow-wrap: anywhere`),
+    never truncated, with **Copy** (a quiet `Button` with the `copy` icon),
+    accessible name "Copy SHA-256";
   - **Extract on the target**: `extractCommand` in a `--font-mono` block on
     `--surface-sunken`, wrapping (never truncated or ellipsised), with **Copy**,
     accessible name "Copy extraction command", and the hint "Run this in the
@@ -259,6 +287,14 @@ are remembered for the manifest.
 
   Copy uses `navigator.clipboard.writeText` and confirms with "Copied" in a
   polite live region next to the button for about 2 s.
+- **`ConfirmDialog` look.** A native `<dialog>` opened with `showModal()`, so
+  the top layer handles stacking and inertness. It is `--surface` with a
+  1 px `--border`, `--radius`, `--shadow-overlay`, and a
+  `::backdrop` of `rgb(0 0 0 / 0.4)`. Its width is
+  `min(28rem, calc(100% - 2 * var(--space-5)))`, and its padding
+  `--space-5`. The title is at
+  `--font-size-lg`. Buttons are right-aligned: **Cancel** (secondary), then
+  **Replace** (primary).
 - **Errors.** Every error comes from `build`, `setOutput`, `setFormat`, or
   `revealOutput`:
   - `OutputExists` from `build(false)`: open the replace confirmation above.
@@ -303,12 +339,15 @@ are remembered for the manifest.
 
 **Rules that bind this task.**
 
-- Tokens only.
+- Tokens only, with font sizes from `--font-size-*`. Use `Button` and `Icon`;
+  no `<button>` and no glyph icons. Sizes, counts, and percentages use `.num`.
 - Everything is keyboard reachable and labelled: Choose…, the Format picker,
   Show errors, Create archive, both Copy buttons, Show in folder, the Details disclosure,
   and Dismiss are real, focusable controls with visible focus.
 - `ConfirmDialog` traps focus, closes on Escape (which counts as Cancel), and
   returns focus to **Create archive**.
+- **Create archive** is the only `primary` button in the view, outside the
+  dialog.
 - Progress animation respects `prefers-reduced-motion`.
 - Call only `lib/` functions (plus `navigator.clipboard.writeText`). No
   extension, file-name, filter, or command logic in TS.
@@ -323,9 +362,21 @@ are remembered for the manifest.
 
 ## Skill
 
-`impeccable:layout` and `impeccable:clarify`, then `impeccable:animate` for the
-progress bar only. Finish with `impeccable:audit` on the bar, dialog, and
-result.
+`/impeccable layout` and `/impeccable clarify`, then `/impeccable animate` for
+the progress bar only. Finish with `/impeccable audit` on the bar, dialog, and
+result, and fix every P0 and P1 finding.
+
+How to run it:
+
+- Start with the skill's `impeccable context`, which loads the root
+  `PRODUCT.md` and `DESIGN.md`.
+- This is an Operate surface extending an established world, so run no
+  concept round and do not rewrite `DESIGN.md`.
+- Read the skill's `reference/craft-floor.md` before the first edit.
+- Motion here conveys state only: the progress fill.
+- If the skill is not installed, install it with `npx impeccable install`, or
+  follow the named commands' reference docs from
+  `github.com/pbakaus/impeccable` by hand. Say which in your report.
 
 ## Acceptance criteria
 
@@ -355,6 +406,10 @@ result.
   file (no file for `null` `entryId`); "Finishing…" appears on the final
   verifying event without waiting for another event; a rejected build stops
   the progress and shows the error. Controls, including the picker, are disabled while building.
+- The progress fill animates `transform`, not `width`, and has no transition
+  under `prefers-reduced-motion`. The percentage uses tabular numerals.
+- The dialog uses `--shadow-overlay`; no other element in this task has a
+  shadow.
 - The success view shows every summary field: file name, path, format, both
   sizes, SHA-256, the extraction command verbatim, and each normalised entry.
   Each Copy writes its exact text to the clipboard and announces "Copied".

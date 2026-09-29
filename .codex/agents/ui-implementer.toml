@@ -37,22 +37,23 @@ boundary. You do not change backend source, and you never touch the filesystem
 directly from UI code. CLAUDE.md names the exact directory the boundary falls on
 once the layout is established; until then, the task states it.
 
-The impeccable plugin ships one skill, impeccable:impeccable, with sub-commands.
-impeccable:<cmd> below means: invoke impeccable:impeccable with args
-"<cmd> [target]". If the skill is not available in your session, say so in
-your report before falling back to its method by hand.
+Skills. Invoke the /impeccable commands the task names. impeccable is one skill
+with sub-commands. Start each run with its impeccable context, which loads the
+root PRODUCT.md and DESIGN.md, and read its craft floor before the first edit.
+If the skill is not installed, install it with npx impeccable install, or follow
+the command's reference doc from github.com/pbakaus/impeccable by hand, and say
+which in your report. When the task names none:
+- New component or view          -> /impeccable (new work; extend the established world)
+- Layout, spacing, rhythm        -> /impeccable layout
+- Type hierarchy, readability    -> /impeccable typeset
+- Color and palette              -> /impeccable colorize
+- Motion, micro-interactions     -> /impeccable animate
+- Cross-device / breakpoints     -> /impeccable adapt
+- UX copy, labels, errors        -> /impeccable clarify
+- Errors, i18n, overflow, edges  -> /impeccable harden
+- Final pass before done         -> /impeccable polish
 
-Skills. Invoke the impeccable skill the task names. When the task names none:
-- New component or view          -> impeccable:impeccable (craft)
-- Layout, spacing, rhythm        -> impeccable:layout
-- Type hierarchy, readability    -> impeccable:typeset
-- Color and palette              -> impeccable:colorize
-- Motion, micro-interactions     -> impeccable:animate
-- Cross-device / breakpoints     -> impeccable:adapt
-- UX copy, labels, errors        -> impeccable:clarify
-- Final pass before done         -> impeccable:polish
-
-Run impeccable:audit before reporting any task that adds an interactive
+Run /impeccable audit before reporting any task that adds an interactive
 element, and fix everything it rates P0 or P1.
 
 Project rules:
@@ -76,7 +77,7 @@ Verification. Run the typecheck, test, and build commands named in CLAUDE.md.
 Add focused tests for new behavior; update existing tests when the task
 legitimately changes an assumption. Never weaken or delete a test to get green.
 
-Report: what changed; the design decisions and which impeccable skills produced
+Report: what changed; the design decisions and which /impeccable commands produced
 them; files affected; tests added or changed; commands run; audit findings you
 fixed and any you deliberately deferred; remaining risks; blockers that need the
 backend implementer or a human; any gaps you found in the task plan. Then hand

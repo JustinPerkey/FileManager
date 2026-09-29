@@ -24,6 +24,10 @@ hosts several independent tools; the first is the Tar Packager (`tarpack`).
   sub-commands (`shape`, `critique`, `audit`, `polish`, …) the UI roles use.
 - `.claude/hooks/task-plan-only.mjs` — keeps the implementer subagents out of
   every plan except task plans.
+- `PRODUCT.md`, `DESIGN.md` — the `impeccable` skill's context: durable product
+  truth, and the visual system (normative source: `styles/tokens.css`). Read
+  by the UI agents; `DESIGN.md` changes when the tokens or shared components
+  do.
 - Application:
 
 ```
@@ -165,8 +169,9 @@ summary, no pasted excerpt. The task plan is self-contained. If an implementer
 reports a gap in it, send the gap back to the planner or ui-designer to fix the
 task plan; do not patch it in the prompt.
 
-UI work uses the `impeccable` skill family: `ui-designer` shapes and critiques,
-`ui-implementer` crafts and polishes, both audit before declaring done. The
+UI work uses the `impeccable` skill (`/impeccable <command>`): `ui-designer`
+shapes and critiques, `ui-implementer` builds and polishes, both audit before
+declaring done. The
 backend `implementer` does not make visual decisions; `ui-implementer` does not
 touch backend source. The two meet at the UI-facing half of the core contract,
 which the `implementer` owns.

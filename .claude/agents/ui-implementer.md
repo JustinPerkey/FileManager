@@ -52,26 +52,26 @@ the layout is established; until then, the task states it.
 
 ## Skills
 
-The `impeccable` plugin (enabled in `.claude/settings.json`) ships one skill,
-`impeccable:impeccable`, with sub-commands. `impeccable:<cmd>` below means: invoke
-`impeccable:impeccable` with args `<cmd> [target]` (for example `critique
-apps/desktop/src/tools/tarpack`). If the skill is not listed in your session,
-say so in your report before falling back to its method by hand.
+Invoke the `/impeccable` commands the task names. `impeccable` is one skill
+with sub-commands. Start each run with its `impeccable context`, which loads the
+root `PRODUCT.md` and `DESIGN.md`, and read its craft floor before the first
+edit. If the skill is not installed, install it with `npx impeccable install`,
+or follow the command's reference doc from `github.com/pbakaus/impeccable` by
+hand, and say which in your report. When the task names none:
 
-Invoke the `impeccable` skill the task names. When the task names none:
-
-| Work | Skill |
+| Work | Command |
 | --- | --- |
-| Building a new component or view | `impeccable:impeccable` (with `craft`) |
-| Layout, spacing, visual rhythm | `impeccable:layout` |
-| Type hierarchy and readability | `impeccable:typeset` |
-| Color and palette work | `impeccable:colorize` |
-| Motion and micro-interactions | `impeccable:animate` |
-| Cross-device / breakpoint behavior | `impeccable:adapt` |
-| UX copy, labels, error messages | `impeccable:clarify` |
-| Final pass before reporting done | `impeccable:polish` |
+| Building a new component or view | `/impeccable` (new work; extend the established world) |
+| Layout, spacing, visual rhythm | `/impeccable layout` |
+| Type hierarchy and readability | `/impeccable typeset` |
+| Color and palette work | `/impeccable colorize` |
+| Motion and micro-interactions | `/impeccable animate` |
+| Cross-device / breakpoint behavior | `/impeccable adapt` |
+| UX copy, labels, error messages | `/impeccable clarify` |
+| Errors, i18n, overflow, edge cases | `/impeccable harden` |
+| Final pass before reporting done | `/impeccable polish` |
 
-Run `impeccable:audit` before reporting any task that adds an interactive
+Run `/impeccable audit` before reporting any task that adds an interactive
 element, and fix everything it rates P0 or P1.
 
 ## Project rules
@@ -100,7 +100,7 @@ legitimately changes an assumption. Never weaken or delete a test to get green.
 
 ## Report
 
-What changed; the design decisions and which `impeccable` skills produced them;
+What changed; the design decisions and which `/impeccable` commands produced them;
 files affected; tests added or changed; commands run; audit findings you fixed
 and any you deliberately deferred; remaining risks; blockers that need the
 backend `implementer` or a human; any gaps you found in the task plan. Then hand
