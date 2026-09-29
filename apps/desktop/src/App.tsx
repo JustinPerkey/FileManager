@@ -1,7 +1,9 @@
+import "./styles/tokens.css";
+import "./styles/base.css";
+import "./styles/app.css";
+import { AppShell } from "./app/AppShell";
+import { tools } from "./tools/registry";
+
 export default function App() {
-  return (
-    <main>
-      <h1>FileManager</h1>
-    </main>
-  );
+  return <AppShell tools={tools} />;
 }
