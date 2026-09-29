@@ -436,36 +436,93 @@ them.
    and the number of CRLF pairs replaced. The user can then see that the
    conversion happened.
 
+Added after the ui-designer's contract review:
+
+8. **`TarpackErrorKind` is a closed Rust enum**, generated as a TS
+   string-literal union, so the UI's kind-to-message mapping is checked
+   exhaustively. Its 17 kinds are listed in M6. Adding or renaming a kind is a
+   UI contract change.
+9. **No `bigint` at the boundary.** Every 64-bit integer field that crosses is
+   annotated `#[ts(type = "number")]`, and a test fails if any generated file
+   contains `bigint`. All values stay far below 2^53.
+10. **`ArchiveFormatOption.filterExtension`** (`tar`, `gz`, `zst`, `xz`) comes
+    from the backend, so the UI derives nothing from `extension`.
+11. **No manifest:**
+    - `format` is `"tar"`;
+    - `formats` lists all four;
+    - the output fields are `null`.
+    - `setFormat` and `setOutput` fail with `NoManifest` and change nothing,
+      because both are remembered per manifest.
+12. **Progress end conditions:**
+    - Each phase ends with exactly one event where `bytesDone == bytesTotal`
+      and `entryId` is `null`.
+    - `entryId` is the file entry being processed, and `null` for directory
+      and long-name records.
+    - There is no `finalizing` phase. M4 computes the SHA-256 during the
+      verify pass, so only an fsync and a rename follow the final verifying
+      event, and nothing is emitted after it.
+13. **Verify failure saves nothing.** No file is written at the output path,
+    and a pre-existing file there is left byte-for-byte unchanged (M4 tests
+    this).
+14. **Clipboard is not wrapped.** The UI uses `navigator.clipboard.writeText`
+    directly: WebView2 treats `tauri.localhost` as a secure context, and Copy
+    runs on a user click. There is no clipboard plugin or capability. If the
+    M7 end-to-end check shows it failing in the packaged exe, a follow-up
+    backend task adds `tauri-plugin-clipboard-manager` with a
+    `writeClipboardText` wrapper.
+
 ### 6.3 UI-facing contract changes (for the ui-designer)
 
 All of these are owned by M6 (with types from M3–M5) and generated into
 `apps/desktop/src/lib/generated/`:
 
 - New type `ArchiveFormat = "tar" | "tarGz" | "tarZst" | "tarXz"`.
-- New type `ArchiveFormatOption = { format: ArchiveFormat, extension: string }`.
+- New type `ArchiveFormatOption = { format: ArchiveFormat, extension: string, filterExtension: string }`
+  (e.g. `{ format: "tarZst", extension: ".tar.zst", filterExtension: "zst" }`).
 - `TarpackSession` gains:
   - `format: ArchiveFormat`;
   - `formats: ArchiveFormatOption[]` (fixed order: tar, tarGz, tarZst, tarXz);
   - `suggestedOutputName: string | null`.
+
+  With no manifest loaded, `format` is `"tar"`, `formats` lists all four, and
+  `outputPath` and `suggestedOutputName` are `null` (decision 11).
 - `TarpackSession.manifest.entries[]` gains `normalizeEol: boolean`.
 - `outputPath` is always normalised to end with the current format's extension.
 - New command `tarpack_set_format(format)` returns `TarpackSession`, and
   `lib/tarpack.ts` gains `setFormat(format)`.
 - `tarpack_set_output(path)` may change `format` (decision 6.2.3) and may
   append an extension.
+- `setFormat` and `setOutput` reject with `NoManifest` when no manifest is
+  loaded, and change nothing.
 - `BuildSummary` gains:
   - `format: ArchiveFormat`;
   - `uncompressedBytes: number`;
   - `extractCommand: string`;
   - `normalizedEntries: { id: string, crlfReplaced: number }[]`.
 
-  `bytes` is now the size of the output file on disk.
+  `bytes` is now the size of the output file on disk. Every numeric field
+  (`entries`, `files`, `dirs`, `bytes`, `uncompressedBytes`, `crlfReplaced`)
+  is TS `number`, never `bigint` (decision 9).
 - The `tarpack://build-progress` payload becomes
-  `{ phase: "writing" | "verifying", entryId: string | null, bytesDone, bytesTotal }`.
-  The byte counts are uncompressed tar-stream bytes, so they are comparable
-  across formats.
-- New `TarpackError.kind` value `SourceChanged` (a source's size changed during
-  the build).
+  `{ phase: "writing" | "verifying", entryId: string | null, bytesDone: number, bytesTotal: number }`.
+  - The byte counts are uncompressed tar-stream bytes, so they are comparable
+    across formats. Both phases share `bytesTotal`.
+  - `entryId` is the file being processed, and `null` for directory and
+    long-name records.
+  - Each phase ends with one event where `bytesDone == bytesTotal` and
+    `entryId: null`.
+  - No event follows the final verifying event, and there is no `finalizing`
+    phase. The UI's "Finishing…" state covers the gap until `build` settles
+    (decision 12).
+- `TarpackError` is `{ kind: TarpackErrorKind, message: string, entryId?: string }`.
+  `TarpackErrorKind` is a closed string-literal union (decision 8):
+  `"NoManifest" | "ManifestUnreadable" | "ManifestInvalid" | "ManifestChangedOnDisk" | "UnknownEntry" | "NotAFile" | "NoOutput" | "EntriesNotReady" | "OutputExists" | "PathExists" | "SourceMissing" | "SourceUnreadable" | "SourceChanged" | "VerifyFailed" | "BuildInProgress" | "OpenerFailed" | "Io"`.
+  Newly relevant to the UI copy:
+  - `SourceChanged`: a source's size changed during the build.
+  - `VerifyFailed`: the archive failed its post-write check. Nothing was saved,
+    and any existing file is unchanged (decision 13).
+- Clipboard: no `lib/` wrapper. The UI uses `navigator.clipboard.writeText`
+  (decision 14).
 - `lib/tauri.ts`: `saveFileDialog({ defaultPath, filters? })` gains `filters`.
 - `Diagnostic` messages change wording for the long-name warning ("100 bytes or
   longer, stored path including the leading /"). The shape is unchanged.

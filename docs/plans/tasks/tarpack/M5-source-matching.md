@@ -46,6 +46,8 @@ format per manifest, in the tool's state store).
 - Tests never touch real user files; build fixture trees in a `TempDir`.
 - The crate has no tauri dependency.
 - UI-facing types derive `ts_rs::TS`.
+- No `bigint` crosses the boundary: any 64-bit integer field in an exported
+  type carries `#[ts(type = "number")]`. `DropOutcome` currently has none.
 
 ## Files
 

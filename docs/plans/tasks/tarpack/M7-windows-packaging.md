@@ -101,6 +101,11 @@ Record each step with pass/fail and notes in `docs/tarpack-e2e.md`.
    - the entry count, the on-disk and uncompressed sizes, and the SHA-256;
    - the extraction command with `-P`;
    - the normalised entry, with its CRLF count.
+   Press both Copy buttons and paste into Notepad: the hash and the command
+   arrive exactly. The UI uses `navigator.clipboard.writeText` with no
+   clipboard plugin. If Copy fails in the packaged exe, record the failure and
+   report it. The fix is a separate backend task (a clipboard plugin wrapper),
+   not part of this task.
 6. Build again to the same path. The overwrite confirmation appears, and
    Cancel leaves the old file untouched.
 7. Switch the format to each of `.tar`, `.tar.gz`, and `.tar.xz`, and build

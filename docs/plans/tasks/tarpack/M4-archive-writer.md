@@ -128,6 +128,12 @@ encoder chosen by format:
   `/` and prints a notice.
 - The crate has no tauri dependency.
 - Types that cross to the UI derive `ts_rs::TS`.
+- **No `bigint` crosses the boundary.** ts-rs generates `u64`/`i64` as TS
+  `bigint`, which the UI cannot use as a number. Every `u64` (or `usize`/`i64`)
+  field in an exported type carries `#[ts(type = "number")]`. Values stay far
+  below 2^53. That covers `BuildSummary.{entries, files, dirs, bytes,
+  uncompressed_bytes}`, `NormalizedEntry.crlf_replaced`, and
+  `Progress.{bytes_done, bytes_total}`.
 
 ## Files
 
@@ -159,9 +165,11 @@ Do not change the manifest or format modules, except to add getters you need.
      the counting pass here, so the total size is known.
   3. Stream the tar through the format's encoder into a `NamedTempFile` in
      `out_path`'s directory. Call `progress` with
-     `Progress { phase: Writing, entry_id: Some(id), bytes_done, bytes_total }`
-     at least once per entry. The byte counts are **uncompressed** tar-stream
-     bytes, so they mean the same thing for every format.
+     `Progress { phase: Writing, entry_id, bytes_done, bytes_total }` at least
+     once per file entry. The byte counts are **uncompressed** tar-stream
+     bytes, so they mean the same thing for every format. `bytes_total` is the
+     exact stream size, including headers, long-name records, padding, and the
+     end-of-archive blocks. It is known after step 2.
   4. Finish the archive and the encoder, flush, and sync.
   5. **Verify.** Re-open the temp file, wrap it in the format's decoder, and
      read it with `tar::Archive`. Check that the entry sequence equals the
@@ -169,9 +177,14 @@ Do not change the manifest or format modules, except to add getters you need.
      resolved; do not use `path()`, which may normalise). Also compare modes
      (`& 0o7777`), uid, gid, uname, gname, and sizes. Report progress with
      `phase: Verifying`. On a mismatch, or a decoder error such as a truncated
-     stream or bad checksum, return `BuildError::VerifyFailed(detail)`.
-  6. Persist the temp file over `out_path`, and compute the SHA-256 of the
-     final file.
+     stream or bad checksum, return `BuildError::VerifyFailed(detail)`. Also
+     fail if raw bytes remain after the compressed stream ends.
+     **Compute the SHA-256 in this pass:** tee the raw (compressed) file bytes
+     through the hasher as the decoder reads them, and hash any remainder to
+     EOF. After verification succeeds, only persisting remains, so no work
+     goes unreported.
+  6. Persist the temp file over `out_path` (a rename). The hash from step 5 is
+     the hash of the persisted file.
   7. Return `BuildSummary`:
      - `path` and `format`;
      - `entries`, `files`, and `dirs`;
@@ -183,6 +196,18 @@ Do not change the manifest or format modules, except to add getters you need.
        listing every `normalize_eol` entry, including those with 0
        replacements.
 - `Progress { phase: BuildPhase /* Writing | Verifying */, entry_id: Option<String>, bytes_done: u64, bytes_total: u64 }`.
+  The rules are a UI contract; implement them exactly:
+  - Both phases use the same `bytes_total`, the uncompressed stream size.
+    Within a phase, `bytes_done` never decreases. The verifying phase starts
+    again from 0.
+  - `entry_id` is the id of the file entry whose bytes are being written or
+    checked. It is `None` while directory records, long-name records, or the
+    end-of-archive blocks are processed.
+  - Each phase ends with exactly one final event, where
+    `bytes_done == bytes_total` and `entry_id` is `None`.
+  - No event is sent after the final verifying event.
+  - On failure, events stop at the point of failure.
+  - There is no third phase.
   `BuildSummary`, `NormalizedEntry`, `Progress`, and `BuildPhase` derive
   `ts_rs::TS` with camelCase field names.
 - `BuildError` variants: `OutputExists`, `SourceMissing`, `SourceUnreadable`,
@@ -204,6 +229,14 @@ Do not change the manifest or format modules, except to add getters you need.
   or an injected mid-write failure leaves no output file and no temp file, and
   the error names the entry.
 - `overwrite = false` never modifies an existing file.
+- **On verification failure, nothing is saved at `out_path`.** If a file
+  already existed there, even with `overwrite = true`, it is left
+  byte-for-byte unchanged, including its modification time. No temp file
+  remains. The UI tells the user exactly this, so it must hold.
+- Progress events follow the rules in the Design section: final events per
+  phase, `None` ids for non-file records, and nothing after verifying ends.
+- The generated TS for `BuildSummary`, `NormalizedEntry`, and `Progress` uses
+  `number`, never `bigint`.
 - A mode the Windows source might suggest never leaks into the header.
 - A truncated compressed output (encoder not finished) is caught by
   verification.
@@ -237,6 +270,26 @@ manifests built through M3's `parse`:
   and no output
 - `truncated_stream_fails_verification`: for zstd and xz, drop the encoder
   without finishing through a test hook, and assert `VerifyFailed`
+- `verify_failure_leaves_existing_output_unchanged`:
+  1. Create an existing file at `out_path` with known bytes, and record its
+     mtime.
+  2. Force verification to fail through a test hook (for example, corrupt
+     one byte of the temp file before step 5, or inject a verifier mismatch).
+  3. Call with `overwrite = true`, and assert:
+     - `VerifyFailed` is returned;
+     - `out_path` has the original bytes and mtime;
+     - there are no stray files in the directory.
+
+  Repeat with no pre-existing file, and assert that `out_path` does not exist
+  afterwards.
+- `progress_events_follow_contract`: capture every `Progress` for a manifest
+  with nested directories and two files, and assert the phase order, the
+  monotonic `bytes_done`, `None` ids on directory records, exactly one final
+  event per phase, and nothing after the final verifying event
+- `summary_hash_computed_during_verify_matches_file`: the summary hash equals
+  a fresh SHA-256 of the persisted file, for all four formats
+- `generated_types_use_number`: the generated `BuildSummary.ts`, `Progress.ts`,
+  and `NormalizedEntry.ts` contain no `bigint`
 - `zstd_frame_window_is_bounded`: read the frame header of the output (for
   example with `zstd::zstd_safe` frame parameters, or by parsing the
   Window_Descriptor), and assert a window of at most 8 MiB (2^23)

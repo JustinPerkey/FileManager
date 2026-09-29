@@ -126,6 +126,10 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
 - `ArchiveFormat::ALL: [ArchiveFormat; 4]`, in the order above.
 - `extension(self) -> &'static str` returns `.tar`, `.tar.gz`, `.tar.zst`, or
   `.tar.xz`.
+- `filter_extension(self) -> &'static str` returns `"tar"`, `"gz"`, `"zst"`,
+  or `"xz"`: the last suffix without its dot. This is the form a native
+  Save-dialog filter takes, and Windows matches only the last suffix. M6 sends
+  it to the UI, so the UI never derives it.
 - `from_file_name(name: &OsStr) -> Option<ArchiveFormat>` recognises the known
   suffixes `.tar`, `.tar.gz`, `.tgz`, `.tar.zst`, and `.tar.xz`,
   ASCII-case-insensitively. `.tgz` maps to `TarGz`. Match the longest suffix
@@ -161,6 +165,10 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
 - The crate has no tauri dependency.
 - Tests never touch real user files; fixtures are strings or files in a
   `TempDir`.
+- **No `bigint` crosses the boundary.** ts-rs generates `u64`/`i64` as TS
+  `bigint`. Any 64-bit integer field in an exported type (for example if
+  `Diagnostic.line`/`col` are `u64`) carries `#[ts(type = "number")]`. Prefer
+  `u32` for line, column, and mode.
 - Types that will cross to the UI derive `ts_rs::TS` and are exported to
   `apps/desktop/src/lib/generated/` by the existing export test from M1.
   Regenerate them, and never hand-edit.
@@ -271,6 +279,7 @@ pub enum ArchiveFormat { Tar, TarGz, TarZst, TarXz }   // TS: "tar" | "tarGz" | 
 - `format_from_file_name_longest_suffix_wins` (`a.tar.gz`, `A.TGZ`,
   `a.tar.zst`, `a.tar.xz`, `a.tar`, `a.zip` gives `None`)
 - `with_extension_replaces_known_suffix_or_appends`
+- `filter_extension_is_last_suffix_without_dot`
 - `extract_command_per_format_includes_absolute_names_flag`
 - `extract_command_quotes_unsafe_names`
 - `default_format_follows_output_name_suffix`
