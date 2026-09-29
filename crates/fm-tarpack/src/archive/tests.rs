@@ -463,6 +463,41 @@ fn unreadable_source_writes_nothing() {
 }
 
 #[test]
+fn read_failure_while_writing_names_entry_and_writes_nothing() {
+    struct Broken;
+    impl Read for Broken {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk went away"))
+        }
+    }
+    let fx = simple();
+    let hooks = Hooks {
+        open: Some(Box::new(|p, pass| {
+            if pass == 0 {
+                Ok(Box::new(fs::File::open(p)?) as Box<dyn Read>)
+            } else {
+                Ok(Box::new(Broken) as Box<dyn Read>)
+            }
+        })),
+        ..Hooks::default()
+    };
+    let (_, r) = fx.build_with(ArchiveFormat::TarGz, false, &hooks);
+    match r {
+        Err(BuildError::SourceUnreadable { id, .. }) => assert_eq!(id, "a"),
+        other => panic!("{other:?}"),
+    }
+    assert!(dir_listing(&fx.out_dir()).is_empty());
+}
+
+#[test]
+fn long_output_name_still_builds() {
+    let fx = simple();
+    let out = fx.out_dir().join(format!("{}.tar", "o".repeat(240)));
+    write_archive(&fx.plan(), &out, ArchiveFormat::Tar, false, |_| {}).unwrap();
+    assert!(out.exists());
+}
+
+#[test]
 fn temp_file_name_is_recognisable() {
     let fx = simple();
     let seen = std::cell::RefCell::new(Vec::new());
@@ -770,6 +805,27 @@ fn progress_events_follow_contract() {
         assert!(v[0].bytes_done <= total);
         assert_eq!(events.last().unwrap().phase, BuildPhase::Verifying);
     }
+}
+
+#[test]
+fn file_progress_starts_after_long_name_record() {
+    use super::header::{preamble_size, record_size, END_BLOCKS};
+    let fx = long_fixture();
+    let out = fx.out_dir().join("l.tar");
+    let mut events = Vec::new();
+    write_archive(&fx.plan(), &out, ArchiveFormat::Tar, false, |p| {
+        events.push(p)
+    })
+    .unwrap();
+    let total = events[0].bytes_total;
+    let y_len = 150;
+    let y_pos = total - END_BLOCKS - record_size(y_len, 2);
+    assert!(preamble_size(y_len) > 512, "y has a long-name record");
+    let first_y = events
+        .iter()
+        .find(|e| e.entry_id.as_deref() == Some("y"))
+        .unwrap();
+    assert_eq!(first_y.bytes_done, y_pos + preamble_size(y_len));
 }
 
 // ---- encoders ----

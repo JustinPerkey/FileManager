@@ -173,7 +173,8 @@ build. Warnings never block.
   `dir_mode` and the default owner.
 - The format is GNU tar, with long-name records for names of 100 bytes or more.
 - A file's mtime is its source file's modification time, in whole seconds.
-  Every directory entry gets the newest mtime among the archived files.
+  Every directory entry gets the newest mtime among the archived files. An
+  mtime that cannot be read, or is before 1970, is written as 0.
 - An entry with `normalize_eol = true` has every CRLF rewritten to LF as it is
   written; the header's size is the converted size.
 

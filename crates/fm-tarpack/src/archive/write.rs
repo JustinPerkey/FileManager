@@ -140,7 +140,9 @@ fn io_err(cause: io::Error) -> BuildError {
     BuildError::Io { id: None, cause }
 }
 
-/// Test hooks. All off in production.
+/// Test hooks. All off in production. `open` and `fail_write_after` are wired
+/// into the production write path (source opening and the counting writer), so
+/// they stay compiled in; the post-write tampering hooks are test-only.
 #[derive(Default)]
 pub(crate) struct Hooks {
     /// Opens a source for a pass (0 = counting, 1 = writing) instead of
@@ -350,11 +352,8 @@ pub(crate) fn write_archive_with(
         _ => Path::new("."),
     };
     // A recognisable name, so a crash's leftover can be identified.
-    let mut prefix = std::ffi::OsString::from(".");
-    prefix.push(out_path.file_name().unwrap_or_default());
-    prefix.push(".");
     let tmp = tempfile::Builder::new()
-        .prefix(&prefix)
+        .prefix(&temp_prefix(out_path))
         .suffix(".partial")
         .tempfile_in(dir)
         .map_err(io_err)?;
@@ -534,9 +533,37 @@ pub(crate) fn write_archive_with(
     })
 }
 
+/// `.<output name>.`, with a long name cut so the temp name (16 bytes longer)
+/// stays inside the 255-byte component limit.
+fn temp_prefix(out_path: &Path) -> std::ffi::OsString {
+    const MAX: usize = 200;
+    let name = out_path.file_name().unwrap_or_default();
+    let mut prefix = std::ffi::OsString::from(".");
+    if name.len() <= MAX {
+        prefix.push(name);
+    } else {
+        let lossy = name.to_string_lossy();
+        let mut end = MAX;
+        while !lossy.is_char_boundary(end) {
+            end -= 1;
+        }
+        prefix.push(&lossy[..end]);
+    }
+    prefix.push(".");
+    prefix
+}
+
+/// Whether a failed rename is worth retrying: another process briefly holds
+/// the file. On Windows that is usually ERROR_SHARING_VIOLATION (32) or
+/// ERROR_LOCK_VIOLATION (33), which std does not map to `PermissionDenied`.
+fn transient(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::PermissionDenied
+        || (cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33)))
+}
+
 /// Renames the verified temp file onto `out_path`. On Windows an antivirus
 /// scanner or the search indexer can briefly hold a new file open without
-/// share-delete, which fails the rename with `PermissionDenied`; retry a few
+/// share-delete, which fails the rename (see `transient`); retry a few
 /// times before giving up. Dropping the temp file on failure deletes it.
 fn persist(mut tmp: NamedTempFile, out_path: &Path, overwrite: bool) -> io::Result<()> {
     const RETRIES: u32 = 5;
@@ -549,7 +576,7 @@ fn persist(mut tmp: NamedTempFile, out_path: &Path, overwrite: bool) -> io::Resu
         };
         match r {
             Ok(_) => return Ok(()),
-            Err(e) if e.error.kind() == io::ErrorKind::PermissionDenied && attempt < RETRIES => {
+            Err(e) if transient(&e.error) && attempt < RETRIES => {
                 attempt += 1;
                 tmp = e.file;
                 std::thread::sleep(std::time::Duration::from_millis(100 * u64::from(attempt)));
