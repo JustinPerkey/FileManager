@@ -47,12 +47,25 @@ yourself. Even the Save-dialog filter suffix comes from the session
   changed on disk." warn banner with **Reload** that the header shows for the
   file-watcher event.
 
+**A manifest with errors (decided by the human).** A manifest with errors
+still opens. Entries that passed validation are in the table and can be
+assigned; entries with errors are left out and listed in U2's error report,
+under a notice strip ("3 errors in this manifest"). **The archive cannot be
+created while any error exists**, even if every listed entry is ready:
+building only the passed entries would silently drop files the manifest
+lists. The build bar must say so and give a one-step route to the errors.
+The user may still choose the output and the format while errors exist; both
+are remembered for the manifest.
+
 **What exists.**
 
 - `TarpackView.tsx` holds the `TarpackSession` in one piece of React state,
   replaced wholesale by every command result, and has a reserved slot for the
   sticky bottom bar. `src/app/Banner.tsx` exists:
   `tone: "info"|"warn"|"error", message, action?: { label, onAction }`.
+  `TarpackView` (U2) defines `showErrors()`: it expands the error report,
+  moves focus to it, and scrolls it into view. It does nothing when
+  `errorCount` is 0. The report body has `id="manifest-error-report"`.
 - `src/lib/tarpack.ts` (M6; read it for exact signatures) provides:
   - `setOutput(path)`, which returns a session. The backend keeps the path if
     it already ends with the current format's extension, **switches
@@ -90,8 +103,10 @@ yourself. Even the Save-dialog filter suffix comes from the session
 - Clipboard: there is no `lib/` wrapper and no plugin. Call
   `navigator.clipboard.writeText` directly from the Copy click handler.
 - From the session:
-  - `session.manifest`: `null` or the loaded manifest; `entries[]` carry
-    `{ id, source, ... }` for mapping an `entryId` to a file name;
+  - `session.manifest`: `null` or the loaded manifest; `entries[]` (passed
+    entries only) carry `{ id, source, ... }` for mapping an `entryId` to a
+    file name; `errorCount: number` is above 0 whenever the manifest has
+    errors;
   - `session.outputPath`: `string | null`, always ending with the current
     format's extension;
   - `session.format`: `ArchiveFormat`;
@@ -106,8 +121,12 @@ yourself. Even the Save-dialog filter suffix comes from the session
     four, and `outputPath` and `suggestedOutputName` are `null`;
   - `session.canBuild`;
   - `session.buildBlockedReason`: one of `"noManifest"`, `"manifestInvalid"`,
-    `"entriesNotReady"`, `"noOutput"`, or `null`;
-  - `session.readyCount` and `session.totalCount`.
+    `"entriesNotReady"`, `"noOutput"`, or `null`. The backend names the first
+    failing condition in that order, so `"manifestInvalid"` wins over
+    `"entriesNotReady"` and `"noOutput"`: it is the reason whenever
+    `errorCount > 0`, even when every listed entry is ready and an output is
+    chosen. Render the reason the session gives; never compute your own;
+  - `session.readyCount` and `session.totalCount` (passed entries only).
 - `BuildSummary`:
   `{ path, format, entries, files, dirs, bytes, uncompressedBytes, sha256Hex, extractCommand, normalizedEntries: { id, crlfReplaced }[] }`.
   - `bytes` is the size of the output file on disk; `uncompressedBytes` is the
@@ -136,7 +155,7 @@ yourself. Even the Save-dialog filter suffix comes from the session
 
 | Component | Path | Props | States |
 | --- | --- | --- | --- |
-| `BuildBar` | `src/tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild` | disabled-with-reason / ready / building |
+| `BuildBar` | `src/tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild, onShowErrors` | disabled-with-reason / manifest errors / ready / building |
 | `FormatPicker` | `src/tools/tarpack/FormatPicker.tsx` | `formats, value, disabled, onChange(format)` | enabled / disabled |
 | `BuildProgress` | `src/tools/tarpack/BuildProgress.tsx` | `progress, entries` | writing / verifying / finishing |
 | `BuildResult` | `src/tools/tarpack/BuildResult.tsx` | `result: { ok: BuildSummary } \| { err: TarpackError }, entries, onReveal, onDismiss` | success / error |
@@ -171,6 +190,8 @@ yourself. Even the Save-dialog filter suffix comes from the session
 
   A chosen path goes to `setOutput(path)`; a cancelled dialog does nothing.
   Choose… is disabled when no manifest is loaded and while building.
+- **Manifest errors do not disable Choose… or the Format picker.** Only "no
+  manifest" and "building" do.
 - **Format switched by the file name.** If the session returned by
   `setOutput` has a different `format` from the one before the call, announce
   it in a polite live region in the bar: "Format changed to xz to match the
@@ -179,9 +200,17 @@ yourself. Even the Save-dialog filter suffix comes from the session
 - **Disabled reason**, shown as visible text next to the button (not only a
   tooltip) and linked with `aria-describedby`:
   - `noManifest`: "Open a manifest first"
-  - `manifestInvalid`: "Fix the manifest problems first"
+  - `manifestInvalid`: "Fix 1 manifest error first" / "Fix {errorCount}
+    manifest errors first", with `errorCount` from `session.manifest`,
+    followed by a **Show errors** button (see below)
   - `entriesNotReady`: "{totalCount − readyCount} files still need a location"
   - `noOutput`: "Choose where to save the archive"
+- **Show errors**, only with `manifestInvalid`: a secondary (not primary)
+  button right after the reason text, calling `onShowErrors`, which
+  `TarpackView` wires to `showErrors()`. It has
+  `aria-controls="manifest-error-report"`. Tab order in that state: Choose…, Format, Show errors, then Create archive
+  (disabled, so skipped). The reason text is still linked to Create archive
+  with `aria-describedby`.
 - **Create archive**:
   1. Call `build(false)`.
   2. On an `OutputExists` error, open `ConfirmDialog` with the title
@@ -251,7 +280,7 @@ yourself. Even the Save-dialog filter suffix comes from the session
     | --- | --- | --- |
     | `NoManifest` | any command needing a manifest | "Open a manifest first." |
     | `ManifestUnreadable` | open, reload | "The manifest could not be read. Check that the file still exists and that you can open it." |
-    | `ManifestInvalid` | build | "Fix the manifest problems first." |
+    | `ManifestInvalid` | build | "Fix the manifest errors first." |
     | `ManifestChangedOnDisk` | build | "The manifest changed on disk. Reload it, then build again." |
     | `UnknownEntry` | assign, clear | "That file is no longer in the manifest. Reload and try again." |
     | `NotAFile` | assign | "{source}: the chosen path is not a file." |
@@ -276,7 +305,7 @@ yourself. Even the Save-dialog filter suffix comes from the session
 
 - Tokens only.
 - Everything is keyboard reachable and labelled: Choose…, the Format picker,
-  Create archive, both Copy buttons, Show in folder, the Details disclosure,
+  Show errors, Create archive, both Copy buttons, Show in folder, the Details disclosure,
   and Dismiss are real, focusable controls with visible focus.
 - `ConfirmDialog` traps focus, closes on Escape (which counts as Cancel), and
   returns focus to **Create archive**.
@@ -302,6 +331,11 @@ result.
 
 - Each disabled reason shows its exact visible text, and the button is
   `disabled`. The button reads "Create archive" in every state.
+- With `buildBlockedReason: "manifestInvalid"`, the bar shows "Fix N manifest
+  errors first" (singular for 1) and **Show errors**, even in a fixture where
+  `readyCount == totalCount` and `outputPath` is set. **Show errors** calls
+  `onShowErrors`, and in `TarpackView` focus lands on the error report.
+  Choose… and the Format picker stay enabled and working in that state.
 - The Format picker has a visible label, lists `session.formats` in order with
   their extensions, shows `session.format`, and is operable with the keyboard
   alone. Changing it calls `setFormat` with the chosen value, and the output
@@ -333,7 +367,10 @@ result.
 
 `npm run test`, with `lib` mocked:
 
-- `BuildBar.test.tsx`: each disabled reason; the button text; Choose calling
+- `BuildBar.test.tsx`: each disabled reason, including `manifestInvalid`
+  with every entry ready and an output set (the count, singular and plural,
+  **Show errors** calling `onShowErrors`, and Choose… and Format still
+  enabled); the button text; Choose calling
   `saveFileDialog` with the right `defaultPath` and
   `extensions: [filterExtension]`, then `setOutput`; cancelled Choose; the
   no-manifest session (picker and Choose disabled, no `lib` call).
@@ -352,7 +389,8 @@ result.
     contract (file ids, `null`-id directory events, a final `null`-id 100%
     event per phase): the reset at the phase change, "Finishing…" on the final
     verifying event, and a rejection mid-verify stopping the progress;
-  - `OpenerFailed` from Show in folder, as a banner.
+  - `OpenerFailed` from Show in folder, as a banner;
+  - **Show errors** in the bar moving focus to the error report.
 - `BuildResult.test.tsx`: all summary fields, one size for `"tar"`, the
   extraction command verbatim, both Copy buttons (with
   `navigator.clipboard.writeText` stubbed), and the normalised-entries
@@ -364,7 +402,9 @@ result.
 
 ## States covered
 
-No manifest (picker and Choose disabled), disabled (each reason), ready, format
+No manifest (picker and Choose disabled), disabled (each reason), manifest
+errors with every listed entry ready (Show errors; picker and Choose
+enabled), ready, format
 changed, format switched by file name, confirming, building (writing,
 verifying, finishing), success (with and without normalised entries), and
 error (each kind above).

@@ -2,10 +2,13 @@
 
 Status: **awaiting approval.** Backend project plan: [`tarpack.md`](tarpack.md).
 Updated 2026-09-29 for the human's answers to the backend open questions
-(`tarpack.md` §6) and to this plan's own §5.
+(`tarpack.md` §6) and to this plan's own §5, and again for the partial-results
+contract (`tarpack.md` §3.2.1, decisions 31–36, §6.3): see "Manifests with
+errors" in §1.
 
-The `impeccable` skills were not available when this plan was written, so the
-`shape` method was followed by hand. Each UI task plan names the skill its
+The `impeccable` skills were not available when this plan was written, nor for
+the partial-results revision, so the `shape` and `critique` methods were
+followed by hand. Each UI task plan names the skill its
 `ui-implementer` should run if it is available.
 
 **Stack (decided).** Tauri v2 shell, React + TypeScript + Vite frontend in
@@ -35,6 +38,8 @@ and line-ending treatment that will be written.
 - A single-window desktop layout:
   - a narrow **tool sidebar** (the home for future tools);
   - a **manifest header**;
+  - the **error report**, only when the manifest has errors: a notice strip
+    plus a collapsible list of what failed;
   - the **entry table** as the hero;
   - a sticky **build bar** at the bottom, holding output, format, and the
     build action.
@@ -73,6 +78,74 @@ and line-ending treatment that will be written.
   fail with `NoManifest`, so the Format picker and **Choose…** stay disabled.
 - **Verify failure is safe.** On `VerifyFailed` nothing is saved and an
   existing output file is left byte-for-byte unchanged; the copy says so.
+
+**Manifests with errors (partial results).** The human's requirement: *"Show
+the ones that passed but collect the ones that failed in some sort of report.
+Also notify the user that there were errors."* A readable manifest always
+opens. `manifest.entries` holds only the passed entries,
+`manifest.failedEntries` one `EntryFailure { index, id|null, source|null,
+line, errors }` per failed `[[file]]` table, `manifest.errors` only the
+manifest-level errors, `manifest.entriesWithheld` says a manifest-level error
+hid every entry, and `manifest.errorCount > 0` is the single "has errors"
+flag. Build is blocked (`manifestInvalid`) while it is above 0; assign, clear,
+drop, format, and output keep working on passed entries.
+
+Critique of the previous design against this contract (by hand): the invalid
+state was all-or-nothing and keyed on `errors.length`, which misses every
+entry error; warnings were hidden whenever errors existed; the summary line
+could say "All 4 files ready" while 2 files had failed; "This manifest lists no
+files." was wrong for withheld entries; drops were disabled; the build bar's
+reason gave no count and no route to the errors. The design below fixes each.
+
+- **Where the report lives: its own region**, between the banners and the
+  entry table, owned by `ManifestErrors` (U2). Not in the header, which stays
+  a stable one-line identity bar, and not inside the table, whose rows mean
+  "will be in the archive". Failed entries never appear as table rows.
+- **The notification is the report's notice strip, plus a live-region
+  announcement.** No toast: it would vanish, and this state persists until the
+  user fixes the file.
+  - The strip is always visible while `errorCount > 0`: `--surface`, 1 px
+    `--border`, a 3 px `--danger` inline-start edge and an `aria-hidden` error
+    icon, heading "N errors in this manifest", one consequence line ("2 files
+    are left out of the list until they're fixed." / "No files can be listed
+    until the errors under Whole manifest are fixed."), then "The archive
+    can't be created until every error is fixed." Actions: **Show errors** /
+    **Hide errors** (`aria-expanded`, `aria-controls`) and **Edit in editor**.
+  - An always-mounted, visually hidden `role="status"` announcer in
+    `TarpackView` announces "{name} has N errors. K files left out." after
+    every open, reload, and first-session restore, repeated even when the text
+    is unchanged, and "{name} reloaded. No errors." when a reload clears them.
+    Nothing is announced on assign, clear, drop, or format changes.
+  - Focus is never moved automatically. `showErrors()` in `TarpackView`
+    expands the report and moves focus to it; it backs the strip's **Show
+    errors**, the build bar's **Show errors**, and F8.
+- **Report body.** A focusable `role="region"` (`id="manifest-error-report"`),
+  capped at `40vh` with internal scroll so a manifest with many failures never
+  buries the table. A "Whole manifest" group first (manifest-level errors),
+  then one group per failed entry in manifest order, headed by the `id` in
+  mono, or "Entry #{index}", then muted "source {source}" (when present) and
+  "line {line}". Every error is listed: visible `line:col` in mono muted
+  (`aria-hidden`), visually hidden "Line L, column C:", then the message
+  verbatim with its prefix. Items are not tab stops; screen-reader users move
+  by heading and list. The body re-expands after every open, reload, or
+  restore that has errors.
+- **Warnings** show in their collapsed `<details>` whether or not there are
+  errors.
+- **Table (U3).** Summary line never says "All" while `failedEntries` is
+  non-empty, and appends " · N files left out (errors)". An empty `entries`
+  shows one sentence instead of the table: withheld, all failed, or no files.
+- **Drops and assignment (U4).** Enabled while errors exist whenever there
+  are passed entries. Disabled with a stated reason when `entries` is empty.
+  With failed entries, unmatched files read "N not matched" plus the hint
+  "Files for entries with errors can't be matched until those errors are
+  fixed." (no TS matching against failed sources).
+- **Build bar (U5).** `manifestInvalid` reads "Fix N manifest errors first"
+  followed by a secondary **Show errors** button; Choose… and Format stay
+  enabled. It shows whenever the session says so, including when every listed
+  entry is ready.
+- **Shortcut (U6).** F8, the usual "next error" key on Windows developer
+  tools, runs `showErrors()` when `errorCount > 0`.
+- **Wording.** "error" and "warning", never "problem".
 
 **Platform constraints from M1** (factual notes added by the planner after
 the M1 review; they change no design decision):
@@ -117,9 +190,12 @@ Other tokens:
   `--font-mono` is Cascadia Mono, then Consolas, for paths, modes, hashes, and
   the extraction command.
 
-The format picker, EOL marker, and extraction command need no new tokens: the
-marker uses `--text-muted` on `--surface-sunken` with `--border`, a pair U1
-already verifies for AA. Every text/background pair must reach WCAG AA. UI task
+The format picker, EOL marker, extraction command, and error report need no
+new tokens: the marker uses `--text-muted` on `--surface-sunken` with
+`--border`, a pair U1 already verifies for AA; the error notice strip uses
+`--text` and `--text-muted` on `--surface`, with `--danger` only for its edge
+and icon (non-text, at least 3:1 against `--surface` in both themes: about
+6.5:1 light, 7:1 dark). Every text/background pair must reach WCAG AA. UI task
 1 verifies this.
 
 ## 3. Component inventory
@@ -133,14 +209,14 @@ All components live under `apps/desktop/src/`.
 | `DropZone` | `app/DropZone.tsx` | `enabled, disabledReason, label, onDrop(paths)` | idle / hover / disabled | shared |
 | `Banner` | `app/Banner.tsx` | `tone, message, action?` | info / warn / error | shared |
 | `ConfirmDialog` | `app/ConfirmDialog.tsx` | `open, title, body, confirmLabel, onConfirm, onCancel` | open | shared |
-| `TarpackView` | `tools/tarpack/TarpackView.tsx` | — | loading / no-manifest / invalid / partial / ready / building (writing, verifying) / success / error | tool |
+| `TarpackView` | `tools/tarpack/TarpackView.tsx` | — | loading / no-manifest / errors (entries shown) / errors (entries withheld) / partial / ready / building (writing, verifying) / success / error | tool |
 | `ManifestHeader` | `tools/tarpack/ManifestHeader.tsx` | `session, onOpen, onOpenRecent, onReload, onEdit` | loaded / changed-on-disk | tool |
-| `ManifestErrors` | `tools/tarpack/ManifestErrors.tsx` | `errors, warnings` | errors / warnings only | tool |
-| `EntryTable` | `tools/tarpack/EntryTable.tsx` | `entries, onBrowse, onClear` | empty / populated | tool |
+| `ManifestErrors` | `tools/tarpack/ManifestErrors.tsx` | `errors, failedEntries, entriesWithheld, errorCount, warnings, expanded, onExpandedChange, onEdit, reportRef` | hidden / warnings only / errors expanded / errors collapsed / entries withheld | tool |
+| `EntryTable` | `tools/tarpack/EntryTable.tsx` | `entries, failedCount, entriesWithheld, onBrowse, onClear` | populated / populated with files left out / no files / all failed / withheld | tool |
 | `EntryStatus` | `tools/tarpack/EntryStatus.tsx` | `status` | Ready / Missing / Not assigned | tool |
 | `EolMarker` | `tools/tarpack/EolMarker.tsx` | — | shown only when `normalizeEol` | tool |
 | `DropResult` | `tools/tarpack/DropResult.tsx` | `outcome, onDismiss` | matched / unmatched / ambiguous | tool |
-| `BuildBar` | `tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild` | disabled-with-reason / ready / building | tool |
+| `BuildBar` | `tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild, onShowErrors` | disabled-with-reason / manifest errors / ready / building | tool |
 | `FormatPicker` | `tools/tarpack/FormatPicker.tsx` | `formats, value, disabled, onChange` | enabled / disabled | tool |
 | `BuildProgress` | `tools/tarpack/BuildProgress.tsx` | `progress, entries` | writing / verifying / finishing | tool |
 | `BuildResult` | `tools/tarpack/BuildResult.tsx` | `result, entries, onReveal, onDismiss` | success / error | tool |
@@ -165,7 +241,8 @@ No size or modified-time columns (decided, §5).
 
 Left to right, wrapping onto two lines at narrow widths or 200% text:
 **Output:** path (or "not chosen") and **Choose…** · **Format** picker (native
-`<select>`) · disabled reason · **Create archive**. While building, the
+`<select>`) · disabled reason (for `manifestInvalid`: "Fix N manifest errors
+first" and **Show errors**) · **Create archive**. While building, the
 progress region replaces the reason text.
 
 ### Error copy
@@ -190,7 +267,7 @@ manifest changed on disk." with **Reload**.
 | --- | --- | --- |
 | `NoManifest` | any command needing a manifest | "Open a manifest first." |
 | `ManifestUnreadable` | open, reload | "The manifest could not be read. Check that the file still exists and that you can open it." |
-| `ManifestInvalid` | build | "Fix the manifest problems first." |
+| `ManifestInvalid` | build | "Fix the manifest errors first." |
 | `ManifestChangedOnDisk` | build | "The manifest changed on disk. Reload it, then build again." |
 | `UnknownEntry` | assign, clear | "That file is no longer in the manifest. Reload and try again." |
 | `NotAFile` | assign | "{source}: the chosen path is not a file." |
@@ -214,8 +291,8 @@ plan its `ui-implementer` reads.
 | # | Task plan | Goal | Depends on |
 | --- | --- | --- | --- |
 | U1 | [`U1-app-shell.md`](../tasks/tarpack/U1-app-shell.md) | Window layout, tokens, tool navigation | M1 |
-| U2 | [`U2-manifest-header.md`](../tasks/tarpack/U2-manifest-header.md) | Manifest header; no-manifest, invalid, changed-on-disk states | U1, M6 |
-| U3 | [`U3-entry-table.md`](../tasks/tarpack/U3-entry-table.md) | Entry table with per-row status and the CRLF → LF marker | U2, M6 |
+| U2 | [`U2-manifest-header.md`](../tasks/tarpack/U2-manifest-header.md) | Manifest header; no-manifest and changed-on-disk states; error report, notice strip, and announcement | U1, M6 |
+| U3 | [`U3-entry-table.md`](../tasks/tarpack/U3-entry-table.md) | Entry table of passed entries with per-row status, the CRLF → LF marker, and honest summary and empty states | U2, M6 |
 | U4 | [`U4-drop-and-assign.md`](../tasks/tarpack/U4-drop-and-assign.md) | Drag-and-drop and per-row Browse/Clear | U3, M6 |
 | U5 | [`U5-build-bar.md`](../tasks/tarpack/U5-build-bar.md) | Output, format picker, build, overwrite confirmation, two-phase progress, result with extraction command | U3, M6 |
 | U6 | [`U6-shortcuts-polish.md`](../tasks/tarpack/U6-shortcuts-polish.md) | Keyboard shortcuts, polish, audit | U2–U5 |

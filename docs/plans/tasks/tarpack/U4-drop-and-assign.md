@@ -19,10 +19,35 @@ window, or by picking a file for one row, and show clearly what a drop did.
   **unmatched**. A drop never replaces a file that is already assigned and
   present; that comes back as unmatched with the reason "already assigned".
 
+**Working while the manifest has errors (decided by the human).** A manifest
+with errors still opens. Entries with no error of their own **pass** and are
+in `session.manifest.entries`; entries with errors **fail**, are left out of
+the table, and are listed by U2's error report. The user may keep preparing
+the build while they fix the manifest: dropping files, Browse…, and Clear
+all work on the passed entries. The backend enforces the rest:
+
+- drop matching only considers passed entries. A dropped file meant for a
+  failed entry comes back **unmatched**, because that entry is not in the
+  manifest the backend can trust yet;
+- `assign` or `clear` with a failed entry's id rejects with `UnknownEntry`
+  (it cannot happen from the table, which lists only passed entries);
+- the remembered file of a failed entry is kept, and comes back on its own
+  once the entry is fixed and the manifest reloaded;
+- the archive still cannot be created while any error exists; that is the
+  build bar's job (U5), not this task's.
+
+When a manifest-level error **withholds** every entry
+(`session.manifest.entriesWithheld` is `true`), `entries` is empty and there
+is nothing a drop could match.
+
 **What exists.**
 
 - `TarpackView.tsx` holds the `TarpackSession` state. `EntryTable.tsx` (U3)
   calls `onBrowse(id)` and `onClear(id)`.
+- From the session: `session.manifest` is `null` or has `entries` (passed
+  entries only), `entriesWithheld: boolean`, `failedEntries` (use only its
+  length), and `errorCount: number` (above 0 whenever the manifest has
+  errors).
 - `src/lib/tarpack.ts` (M6; read it for exact signatures) provides:
   - `assignDropped(paths)`, which returns `{ session, outcome }`
   - `assign(id, path)`, which returns a session
@@ -69,8 +94,16 @@ window, or by picking a file for one row, and show clearly what a drop did.
   `--accent` inset border, and a centered label, "Drop files or folders to
   match them to the manifest". The overlay does not steal focus, and it
   disappears on leave or drop.
-- **Disabled** when there is no manifest, or the manifest has errors. The
-  overlay then reads "Open a valid manifest first", and drops are ignored.
+- **Enabled** whenever a manifest is loaded, `entries` is non-empty, and no
+  build is running, **including when the manifest has errors**. Errors alone
+  never disable drops, Browse…, or Clear.
+- **Disabled** otherwise. The overlay still appears on a drag, shows the
+  reason instead of the drop label, and drops are ignored (no `lib` call):
+  - no manifest: "Open a manifest first";
+  - `entries` empty and `errorCount > 0` (withheld, or every entry failed):
+    "Fix the manifest errors first. No files can be matched yet.";
+  - `entries` empty and `errorCount` 0: "This manifest lists no files";
+  - building (wired in U5; accept the flag now): "A build is running".
 - **After a drop**, `DropResult` appears above the table. It is a
   `role="status"` region with `aria-live="polite"` and one line per non-empty
   bucket, for example:
@@ -80,6 +113,17 @@ window, or by picking a file for one row, and show clearly what a drop did.
 
   Paths show as file names, with the full path in `title`. It can be
   dismissed, and it is replaced by the next drop.
+- **Unmatched files while the manifest has errors.** When `errorCount > 0`
+  and `failedEntries` is non-empty, an unmatched file may belong to a failed
+  entry, so "not in the manifest" would be wrong. Then:
+  - the unmatched line reads "1 not matched: notes.txt" (or "N not
+    matched: …") instead of "… not in the manifest: …";
+  - one more line follows it: "Files for entries with errors can't be
+    matched until those errors are fixed."
+
+  Do not try to work out which unmatched file belongs to which failed entry;
+  that is matching logic, and it stays in Rust. The "already assigned"
+  reason, when present, is shown as before.
 - **Browse…** on a row opens `openFileDialog`, starting in the folder of the
   row's current or last assignment when there is one. The chosen path goes to
   `assign(id, path)`. A cancelled dialog does nothing.
@@ -119,7 +163,13 @@ and overlay copy.
   returned session and outcome.
 - Every bucket renders correctly, including the "already assigned" reason. The
   live-region text matches the outcome.
-- Disabled drops show the reason and make no `lib` call.
+- Disabled drops show the reason and make no `lib` call, for each reason
+  above.
+- With `errorCount > 0` and non-empty `entries`, drops, Browse…, and Clear
+  are enabled and call `lib` exactly as with a clean manifest.
+- With `errorCount > 0` and failed entries, the unmatched line reads
+  "not matched" and the hint line appears; with `errorCount` 0 it reads
+  "not in the manifest" and there is no hint.
 - Browse and Clear call the right functions with the right id, and a cancelled
   dialog makes no call.
 - A rejected `assign` with `NotAFile` shows "{source}: the chosen path is not
@@ -129,19 +179,23 @@ and overlay copy.
 
 `npm run test`, with `onDragDrop` and `openFileDialog` mocked:
 
-- `DropZone.test.tsx`: hover, leave, drop, and disabled.
-- `DropResult.test.tsx`: each bucket, combined buckets, and dismiss.
+- `DropZone.test.tsx`: hover, leave, drop, and disabled (each reason).
+- `DropResult.test.tsx`: each bucket, combined buckets, dismiss, and the
+  unmatched wording and hint with and without manifest errors.
 - `TarpackView.assign.test.tsx`: the Browse flow, cancelled Browse, Clear,
-  and a `NotAFile` rejection.
+  a `NotAFile` rejection, and a drop plus Browse on a session with
+  `errorCount > 0` and passed entries (enabled, `lib` called).
 - Axe checks with the overlay and the result visible.
 
 ## States covered
 
-Idle, drag hover, disabled, result (each bucket), dialog cancelled, and
-command error.
+Idle, drag hover, disabled (no manifest, entries withheld or all failed, no
+files, building), enabled with manifest errors, result (each bucket, with and
+without manifest errors), dialog cancelled, and command error.
 
 ## Out of scope
 
+- The error report and notice (U2).
 - The build bar (U5).
 - Keyboard shortcuts (U6).
 - Any matching logic in TS.
