@@ -1,8 +1,9 @@
 # M1 — Foundation: workspace, Tauri shell, tool registry, CI
 
-Status: implemented, reviewer approved (after two rework rounds; see "Review
-rework" below). Awaiting the landing conditions: both CI jobs green on the
-pushed branch, and one `npm run tauri:dev` on Windows to confirm `devCsp`.
+Status: done. Reviewer approved after two rework rounds (see "Review rework"
+below). Landed: both CI jobs green on main, including the Windows
+`tauri:build`, and `npm run tauri:dev` confirmed working on Windows with the
+shipped `devCsp`.
 Project: tarpack   Depends on: none
 
 ## Goal
