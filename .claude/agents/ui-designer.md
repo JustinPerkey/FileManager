@@ -19,6 +19,12 @@ per `ui-implementer` run at `docs/plans/tasks/<slug>/U<n>-<name>.md`.
 Use the `impeccable` skill family; it is the house design method and you are
 expected to invoke it rather than improvise.
 
+The `impeccable` plugin (enabled in `.claude/settings.json`) ships one skill,
+`impeccable:impeccable`, with sub-commands. `impeccable:<cmd>` below means: invoke
+`impeccable:impeccable` with args `<cmd> [target]` (for example `critique
+apps/desktop/src/tools/tarpack`). If the skill is not listed in your session,
+say so in your report before falling back to its method by hand.
+
 | Situation | Skill |
 | --- | --- |
 | New feature, direction not yet set | `impeccable:shape` (discovery → design brief) |

@@ -37,6 +37,11 @@ boundary. You do not change backend source, and you never touch the filesystem
 directly from UI code. CLAUDE.md names the exact directory the boundary falls on
 once the layout is established; until then, the task states it.
 
+The impeccable plugin ships one skill, impeccable:impeccable, with sub-commands.
+impeccable:<cmd> below means: invoke impeccable:impeccable with args
+"<cmd> [target]". If the skill is not available in your session, say so in
+your report before falling back to its method by hand.
+
 Skills. Invoke the impeccable skill the task names. When the task names none:
 - New component or view          -> impeccable:impeccable (craft)
 - Layout, spacing, rhythm        -> impeccable:layout

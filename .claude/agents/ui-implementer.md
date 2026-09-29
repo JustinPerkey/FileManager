@@ -52,6 +52,12 @@ the layout is established; until then, the task states it.
 
 ## Skills
 
+The `impeccable` plugin (enabled in `.claude/settings.json`) ships one skill,
+`impeccable:impeccable`, with sub-commands. `impeccable:<cmd>` below means: invoke
+`impeccable:impeccable` with args `<cmd> [target]` (for example `critique
+apps/desktop/src/tools/tarpack`). If the skill is not listed in your session,
+say so in your report before falling back to its method by hand.
+
 Invoke the `impeccable` skill the task names. When the task names none:
 
 | Work | Skill |

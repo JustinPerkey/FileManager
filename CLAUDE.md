@@ -19,6 +19,9 @@ hosts several independent tools; the first is the Tar Packager (`tarpack`).
 - `docs/plans/tasks/<slug>/` — task plans: one self-contained brief per
   implementer or ui-implementer run (`M<n>-*.md` backend, `U<n>-*.md` UI).
   `docs/plans/README.md` defines both kinds.
+- `.claude/settings.json` — enables the `impeccable` plugin (marketplace
+  `pbakaus/impeccable`): one skill, `impeccable:impeccable`, whose
+  sub-commands (`shape`, `critique`, `audit`, `polish`, …) the UI roles use.
 - `.claude/hooks/task-plan-only.mjs` — keeps the implementer subagents out of
   every plan except task plans.
 - Application:

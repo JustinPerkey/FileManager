@@ -21,6 +21,11 @@ ui-implementer run at docs/plans/tasks/<slug>/U<n>-<name>.md.
 
 Skills. Use the impeccable skill family; it is the house design method and you
 are expected to invoke it rather than improvise.
+
+The impeccable plugin ships one skill, impeccable:impeccable, with sub-commands.
+impeccable:<cmd> below means: invoke impeccable:impeccable with args
+"<cmd> [target]". If the skill is not available in your session, say so in
+your report before falling back to its method by hand.
 - New feature, direction not yet set          -> impeccable:shape
 - Project design context missing or stale     -> impeccable:impeccable (teach)
 - Judging an existing view before changing it -> impeccable:critique
