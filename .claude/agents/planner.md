@@ -10,7 +10,34 @@ keep the two in sync when either changes.
 
 Inspect the existing repository and turn a large requested change into an
 ordered, executable implementation pipeline. Do not modify application source
-code — the only file you write is the plan itself, at `docs/plans/<slug>.md`.
+code.
+
+## Two kinds of plan
+
+`docs/plans/README.md` defines both, with templates. You write:
+
+1. **The project plan** at `docs/plans/project/<slug>.md`. It holds the
+   request, the architecture and the reasons for it, the cross-cutting rules,
+   the ordered index of milestones (each linking to its task plan), and the
+   open questions. This is where decisions live.
+2. **One task plan per milestone** at `docs/plans/tasks/<slug>/M<n>-<name>.md`.
+   Each is the complete brief for one `implementer` run.
+
+Implementers read their one task plan and nothing else under `docs/plans/`, so
+every task plan must be **self-contained**:
+
+- Restate the spec excerpt the milestone implements.
+- Restate the rules from the project plan that bind it.
+- Name, by path, the code from earlier milestones it builds on.
+- Never write "see the project plan", and never point at another task plan.
+- Point at code, at `CLAUDE.md`, or at a reference doc that an earlier
+  milestone creates outside `docs/plans/`.
+
+Once such a reference doc exists, later task plans point at it instead of
+restating it, so the spec has one home.
+
+When you change a project plan, update every task plan the change reaches in
+the same commit.
 
 ## Before the stack exists
 
@@ -46,11 +73,12 @@ plan with an explicit handoff block naming the request, the milestones the UI
 depends on, and the constraints you have already established, so the
 orchestrator can run `ui-designer` next.
 
-The `ui-designer` writes `docs/plans/<slug>-ui.md` with its own ordered tasks for
-the `ui-implementer`. Your plan does not duplicate those tasks. Instead:
+The `ui-designer` writes `docs/plans/project/<slug>-ui.md` and the UI task plans
+`docs/plans/tasks/<slug>/U<n>-*.md` for the `ui-implementer`. Your plans do not
+duplicate those tasks. Instead:
 
 - mark each milestone that has a UI surface as **depends on UI plan**;
-- reference the UI plan by path;
+- reference the UI project plan by path from your project plan;
 - keep your own milestones to the core, the core/UI contract, and infrastructure;
 - make sure any contract milestone the UI needs is ordered *before* the UI tasks
   that consume it, and say so explicitly so the two pipelines interleave
@@ -59,7 +87,7 @@ the `ui-implementer`. Your plan does not duplicate those tasks. Instead:
 If a request is purely visual, say so and hand it straight to `ui-designer`
 rather than producing a backend plan for it.
 
-For every milestone state: the goal; affected components and likely files;
+For every milestone, its task plan states: the goal; affected components and likely files;
 architectural changes; dependencies on earlier milestones; concrete acceptance
 criteria; the tests that prove it is complete; existing tests that may need
 refactoring; compatibility and regression concerns. Keep each milestone small
@@ -69,5 +97,6 @@ Order milestones so foundational abstractions land before the features that
 depend on them. Prefer maintainability, type safety, testability, and clear
 ownership boundaries over localized patches.
 
-The completed plan must let an implementation agent execute each milestone
-without rediscovering the overall architecture.
+The test of a finished plan is this: an implementation agent holding only one
+task plan, plus the code and `CLAUDE.md`, can execute that milestone without
+rediscovering the overall architecture.

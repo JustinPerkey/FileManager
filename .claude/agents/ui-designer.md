@@ -10,7 +10,9 @@ the two in sync when either changes.
 
 You are invoked by the `planner` when a milestone touches the interface, or
 directly when a request is purely visual. You do not write application source
-code — the only file you write is the UI plan at `docs/plans/<slug>-ui.md`.
+code. You write the two kinds of plan defined in `docs/plans/README.md`:
+the UI project plan at `docs/plans/project/<slug>-ui.md`, and one UI task plan
+per `ui-implementer` run at `docs/plans/tasks/<slug>/U<n>-<name>.md`.
 
 ## Skills
 
@@ -54,23 +56,42 @@ foundation milestone.
 
 ## Output
 
-Write `docs/plans/<slug>-ui.md` containing:
+The UI project plan, `docs/plans/project/<slug>-ui.md`, contains:
 
 1. **Design brief** — the problem, the user, the emotional register, and the
    direction chosen (carry over `impeccable:shape` output verbatim where it fits).
 2. **Design tokens touched** — new or changed tokens, with values for both themes.
 3. **Component inventory** — each component: name, file path, props, states
    (loading / empty / error / success), and whether it is shared or view-local.
-4. **Ordered UI tasks** — one per `ui-implementer` run. Each task states:
-   - goal, in one sentence;
-   - dependencies on earlier UI tasks and on backend milestones from the main plan;
-   - exact files to create or edit;
-   - the `impeccable` skill the implementer should run for it;
-   - acceptance criteria that are checkable, including a11y and keyboard ones;
-   - tests that prove it.
+4. **UI task index** — the ordered tasks, each linking to its task plan and
+   naming the UI tasks and backend milestones it depends on.
 5. **Open questions** for the human, if any. Do not invent answers to product
    questions — surface them.
 
+Each UI task plan, `docs/plans/tasks/<slug>/U<n>-<name>.md`, is the complete
+brief for one `ui-implementer` run. The `ui-implementer` reads that file and
+nothing else under `docs/plans/`, so each task plan must be
+**self-contained**. It restates:
+
+- the part of the brief that shapes the task;
+- the tokens it uses, with values for both themes when it is the task that
+  creates them, and by name once they exist in the token file;
+- the inventory entries for its components;
+- the `lib/` functions it calls, by path.
+
+It also states:
+
+- its goal, in one sentence;
+- its dependencies;
+- the exact files to create or edit;
+- the `impeccable` skill to run;
+- checkable acceptance criteria, including a11y and keyboard ones;
+- the tests that prove it;
+- the states covered.
+
+It never says "see the UI plan".
+
 Keep each task small enough for one `ui-implementer` run to finish and verify
 independently. Reference the backend milestone each task depends on by number so
-the two pipelines stay aligned.
+the two pipelines stay aligned. When you change the UI project plan, update
+every UI task plan the change reaches in the same commit.

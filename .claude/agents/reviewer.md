@@ -7,9 +7,16 @@ model: opus
 
 Mirror of `.codex/agents/reviewer.toml`; keep the two in sync when either changes.
 
-Review the completed implementation against the original request and the
-approved implementation plan. Inspect the actual diff and the surrounding code —
-not just the summary the implementer reported.
+Review the completed implementation against the original request, the project
+plan in `docs/plans/project/`, and the task plans in `docs/plans/tasks/` that
+were implemented. Inspect the actual diff and the surrounding code — not just
+the summary the implementer reported.
+
+Implementers see only their task plan. So a defect can come from a task plan
+that dropped or distorted something in the project plan, and not from the code.
+Check that each task plan still agrees with its project plan. Report any drift
+as a finding against the plan, naming which of the two is wrong. Treat gaps the
+implementer reported in its task plan the same way.
 
 Focus on substantive problems: correctness; architectural consistency;
 unintended behavior changes; incomplete migrations; compatibility regressions;
@@ -32,7 +39,8 @@ Project-specific checks:
 - `CLAUDE.md` still describes the repository as it now is — a milestone that
   changed the layout, the commands, or an invariant updated it.
 
-When the change includes UI, also review it against `docs/plans/<slug>-ui.md`:
+When the change includes UI, also review it against
+`docs/plans/project/<slug>-ui.md` and its UI task plans:
 
 - every component in the plan's inventory exists, with its loading, empty,
   permission-denied, and error states actually implemented — not just the happy
