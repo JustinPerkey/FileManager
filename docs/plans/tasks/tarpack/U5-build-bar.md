@@ -31,13 +31,15 @@ command and lets the user copy it.
 `session.formats` in the order given, show `session.format` as selected, and
 render whatever session `setFormat` or `setOutput` returns. Never append,
 strip, or compare extensions in TS, and never build a file name or command
-yourself. The only string you derive is the Save-dialog filter suffix (see
-Behaviour), because the dialog plugin needs it without the leading dot.
+yourself. Even the Save-dialog filter suffix comes from the session
+(`filterExtension`); derive nothing from `extension`.
 
 **Safety rules the UI must honour.**
 
 - The archive is written atomically by Rust and verified before it replaces
-  anything. An existing file is replaced only when the UI passes
+  anything. If verification fails (`VerifyFailed`), nothing is saved and an
+  existing output file is left byte-for-byte unchanged (guaranteed and tested
+  by the backend). An existing file is replaced only when the UI passes
   `overwrite: true`, and it may do so only after the user confirms in a
   dialog.
 - If the manifest changed on disk since it was loaded, Rust refuses to build
@@ -59,28 +61,49 @@ Behaviour), because the dialog plugin needs it without the leading dot.
     current extension;
   - `setFormat(format)`, which returns a session. It rewrites the extension of
     `outputPath` when one is set, and remembers the format for this manifest;
+  - with no manifest loaded, both `setOutput` and `setFormat` reject with
+    `NoManifest` and change nothing, because both are remembered per manifest.
+    The UI keeps Choose… and the Format picker disabled in that state, so
+    this never happens in normal use;
   - `build(overwrite)`, which returns a `BuildSummary` or throws a
     `TarpackError`;
   - `onBuildProgress(handler)`, which yields
-    `{ phase: "writing" | "verifying", entryId: string | null, bytesDone, bytesTotal }`.
-    Bytes are uncompressed tar-stream bytes. The `verifying` phase follows
-    `writing` and runs its own 0-to-`bytesTotal` pass;
+    `{ phase: "writing" | "verifying", entryId: string | null, bytesDone: number, bytesTotal: number }`:
+    - bytes are uncompressed tar-stream bytes, and both phases share the same
+      `bytesTotal`;
+    - `writing` comes first; `verifying` follows and runs its own pass from 0;
+    - `bytesDone` never decreases within a phase;
+    - `entryId` is the file entry being processed, in both phases, and `null`
+      for directory records, long-name records, and the end-of-archive blocks;
+    - each phase ends with exactly one event where `bytesDone == bytesTotal`
+      and `entryId` is `null`;
+    - no event follows the final verifying event, and there is no separate
+      finalizing phase. The SHA-256 is computed during verifying, so only an
+      fsync and a rename remain before `build` settles;
+    - on failure, events simply stop, and `build` rejects;
   - `revealOutput()`.
 - `src/lib/tauri.ts` provides `saveFileDialog({ defaultPath, filters? })`,
   where `filters` is `{ name: string, extensions: string[] }[]`. Extensions
   are given without the leading dot, and Windows matches only the last suffix
   (for example `zst`), so the backend's `setOutput` normalisation is what
   guarantees the full extension.
+- Clipboard: there is no `lib/` wrapper and no plugin. Call
+  `navigator.clipboard.writeText` directly from the Copy click handler.
 - From the session:
   - `session.manifest`: `null` or the loaded manifest; `entries[]` carry
     `{ id, source, ... }` for mapping an `entryId` to a file name;
   - `session.outputPath`: `string | null`, always ending with the current
     format's extension;
   - `session.format`: `ArchiveFormat`;
-  - `session.formats`: `{ format: ArchiveFormat, extension: string }[]`, in
-    the fixed order tar, tarGz, tarZst, tarXz;
+  - `session.formats`:
+    `{ format: ArchiveFormat, extension: string, filterExtension: string }[]`,
+    in the fixed order tar, tarGz, tarZst, tarXz, for example
+    `{ format: "tarZst", extension: ".tar.zst", filterExtension: "zst" }`.
+    `filterExtension` is `"tar"`, `"gz"`, `"zst"`, or `"xz"`;
   - `session.suggestedOutputName`: `string | null`, the file name for the
-    Save dialog with the current extension; `null` when no manifest is loaded;
+    Save dialog with the current extension;
+  - **with no manifest loaded**: `format` is `"tar"`, `formats` still lists all
+    four, and `outputPath` and `suggestedOutputName` are `null`;
   - `session.canBuild`;
   - `session.buildBlockedReason`: one of `"noManifest"`, `"manifestInvalid"`,
     `"entriesNotReady"`, `"noOutput"`, or `null`;
@@ -94,10 +117,16 @@ Behaviour), because the dialog plugin needs it without the leading dot.
     name only, so it runs in the directory that holds the archive.
   - `normalizedEntries` lists every entry with line-ending conversion on, with
     the number of CRLF pairs replaced (possibly 0).
-- `TarpackError`: `{ kind, message, entryId? }`, where `kind` includes
-  `"OutputExists"`, `"ManifestChangedOnDisk"`, `"SourceMissing"`,
-  `"SourceUnreadable"`, `"SourceChanged"`, and `"VerifyFailed"`. `message` is
-  the backend's technical detail.
+- `TarpackError`: `{ kind: TarpackErrorKind, message: string, entryId?: string }`.
+  `entryId` is omitted (not `null`) when absent. `message` is the backend's
+  technical detail, not user copy. `TarpackErrorKind` is a closed
+  string-literal union of exactly 17 kinds (table under Behaviour → Errors).
+- `src/tools/tarpack/errorMessages.ts` (U2) exports
+  `errorMessage(error, entries): string`, backed by an exhaustive
+  `Record<TarpackErrorKind, (source: string | null) => string>`. Use it for
+  every error you display; do not write copy of your own or add a fallback.
+  If a message below differs from the file, the file was written from this
+  same table, so report the difference rather than patching around it.
 - The tokens you use are in `src/styles/tokens.css`: `--surface`,
   `--surface-sunken`, `--border`, `--accent`, `--accent-text`, `--ok`,
   `--danger`, `--text`, `--text-muted`, `--font-mono`, `--radius`, and the
@@ -131,13 +160,14 @@ Behaviour), because the dialog plugin needs it without the leading dot.
     the table above and the extension from the session.
   - Its value is `session.format`. On change, call `setFormat(format)` and
     render the returned session; the output path updates with it.
-  - Disabled when no manifest is loaded and while building.
+  - Disabled when no manifest is loaded (it still shows "tar (.tar)" from the
+    session) and while building.
 - **Choose…** opens `saveFileDialog` with:
   - `defaultPath`: `session.outputPath`, else `session.suggestedOutputName`;
-  - `filters`: one filter for the current format,
-    `{ name: "{label} archive ({extension})", extensions: [<the text after the
-    last "." of the current extension>] }`, for example
-    `{ name: "zstd archive (.tar.zst)", extensions: ["zst"] }`.
+  - `filters`: one filter for the current format, taken from the matching
+    entry of `session.formats`:
+    `{ name: "{label} archive ({extension})", extensions: [filterExtension] }`,
+    for example `{ name: "zstd archive (.tar.zst)", extensions: ["zst"] }`.
 
   A chosen path goes to `setOutput(path)`; a cancelled dialog does nothing.
   Choose… is disabled when no manifest is loaded and while building.
@@ -168,11 +198,17 @@ Behaviour), because the dialog plugin needs it without the leading dot.
     and resets to 0 when the phase changes to `verifying`.
   - `aria-valuetext` names the phase and the entry: "Writing gateway.conf,
     40%" or "Verifying gateway.conf, 40%", mapping `entryId` to the entry's
-    `source`; with a `null` `entryId`, "Writing, 40%".
+    `source`; with a `null` `entryId` (directories, long-name records, the
+    phase's final event), "Writing, 40%". Keep the visible label on the last
+    named file rather than flickering to no name on directory records.
   - Announce the phase change once in a polite live region ("Verifying the
     archive"); do not announce every percentage.
-  - After verifying reaches 100% and until `build` resolves, show
-    "Finishing…" with the bar full.
+  - When the final verifying event arrives (`phase: "verifying"`,
+    `bytesDone == bytesTotal`), show "Finishing…" with the bar full until
+    `build` settles. It covers only the flush and rename, so it is brief; do
+    not wait for any further event.
+  - If `build` rejects, stop showing progress wherever it stopped and show the
+    error; no further events arrive.
   - All tarpack controls (bar, format picker, table actions, header actions)
     are disabled, and drops are ignored.
 - **Success: `BuildResult`**, dismissible, with:
@@ -194,23 +230,47 @@ Behaviour), because the dialog plugin needs it without the leading dot.
 
   Copy uses `navigator.clipboard.writeText` and confirms with "Copied" in a
   polite live region next to the button for about 2 s.
-- **Errors.**
-  - `ManifestChangedOnDisk`: show the warn banner with Reload, not a
-    `BuildResult`.
-  - Every other error: an error `BuildResult` with a user-facing message, and
-    the backend `message` below it in a collapsed "Details" disclosure.
-    `{source}` is the entry's `source` for `entryId`:
+- **Errors.** Every error comes from `build`, `setOutput`, `setFormat`, or
+  `revealOutput`:
+  - `OutputExists` from `build(false)`: open the replace confirmation above.
+    Never shown as an error.
+  - `ManifestChangedOnDisk`: show the warn banner "The manifest changed on
+    disk." with **Reload**, not a `BuildResult`.
+  - Every other kind from `build`: an error `BuildResult` whose message is
+    `errorMessage(error, entries)`, with the backend `message` below it in a
+    collapsed "Details" disclosure.
+  - Errors from `setOutput`, `setFormat`, or `revealOutput` (for example
+    `OpenerFailed` from Show in folder): an error `Banner` with the same
+    message and Details.
 
-    | Kind | Message |
-    | --- | --- |
-    | `SourceMissing` | "{source} is no longer at its assigned location." |
-    | `SourceUnreadable` | "{source} could not be read." |
-    | `SourceChanged` | "{source} changed while the archive was being written. Nothing was saved. Try again." |
-    | `VerifyFailed` | "The archive failed its check after writing, so it was not saved. Any existing file was left unchanged. Try again." |
-    | any other | "The archive could not be created." |
+  The copy `errorMessage` returns, for all 17 kinds. `{source}` is the
+  `source` of the entry named by `entryId`, or "A file" when `entryId` is
+  omitted or unknown:
 
-    When `entryId` is absent for a kind that names a source, use "A file"
-    instead of `{source}`.
+    | Kind | Raised by | Message |
+    | --- | --- | --- |
+    | `NoManifest` | any command needing a manifest | "Open a manifest first." |
+    | `ManifestUnreadable` | open, reload | "The manifest could not be read. Check that the file still exists and that you can open it." |
+    | `ManifestInvalid` | build | "Fix the manifest problems first." |
+    | `ManifestChangedOnDisk` | build | "The manifest changed on disk. Reload it, then build again." |
+    | `UnknownEntry` | assign, clear | "That file is no longer in the manifest. Reload and try again." |
+    | `NotAFile` | assign | "{source}: the chosen path is not a file." |
+    | `NoOutput` | build | "Choose where to save the archive." |
+    | `EntriesNotReady` | build | "{source} still needs a location." |
+    | `OutputExists` | build | "A file with this name already exists." |
+    | `PathExists` | create from example | "A file already exists there. Choose a new name; the example never replaces a file." |
+    | `SourceMissing` | build | "{source} is no longer at its assigned location." |
+    | `SourceUnreadable` | build | "{source} could not be read." |
+    | `SourceChanged` | build | "{source} changed while the archive was being written. Nothing was saved. Try again." |
+    | `VerifyFailed` | build | "The archive failed its check after writing, so it was not saved. Any existing file was left unchanged. Try again." |
+    | `BuildInProgress` | build | "A build is already running." |
+    | `OpenerFailed` | edit in editor, show in folder | "Windows could not open it." |
+    | `Io` | any | "A file could not be read or written." |
+
+  The kinds that matter most for this task are `SourceMissing`,
+  `SourceUnreadable`, `SourceChanged`, and `VerifyFailed`. `NoManifest`,
+  `ManifestInvalid`, `NoOutput`, `EntriesNotReady`, and `BuildInProgress` are
+  defensive: the disabled states normally prevent them.
 
 **Rules that bind this task.**
 
@@ -221,8 +281,8 @@ Behaviour), because the dialog plugin needs it without the leading dot.
 - `ConfirmDialog` traps focus, closes on Escape (which counts as Cancel), and
   returns focus to **Create archive**.
 - Progress animation respects `prefers-reduced-motion`.
-- Call only `lib/` functions. No extension, file-name, or command logic in TS
-  beyond the filter suffix above.
+- Call only `lib/` functions (plus `navigator.clipboard.writeText`). No
+  extension, file-name, filter, or command logic in TS.
 
 ## Files
 
@@ -247,28 +307,36 @@ result.
   alone. Changing it calls `setFormat` with the chosen value, and the output
   path shown afterwards is the one in the returned session.
 - Choose… calls `saveFileDialog` with `defaultPath` from `outputPath` or
-  `suggestedOutputName` and a single filter for the current format, then
-  `setOutput`. A cancelled dialog makes no call.
+  `suggestedOutputName` and a single filter whose `extensions` is exactly
+  `[filterExtension]` of the current format, then `setOutput`. A cancelled
+  dialog makes no call. No TS code splits or slices `extension`.
+- With no manifest, the picker shows "tar (.tar)" and is `disabled`, Choose…
+  is `disabled`, and neither `setFormat` nor `setOutput` is ever called.
 - When `setOutput` returns a different format, the picker shows it and the
   live region announces the switch.
 - The overwrite flow is: `build(false)`, then `OutputExists`, then the dialog.
   Cancel makes no further call; Replace calls `build(true)`.
 - Progress shows "Step 1 of 2 · Writing" then "Step 2 of 2 · Verifying", each
-  running 0 → 100% from events, with `aria-valuetext` naming the phase; then
-  "Finishing…". Controls, including the picker, are disabled while building.
+  running 0 → 100% from events, with `aria-valuetext` naming the phase and
+  file (no file for `null` `entryId`); "Finishing…" appears on the final
+  verifying event without waiting for another event; a rejected build stops
+  the progress and shows the error. Controls, including the picker, are disabled while building.
 - The success view shows every summary field: file name, path, format, both
   sizes, SHA-256, the extraction command verbatim, and each normalised entry.
   Each Copy writes its exact text to the clipboard and announces "Copied".
 - `ManifestChangedOnDisk` shows the banner, not a generic error.
-  `SourceChanged` and `VerifyFailed` show their messages from the table above.
+  `SourceChanged` and `VerifyFailed` show their messages from the table above,
+  via `errorMessage`; no component contains its own error copy or an
+  "any other" branch.
 
 ## Tests proving completion
 
 `npm run test`, with `lib` mocked:
 
 - `BuildBar.test.tsx`: each disabled reason; the button text; Choose calling
-  `saveFileDialog` with the right `defaultPath` and filter, then `setOutput`;
-  cancelled Choose.
+  `saveFileDialog` with the right `defaultPath` and
+  `extensions: [filterExtension]`, then `setOutput`; cancelled Choose; the
+  no-manifest session (picker and Choose disabled, no `lib` call).
 - `FormatPicker.test.tsx`: options and order from `formats`, the selected
   value, `onChange` on keyboard selection, and the disabled state.
 - `TarpackView.build.test.tsx`:
@@ -278,12 +346,16 @@ result.
   - `OutputExists`, then Cancel;
   - `OutputExists`, then Replace;
   - `ManifestChangedOnDisk`;
-  - `SourceMissing`, naming the file;
+  - `SourceMissing`, naming the file, and with `entryId` omitted ("A file");
   - `SourceChanged` and `VerifyFailed`, with their messages and details;
-  - progress rendering across both phases, including the reset at the phase
-    change and "Finishing…".
+  - progress rendering from a scripted event sequence that follows the
+    contract (file ids, `null`-id directory events, a final `null`-id 100%
+    event per phase): the reset at the phase change, "Finishing…" on the final
+    verifying event, and a rejection mid-verify stopping the progress;
+  - `OpenerFailed` from Show in folder, as a banner.
 - `BuildResult.test.tsx`: all summary fields, one size for `"tar"`, the
-  extraction command verbatim, both Copy buttons, and the normalised-entries
+  extraction command verbatim, both Copy buttons (with
+  `navigator.clipboard.writeText` stubbed), and the normalised-entries
   list (including a 0 count and its absence when empty).
 - `ConfirmDialog.test.tsx`: focus starts on Cancel, Escape cancels, and focus
   returns afterwards.

@@ -32,6 +32,9 @@ That loop must take a few keystrokes, not a mouse trip.
   with a **Copy** button, the list of entries whose line endings were
   converted, and Show in folder; on error, a message and a Details
   disclosure.
+- `errorMessages.ts`: the single, exhaustive
+  `Record<TarpackErrorKind, …>` of user-facing error copy (17 kinds). When
+  re-reading copy, edit it there; no component holds its own error strings.
 
 Under `src/app/`:
 
@@ -76,7 +79,8 @@ access to them; it adds no new behaviour.
   Windows paths (middle-truncated), long-name warning messages and the
   extraction command (wrapped, never truncated).
 - Consistent spacing on the `--space-*` scale, with no one-off pixel values.
-- All copy is plain and short. Re-read every string.
+- All copy is plain and short. Re-read every string. Keep the no-manifest build bar
+  honest: the Format picker (showing "tar (.tar)") and Choose… stay disabled.
 
 **Rules that bind this task.**
 

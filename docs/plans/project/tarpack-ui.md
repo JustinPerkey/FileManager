@@ -51,6 +51,11 @@ and line-ending treatment that will be written.
   `setFormat` and `setOutput`. It never adds or strips an extension itself.
   `setOutput` may switch the format (a typed `.tar.xz` name selects xz) or
   append the extension; the UI announces a switch.
+  The Save dialog opens at `outputPath`, else `suggestedOutputName`, with one
+  filter built from the current option's `filterExtension` (`tar`, `gz`,
+  `zst`, `xz`); the UI derives nothing from `extension`.
+- **Copy actions** call `navigator.clipboard.writeText` directly; there is no
+  clipboard wrapper or plugin.
 - **Format-neutral wording.** The primary button reads **Create archive**, not
   "Create tar".
 - **Absolute stored paths.** `targetPath` starts with `/`. The archive must be
@@ -59,8 +64,15 @@ and line-ending treatment that will be written.
 - **Line-ending conversion is visible.** Entries with `normalizeEol` carry a
   labelled "CRLF → LF" marker in the table, and the build result lists how
   many CRLF pairs each such entry had replaced.
-- **Two-phase progress.** Writing, then verifying, each 0 → 100%, shown as
-  distinct labelled steps.
+- **Two-phase progress.** Writing, then verifying, each 0 → 100% over the same
+  `bytesTotal`, shown as distinct labelled steps. Each phase ends with one
+  event at 100% with no entry. The SHA-256 is computed during verifying, so the
+  short "Finishing…" state after it covers only the final flush and rename.
+- **No manifest.** `format` is `"tar"`, all four formats are listed, and the
+  output path and suggested name are `null`. `setFormat` and `setOutput` would
+  fail with `NoManifest`, so the Format picker and **Choose…** stay disabled.
+- **Verify failure is safe.** On `VerifyFailed` nothing is saved and an
+  existing output file is left byte-for-byte unchanged; the copy says so.
 
 ## 2. Design tokens touched (new)
 
@@ -119,6 +131,7 @@ All components live under `apps/desktop/src/`.
 | `FormatPicker` | `tools/tarpack/FormatPicker.tsx` | `formats, value, disabled, onChange` | enabled / disabled | tool |
 | `BuildProgress` | `tools/tarpack/BuildProgress.tsx` | `progress, entries` | writing / verifying / finishing | tool |
 | `BuildResult` | `tools/tarpack/BuildResult.tsx` | `result, entries, onReveal, onDismiss` | success / error | tool |
+| `errorMessages` | `tools/tarpack/errorMessages.ts` | `errorMessage(error, entries)` (module, not a component) | one entry per `TarpackErrorKind` | tool |
 
 ### Entry table columns
 
@@ -144,18 +157,41 @@ progress region replaces the reason text.
 
 ### Error copy
 
-User-facing messages per `TarpackError.kind`, with the backend `message` shown
-as secondary detail:
+`TarpackError` is `{ kind: TarpackErrorKind, message: string, entryId?: string }`.
+`TarpackErrorKind` is a closed string-literal union of 17 kinds. The UI maps
+every kind to user-facing copy in one module,
+`tools/tarpack/errorMessages.ts`, typed as
+`Record<TarpackErrorKind, (source: string | null) => string>`, so a kind added
+or removed in Rust fails `npm run typecheck` until the copy changes too. There
+is no "any other" fallback. `{source}` is the `source` of the entry named by
+`entryId`; when `entryId` is omitted or matches no entry, it reads "A file".
+The backend `message` is shown under the copy in a collapsed "Details"
+disclosure.
 
-| Kind | Message |
-| --- | --- |
-| `OutputExists` | (never shown as an error; opens the replace confirmation) |
-| `ManifestChangedOnDisk` | the warn banner "The manifest changed on disk." with **Reload** |
-| `SourceMissing` | "{source} is no longer at its assigned location." |
-| `SourceUnreadable` | "{source} could not be read." |
-| `SourceChanged` | "{source} changed while the archive was being written. Nothing was saved. Try again." |
-| `VerifyFailed` | "The archive failed its check after writing, so it was not saved. Any existing file was left unchanged. Try again." |
-| any other | "The archive could not be created." |
+U2 creates the module with all 17 entries; U4 and U5 only consume it. Two kinds
+are intercepted before the map in the build flow (U5): `OutputExists` opens the
+replace confirmation, and `ManifestChangedOnDisk` shows the warn banner "The
+manifest changed on disk." with **Reload**.
+
+| Kind | Raised by | Message |
+| --- | --- | --- |
+| `NoManifest` | any command needing a manifest | "Open a manifest first." |
+| `ManifestUnreadable` | open, reload | "The manifest could not be read. Check that the file still exists and that you can open it." |
+| `ManifestInvalid` | build | "Fix the manifest problems first." |
+| `ManifestChangedOnDisk` | build | "The manifest changed on disk. Reload it, then build again." |
+| `UnknownEntry` | assign, clear | "That file is no longer in the manifest. Reload and try again." |
+| `NotAFile` | assign | "{source}: the chosen path is not a file." |
+| `NoOutput` | build | "Choose where to save the archive." |
+| `EntriesNotReady` | build | "{source} still needs a location." |
+| `OutputExists` | build | "A file with this name already exists." |
+| `PathExists` | create from example | "A file already exists there. Choose a new name; the example never replaces a file." |
+| `SourceMissing` | build | "{source} is no longer at its assigned location." |
+| `SourceUnreadable` | build | "{source} could not be read." |
+| `SourceChanged` | build | "{source} changed while the archive was being written. Nothing was saved. Try again." |
+| `VerifyFailed` | build | "The archive failed its check after writing, so it was not saved. Any existing file was left unchanged. Try again." |
+| `BuildInProgress` | build | "A build is already running." |
+| `OpenerFailed` | edit in editor, show in folder | "Windows could not open it." |
+| `Io` | any | "A file could not be read or written." |
 
 ## 4. UI task index
 
