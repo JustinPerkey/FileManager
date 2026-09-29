@@ -172,7 +172,10 @@ build. Warnings never block.
 - Directory entries are emitted for every ancestor of an entry except `/`, with
   `dir_mode` and the default owner.
 - The format is GNU tar, with long-name records for names of 100 bytes or more.
-- mtime is the source file's modification time.
+- A file's mtime is its source file's modification time, in whole seconds.
+  Every directory entry gets the newest mtime among the archived files.
+- An entry with `normalize_eol = true` has every CRLF rewritten to LF as it is
+  written; the header's size is the converted size.
 
 ## Output formats
 

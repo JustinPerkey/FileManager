@@ -114,8 +114,12 @@ pub(crate) fn verify(
             }
             let what = lossy(&name);
             let h = entry.header();
-            let is_dir = h.entry_type() == tar::EntryType::Directory;
-            if is_dir != w.is_dir {
+            let wanted = if w.is_dir {
+                tar::EntryType::Directory
+            } else {
+                tar::EntryType::Regular
+            };
+            if h.entry_type() != wanted {
                 return Err(fail(format!("`{what}` has the wrong entry type")));
             }
             let mode = h.mode().map_err(fail)? & 0o7777;

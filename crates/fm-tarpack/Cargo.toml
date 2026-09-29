@@ -8,7 +8,7 @@ publish.workspace = true
 [dependencies]
 flate2 = "1.1.10"
 fm-core = { path = "../fm-core" }
-liblzma = { version = "0.4.8", default-features = false, features = ["static"] }
+liblzma = { version = "0.4.8", features = ["static"] }
 serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.11.0"
 tar = { version = "0.4.46", default-features = false }

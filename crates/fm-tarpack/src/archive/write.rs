@@ -3,7 +3,7 @@
 
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -148,8 +148,10 @@ pub(crate) struct Hooks {
     #[allow(clippy::type_complexity)]
     pub open: Option<Box<dyn Fn(&Path, u8) -> io::Result<Box<dyn Read>>>>,
     /// Chops this many bytes off the finished temp file before verification.
+    #[cfg(test)]
     pub truncate_tail: u64,
     /// Flips the byte at this offset of the finished temp file.
+    #[cfg(test)]
     pub corrupt_at: Option<u64>,
     /// Fails the tar stream writer once this many bytes were written.
     pub fail_write_after: Option<u64>,
@@ -206,7 +208,10 @@ impl<R: Read> Read for Tracked<'_, R> {
                 Ok(n)
             }
             Err(e) => {
-                self.read_err = Some(io::Error::new(e.kind(), e.to_string()));
+                // io::copy retries Interrupted, so it is not a failure.
+                if e.kind() != io::ErrorKind::Interrupted {
+                    self.read_err = Some(io::Error::new(e.kind(), e.to_string()));
+                }
                 Err(e)
             }
         }
@@ -344,7 +349,15 @@ pub(crate) fn write_archive_with(
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
     };
-    let tmp = NamedTempFile::new_in(dir).map_err(io_err)?;
+    // A recognisable name, so a crash's leftover can be identified.
+    let mut prefix = std::ffi::OsString::from(".");
+    prefix.push(out_path.file_name().unwrap_or_default());
+    prefix.push(".");
+    let tmp = tempfile::Builder::new()
+        .prefix(&prefix)
+        .suffix(".partial")
+        .tempfile_in(dir)
+        .map_err(io_err)?;
 
     let mut expected: Vec<Expected> = Vec::new();
     let uncompressed = {
@@ -393,10 +406,11 @@ pub(crate) fn write_archive_with(
                         mtime: prep.mtime,
                         size: prep.size,
                     };
+                    let base = pos + preamble_size(path.len());
                     progress(Progress {
                         phase: BuildPhase::Writing,
                         entry_id: Some(id.clone()),
-                        bytes_done: pos,
+                        bytes_done: base,
                         bytes_total: total,
                     });
                     let raw =
@@ -409,7 +423,7 @@ pub(crate) fn write_archive_with(
                     let mut tracked = Tracked {
                         inner,
                         count: 0,
-                        base: pos + preamble_size(path.len()),
+                        base,
                         total,
                         id,
                         progress: &mut *progress,
@@ -454,6 +468,7 @@ pub(crate) fn write_archive_with(
     };
 
     tmp.as_file().sync_all().map_err(io_err)?;
+    #[cfg(test)]
     if hooks.truncate_tail > 0 || hooks.corrupt_at.is_some() {
         tamper(&tmp, hooks).map_err(io_err)?;
     }
@@ -467,19 +482,15 @@ pub(crate) fn write_archive_with(
     let hash = verify(tmp.path(), format, &expected, total, progress)?;
     let bytes = tmp.as_file().metadata().map_err(io_err)?.len();
 
-    if overwrite {
-        tmp.persist(out_path).map_err(|e| io_err(e.error))?;
-    } else {
-        tmp.persist_noclobber(out_path).map_err(|e| {
-            if e.error.kind() == io::ErrorKind::AlreadyExists {
-                BuildError::OutputExists {
-                    path: out_path.to_path_buf(),
-                }
-            } else {
-                io_err(e.error)
+    persist(tmp, out_path, overwrite).map_err(|e| {
+        if !overwrite && e.kind() == io::ErrorKind::AlreadyExists {
+            BuildError::OutputExists {
+                path: out_path.to_path_buf(),
             }
-        })?;
-    }
+        } else {
+            io_err(e)
+        }
+    })?;
 
     let mut built_ids = Vec::new();
     let mut normalized_entries = Vec::new();
@@ -523,6 +534,31 @@ pub(crate) fn write_archive_with(
     })
 }
 
+/// Renames the verified temp file onto `out_path`. On Windows an antivirus
+/// scanner or the search indexer can briefly hold a new file open without
+/// share-delete, which fails the rename with `PermissionDenied`; retry a few
+/// times before giving up. Dropping the temp file on failure deletes it.
+fn persist(mut tmp: NamedTempFile, out_path: &Path, overwrite: bool) -> io::Result<()> {
+    const RETRIES: u32 = 5;
+    let mut attempt = 0;
+    loop {
+        let r = if overwrite {
+            tmp.persist(out_path)
+        } else {
+            tmp.persist_noclobber(out_path)
+        };
+        match r {
+            Ok(_) => return Ok(()),
+            Err(e) if e.error.kind() == io::ErrorKind::PermissionDenied && attempt < RETRIES => {
+                attempt += 1;
+                tmp = e.file;
+                std::thread::sleep(std::time::Duration::from_millis(100 * u64::from(attempt)));
+            }
+            Err(e) => return Err(e.error),
+        }
+    }
+}
+
 fn expect(path: &str, id: Option<String>, meta: &Meta<'_>) -> Expected {
     Expected {
         name: name_of(path).to_vec(),
@@ -538,7 +574,10 @@ fn expect(path: &str, id: Option<String>, meta: &Meta<'_>) -> Expected {
     }
 }
 
+#[cfg(test)]
 fn tamper(tmp: &NamedTempFile, hooks: &Hooks) -> io::Result<()> {
+    use std::io::{Seek, SeekFrom};
+
     let file = tmp.as_file();
     if hooks.truncate_tail > 0 {
         let len = file.metadata()?.len();

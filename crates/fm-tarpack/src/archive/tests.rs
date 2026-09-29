@@ -437,7 +437,77 @@ fn overwrite_replaces_atomically() {
     fs::write(&out, b"old").unwrap();
     let s = write_archive(&fx.plan(), &out, ArchiveFormat::Tar, true, |_| {}).unwrap();
     assert_eq!(fs::metadata(&out).unwrap().len(), s.bytes);
-    assert_eq!(dir_listing(&fx.out_dir()), ["a.tar"]);
+    assert_eq!(s.sha256_hex, sha_hex(&out));
+    assert_eq!(
+        names(&read_back(&out, ArchiveFormat::Tar)),
+        names(&read_back(
+            &fx.build(ArchiveFormat::TarGz).0,
+            ArchiveFormat::TarGz
+        ))
+    );
+    assert_eq!(dir_listing(&fx.out_dir()), ["a.tar", "a.tar.gz"]);
+}
+
+#[test]
+fn unreadable_source_writes_nothing() {
+    let fx = simple();
+    let b = fx.assign.get("b").unwrap().to_path_buf();
+    fs::remove_file(&b).unwrap();
+    fs::create_dir(&b).unwrap();
+    let (_, r) = fx.build_with(ArchiveFormat::TarZst, false, &Hooks::default());
+    match r {
+        Err(BuildError::SourceUnreadable { id, .. }) => assert_eq!(id, "b"),
+        other => panic!("{other:?}"),
+    }
+    assert!(dir_listing(&fx.out_dir()).is_empty());
+}
+
+#[test]
+fn temp_file_name_is_recognisable() {
+    let fx = simple();
+    let seen = std::cell::RefCell::new(Vec::new());
+    let hooks = Hooks {
+        fail_write_after: Some(2000),
+        ..Hooks::default()
+    };
+    let out = fx.out_dir().join("a.tar");
+    let _ = write_archive_with(
+        &fx.plan(),
+        &out,
+        ArchiveFormat::Tar,
+        false,
+        &mut |_| seen.borrow_mut().extend(dir_listing(&fx.out_dir())),
+        &hooks,
+    );
+    let seen = seen.into_inner();
+    assert!(!seen.is_empty());
+    assert!(seen
+        .iter()
+        .all(|n| n.starts_with(".a.tar.") && n.ends_with(".partial")));
+    assert!(dir_listing(&fx.out_dir()).is_empty());
+}
+
+#[test]
+fn interrupted_reads_are_retried() {
+    struct Flaky<R>(R, bool);
+    impl<R: std::io::Read> std::io::Read for Flaky<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.1 = !self.1;
+            if self.1 {
+                return Err(std::io::Error::from(std::io::ErrorKind::Interrupted));
+            }
+            self.0.read(buf)
+        }
+    }
+    let fx = simple();
+    let hooks = Hooks {
+        open: Some(Box::new(|p, _| {
+            Ok(Box::new(Flaky(fs::File::open(p)?, false)) as Box<dyn std::io::Read>)
+        })),
+        ..Hooks::default()
+    };
+    let (_, r) = fx.build_with(ArchiveFormat::Tar, false, &hooks);
+    r.unwrap();
 }
 
 #[test]
