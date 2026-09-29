@@ -847,6 +847,37 @@ Added after the human overruled decision 34 (2026-09-29):
     their directories, and a file beside the output is one the user did not
     ask for. If a persisted report is wanted later, it is a new decision.
 
+Added after the M4 review (2026-09-29):
+
+42. **M6 coalesces build progress; M4 does not throttle.** As landed,
+    `write_archive` calls `progress` once per ~8 KiB source read while
+    writing and once per 64 KiB while verifying, so a 1 GB entry gives about
+    130,000 + 16,000 events. Emitting each as a Tauri event would flood the
+    IPC channel and the React render loop. `tarpack_build` feeds M4's events
+    to a `ProgressCoalescer` (a plain struct in `tools/tarpack`, clock passed
+    in) and emits only what it forwards: the first event of each phase, the
+    first event of each file entry in both phases, each phase's final event
+    (`bytes_done == bytes_total`, `entry_id: None`), and otherwise at most one
+    event per 50 ms. It forwards a subsequence of M4's events, unchanged and
+    in order, never holding one back or flushing later, so `bytesDone` stays
+    monotonic per phase, both final events arrive exactly once, and nothing
+    follows the final verifying event (decision 12 holds unchanged).
+    Alternatives rejected: throttling in `fm-tarpack` (M4 has landed with
+    tests pinning its behaviour, and the right rate is a UI-transport
+    concern, not a domain one); throttling in `lib/tarpack.ts` (the flood
+    would already have crossed IPC); a trailing-flush timer (needs a thread,
+    and risks an event after the final one). Per-entry forwarding is bounded
+    by the manifest's entry count, which is hand-written and small.
+43. **`BuildSummary.path` and `extractCommand` are display strings, one way
+    only.** `path` is a lossy conversion of the output `PathBuf`, and
+    `extractCommand` is shell text for the target. Neither is ever parsed
+    back into a path, by Rust or by the UI. `tarpack_reveal_output` takes no
+    argument and reveals the `PathBuf` the last successful build wrote, kept
+    in M6's state; with no successful build in the session it fails with
+    `NoOutput` (the kind already exists; the union still has 17 kinds). This
+    keeps the "paths are the platform's path type" invariant for names that
+    are not valid Unicode.
+
 ### 6.3 UI-facing contract changes (for the ui-designer)
 
 All of these are owned by M6 (with types from M3–M5) and generated into
@@ -934,6 +965,13 @@ All of these are owned by M6 (with types from M3–M5) and generated into
   - No event follows the final verifying event, and there is no `finalizing`
     phase. The UI's "Finishing…" state covers the gap until `build` settles
     (decision 12).
+  - Events are coalesced by M6 (decision 42): at most one per 50 ms, plus the
+    first event of each phase, the first event of each file entry, and each
+    phase's final event. The UI must not assume one event per chunk or a
+    fixed rate; every rule above still holds. U5 needs no change for this.
+- `BuildSummary.path` and `extractCommand` are for display and copying only,
+  never parsed back into paths; `revealOutput()` takes no argument and
+  reveals the path Rust kept from the last successful build (decision 43).
 - `TarpackError` is `{ kind: TarpackErrorKind, message: string, entryId?: string }`.
   `TarpackErrorKind` is a closed string-literal union (decision 8):
   `"NoManifest" | "ManifestUnreadable" | "NoEntries" | "ManifestChangedOnDisk" | "UnknownEntry" | "NotAFile" | "NoOutput" | "EntriesNotReady" | "OutputExists" | "PathExists" | "SourceMissing" | "SourceUnreadable" | "SourceChanged" | "VerifyFailed" | "BuildInProgress" | "OpenerFailed" | "Io"`.

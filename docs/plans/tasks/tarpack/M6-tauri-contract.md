@@ -10,6 +10,15 @@ Expose the Tar Packager to the frontend through typed Tauri commands and
 events, plus a typed TS client in `lib/`. After this task, the UI tasks can
 build the whole tool without touching Rust.
 
+Two rules added after M4's review bind this goal:
+
+- `tarpack_build` **coalesces M4's progress events** before emitting
+  `tarpack://build-progress`, so a large entry does not flood the webview
+  with events (see "Progress coalescing" under Events).
+- `BuildSummary.path` and `BuildSummary.extractCommand` are **display
+  strings**. Nothing on either side of the boundary parses them back into
+  paths (see "Display strings" under the `BuildSummary` section).
+
 ## Context
 
 What exists:
@@ -96,10 +105,28 @@ What exists:
   `bytes_total`, in uncompressed bytes. Each phase ends with an event where
   `bytes_done == bytes_total` and `entry_id` is `None`. After that last
   verifying event only a rename remains, because the SHA-256 is computed during
-  verification. `BuildError::SourceChanged { id }` and `VerifyFailed` exist. On
-  any error, nothing is saved at the output path, and a pre-existing file there
-  is left unchanged. M4's u64 fields are already annotated to generate as TS
-  `number`.
+  verification.
+  - **Event rate (as landed).** `write_archive` calls `progress` once per
+    source read chunk (about 8 KiB) while writing, and once per 64 KiB chunk
+    while verifying, besides one event at the start of each file entry and
+    one per directory record (see `crates/fm-tarpack/src/archive/write.rs`
+    and `verify.rs`). A 1 GB entry therefore yields about
+    130,000 writing events and 16,000 verifying events. M4 does not throttle;
+    this task does (see "Progress coalescing").
+  - **Guarantees M4 tests** (`archive::tests::progress_events_follow_contract`):
+    within a phase `bytes_done` never decreases; every event has the same
+    `bytes_total`; the event with `bytes_done == bytes_total` and
+    `entry_id == None` occurs exactly once per phase and is that phase's last
+    event; every writing event precedes every verifying event. In the code,
+    each file entry's first writing event carries its id and is emitted
+    before its data.
+  - `BuildSummary.path` is a `String` made lossily from the output path for
+    display (its doc comment says so), and `extract_command` is a `String`
+    built for the user to copy.
+  - `BuildError::SourceChanged { id }` and `VerifyFailed` exist. On any
+    error, nothing is saved at the output path, and a pre-existing file there
+    is left unchanged. M4's u64 fields are already annotated to generate as TS
+    `number`.
 - **M5:** `fm_tarpack::sources::{Assignments, EntryStatus, match_dropped, apply, DropOutcome, RememberedState}`.
   `RememberedState` has
   `remember(manifest_path, &Assignments, output, format)`, `restore`,
@@ -142,6 +169,16 @@ this API.
   This task passes `extract_command` through to the UI, and does not build
   commands itself.
 - Capabilities grant only what is used.
+- **The shell throttles progress, not the library** (decided after M4's
+  review). M4 reports every chunk; `tarpack_build` passes M4's events through
+  a coalescer and emits only what it forwards. The coalescer never alters,
+  reorders, or synthesises an event, so every M4 guarantee above still holds
+  for what the UI receives.
+- **Display strings are one-way** (decided after M4's review).
+  `BuildSummary.path` and `BuildSummary.extractCommand` exist to be shown or
+  copied. No Rust command takes them back as a path, and `lib/` offers no
+  function that does. The backend keeps the real
+  `PathBuf`s in its state.
 - **No `bigint` crosses the boundary.** ts-rs generates `u64`/`i64` as `bigint`,
   which the UI cannot format or compare as it does numbers. Every 64-bit
   integer field in a type exported by this task carries `#[ts(type = "number")]`.
@@ -158,6 +195,9 @@ this API.
   - the `#[tauri::command]` functions, all named `tarpack_*`;
   - a constructor for the managed `TarpackState`;
   - if the watcher needs startup work, `pub(super) fn setup(app: &mut tauri::App)`.
+
+  It also holds the progress coalescer (`ProgressCoalescer`, a plain struct
+  with no Tauri types, so it is unit-tested without an app).
 
   It never receives or returns the `Builder`. Emitting events from the watcher
   uses an `AppHandle` taken from the command that opens or reloads the
@@ -348,7 +388,7 @@ switches over it exhaustively, so:
 | `ManifestChangedOnDisk` | build | The file hash differs from the loaded one | — |
 | `UnknownEntry` | assign, clear | No passed entry has that id (this includes the ids of failed entries) | the id |
 | `NotAFile` | assign | The path is not an existing regular file | the id |
-| `NoOutput` | build | No output path is set (defensive) | — |
+| `NoOutput` | build, reveal output | No output path is set (defensive); for reveal, no build has succeeded in this session | — |
 | `EntriesNotReady` | build | An entry is unassigned or missing (defensive; from `PlanError::Unassigned`) | the first id |
 | `OutputExists` | build | The output exists and `overwrite` was false | — |
 | `PathExists` | create from example | The target path already exists | — |
@@ -373,10 +413,10 @@ match, so the mapping is reviewable in one place.
 | `tarpack_clear(id)` | `TarpackSession` | Clears the assignment only. |
 | `tarpack_set_output(path)` | `TarpackSession` | Extension normalisation and format switch, as above. |
 | `tarpack_set_format(format)` | `TarpackSession` | Rewrites the `outputPath` extension and remembers the format per manifest. |
-| `tarpack_build(overwrite)` | `BuildSummary` | Runs on `spawn_blocking` with the session's `format`. Builds the passed entries even when errors exist; the summary is the final report. Errors: `NoEntries`, `OutputExists`, `ManifestChangedOnDisk`, `SourceMissing`, `SourceUnreadable`, `SourceChanged`, `VerifyFailed`, … |
+| `tarpack_build(overwrite)` | `BuildSummary` | Runs on `spawn_blocking` with the session's `format`. Builds the passed entries even when errors exist; the summary is the final report. Progress goes through the coalescer (see Events). On success, stores the output `PathBuf` it wrote in state for `tarpack_reveal_output`. Errors: `NoEntries`, `OutputExists`, `ManifestChangedOnDisk`, `SourceMissing`, `SourceUnreadable`, `SourceChanged`, `VerifyFailed`, … |
 | `tarpack_recent_manifests()` | `string[]` | |
 | `tarpack_open_in_editor()` | `()` | Opener plugin, on the manifest path. |
-| `tarpack_reveal_output()` | `()` | Opener plugin; reveal the output in Explorer. |
+| `tarpack_reveal_output()` | `()` | Opener plugin; reveal the output in Explorer. Takes no argument: it reveals the `PathBuf` the last successful build in this session wrote, held in state, never a string from the UI. With no successful build yet it fails with `NoOutput`. |
 | `tarpack_create_manifest_from_example(path)` | `TarpackSession` | Writes the bundled `examples/tarpack/example.toml` (`include_str!`). Errors if the path exists. |
 
 Every mutating command persists `RememberedState` afterwards, including the
@@ -395,6 +435,21 @@ current format.
   errors; 0 means the archive holds every entry the manifest lists.
 
 This task does not redefine the type; M4 generates it.
+
+**Display strings.** `path` and `extractCommand` are display strings, and
+must never be parsed back into paths, by the backend or the UI:
+
+- `path` is converted lossily from the output `PathBuf`, so a name that is not
+  valid Unicode shows replacement characters and no longer names the file.
+- `extractCommand` is shell text for the target machine (quoting, `-P`,
+  `--no-overwrite-dir`); it is copied, never split or read for its file name.
+- No command accepts either as input. `tarpack_reveal_output` takes no
+  argument and reveals the `PathBuf` held in state (see the command table).
+- `lib/tarpack.ts` exposes no function that takes a `BuildSummary` field as a
+  path, and its doc comment on `build` says the two fields are for display and
+  copying only.
+- Rust never rebuilds a path from a `BuildSummary` it produced. It keeps the
+  `PathBuf` it wrote and uses that.
 
 **Events.**
 
@@ -419,6 +474,42 @@ This task does not redefine the type; M4 generates it.
     `finalizing` phase. The UI may show a "Finishing…" state between the final
     verifying event and resolution.
   - A failed build stops emitting events at the point of failure.
+  - **Progress coalescing** (decided after M4's review). M4 emits one event
+    per ~8 KiB read while writing and per 64 KiB while verifying (about
+    146,000 events for a 1 GB entry). `tarpack_build` does not emit those
+    directly. It feeds each one to a `ProgressCoalescer`, and emits
+    `tarpack://build-progress` only for the events it forwards.
+    - Interface: `ProgressCoalescer::new(interval: Duration)` and
+      `fn offer(&mut self, event: Progress, now: Instant) -> Option<Progress>`.
+      The clock is a parameter, so tests pass synthetic instants. The build
+      uses `const PROGRESS_INTERVAL: Duration = Duration::from_millis(50)` and
+      `Instant::now()`.
+    - `offer` forwards the event, unchanged, when any of these holds, and
+      drops it otherwise:
+      1. it is the first event offered, or its `phase` differs from the
+         previous offered event's (the first event of each phase);
+      2. its `entry_id` is `Some(id)` and differs from the previous
+         *offered* event's `entry_id` (the first event of each file entry,
+         in both phases);
+      3. it is the phase's final event: `bytes_done == bytes_total` and
+         `entry_id` is `None`;
+      4. at least `interval` has passed since the last forwarded event.
+    - It never holds an event back to send later, and needs no timer or
+      thread: dropped events are simply gone, and the next forwarded event
+      carries a later `bytes_done`. Nothing is flushed when the build returns
+      or fails, so no event follows the final verifying event, and a failed
+      build's events stop where M4's stopped.
+    - Because it forwards a subsequence of M4's events, unchanged and in
+      order, `bytesDone` stays monotonic within each phase, both final events
+      arrive exactly once, and every rule above still holds. The coalescer
+      must not compute, clamp, or merge `bytesDone` itself.
+    - Emission happens synchronously, inside the `progress` closure on the
+      `spawn_blocking` thread, so events are sent in order and the final
+      verifying event is emitted before `write_archive` returns and so before
+      the command settles.
+    - The resulting rate is at most one event per 50 ms, plus one per file
+      entry per phase and the two phase boundaries. Per-entry events are
+      bounded by the manifest's entry count, which is hand-written and small.
 
 **`lib/tauri.ts`** adds typed wrappers:
 
@@ -485,6 +576,14 @@ and `onBuildProgress`, all typed from `lib/generated/`.
 - `formats` carries `filterExtension` for every format.
 - A build's progress events follow the phase, `entryId`, and final-event rules
   above.
+- Emitted progress is coalesced: a build with a large source emits far fewer
+  events than M4 produces, at most one per 50 ms besides the first event of
+  each phase, the first event of each file entry, and each phase's final
+  event. `bytesDone` never decreases within a phase, and each phase's final
+  event arrives exactly once, as the last of its phase.
+- `BuildSummary.path` and `extractCommand` are never parsed back into paths:
+  no command takes them, and `tarpack_reveal_output` reveals the `PathBuf`
+  held in state.
 
 ## Tests proving completion
 
@@ -537,12 +636,42 @@ and `onBuildProgress`, all typed from `lib/generated/`.
   - `error_kinds_map_from_build_errors`: every `BuildError` variant and
     every `PlanError` variant (`NoEntries` → `NoEntries`,
     `Unassigned` → `EntriesNotReady`) maps to its kind and `entryId`
-  - `build_progress_events_follow_contract`: capture the events of a build
-    with two files, and assert:
+  - `build_progress_events_follow_contract`: capture the events a build
+    *emits* (after the coalescer, with the real clock) for a build with two
+    files, and assert:
     - writing reaches `bytesDone == bytesTotal` with `entryId: null`;
     - verifying restarts from 0, carries file ids, and ends with one final
       null-id event;
     - nothing is emitted after it.
+  - `progress_coalescer_forwards_boundaries_and_throttles`: feed the
+    coalescer a synthetic sequence with synthetic `Instant`s (a base instant
+    plus offsets): two phases, directory events, two file entries each with
+    many chunk events 1 ms apart, and a final event per phase. Assert that it
+    forwards the first event of each phase, the first event of each file
+    entry in both phases, and both final events; that chunk events within
+    50 ms of the last forwarded event are dropped and one at or after 50 ms
+    is forwarded; that forwarded events are identical to the offered ones and
+    in order; and that `bytesDone` is monotonic within each phase of the
+    output
+  - `progress_coalescer_forwards_final_even_inside_interval`: a final event
+    offered 1 ms after a forwarded event is still forwarded
+  - `build_progress_is_coalesced`: build a manifest whose source is 4 MiB
+    (generated in the temp dir) and capture both M4's raw events and the
+    coalescer's output, using `ProgressCoalescer` with a synthetic clock
+    that advances 1 ms per offered event. To make this possible, the build's
+    plain-function core takes the raw M4 progress callback as a parameter,
+    and the Tauri handler supplies the closure that coalesces with
+    `Instant::now()` and emits. Assert raw count > 500, and
+    forwarded count ≤ 2 (phase starts) + 2 (finals) + 2 × file entries +
+    ceil(raw count × 1 ms / 50 ms); the output also satisfies every check of
+    `build_progress_events_follow_contract`
+  - `reveal_output_uses_stored_path`: before any build,
+    `tarpack_reveal_output`'s plain-function core fails with `NoOutput`;
+    after a build it resolves to the exact `PathBuf` written (the core
+    returns the path; the Tauri handler passes it to the opener). On unix
+    (`#[cfg(unix)]`), use an output file name containing a non-UTF-8 byte
+    (`OsStr::from_bytes`): the summary's `path` contains U+FFFD and differs
+    from the path, while the revealed `PathBuf` equals the written one
   - `build_uses_session_format`: build a `.tar.zst`, and assert that the file
     starts with the zstd magic `28 B5 2F FD` and that the summary's `format`
     and `extractCommand` agree
@@ -551,7 +680,8 @@ and `onBuildProgress`, all typed from `lib/generated/`.
 - `npm run test`: `lib/tarpack.test.ts` and `lib/tauri.test.ts`, with
   `@tauri-apps/api` mocked, checking that each wrapper calls the right command
   with the right arguments, including `setFormat` and `saveFileDialog` with
-  `filters`.
+  `filters`, and that `revealOutput()` invokes `tarpack_reveal_output` with no
+  arguments.
 - In `apps/desktop/src-tauri/src/generated_types.rs`, all run by
   `cargo test --workspace` on both CI jobs:
   - `generated_types_are_current`: check mode, after regenerating;
@@ -573,6 +703,12 @@ and `onBuildProgress`, all typed from `lib/generated/`.
   tests run on Linux and Windows. Keep the command logic as plain functions
   that do not need a running Tauri app, so they stay fast and deterministic.
   The handlers are thin glue.
+- Progress timing. Keep the throttle decision inside `ProgressCoalescer::offer`
+  with the clock as a parameter; tests must not sleep or depend on how fast
+  CI runs, except `build_progress_events_follow_contract`, whose assertions
+  hold whatever the clock does.
+- Do not "fix" the event rate in `fm-tarpack`. M4 has landed and its tests
+  pin its behaviour; throttling is this task's job, in the shell.
 - `generated_types_have_no_bigint` and `error_kind_is_string_union` read the
   committed files. Always regenerate before running them. Never run them in
   the same `cargo test` invocation as update mode; the regenerate command's
