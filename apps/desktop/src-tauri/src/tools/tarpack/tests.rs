@@ -572,20 +572,22 @@ fn set_format_rewrites_output_extension() {
     // A remembered `.tgz` output is normalised on open.
     let dirs = AppDirs::at(env.tmp.path().join("app"));
     let (mut store, _) = Store::<RememberedState>::load(&dirs, "tarpack", "state").unwrap();
+    let remembered = env.tmp.path().join("out.tgz");
     store.update(|r| {
         r.remember(
             &m,
             &Assignments::new(),
-            Some(Path::new("/o/out.tgz")),
+            Some(&remembered),
             ArchiveFormat::TarGz,
         )
     });
     store.save().unwrap();
     let mut core = env.core();
     core.open(&m).unwrap();
+    let expected = env.tmp.path().join("out.tar.gz").display().to_string();
     assert_eq!(
         core.snapshot().output_path.as_deref(),
-        Some("/o/out.tar.gz")
+        Some(expected.as_str())
     );
 }
 
