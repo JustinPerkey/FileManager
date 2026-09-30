@@ -95,6 +95,8 @@ pub struct TarpackSession {
     pub total_count: u32,
     pub can_build: bool,
     pub build_blocked_reason: Option<BuildBlockedReason>,
+    /// Store warnings, save failures, and a recent manifest that could not be
+    /// reopened at startup, as sentences joined by a space.
     pub state_warning: Option<String>,
 }
 

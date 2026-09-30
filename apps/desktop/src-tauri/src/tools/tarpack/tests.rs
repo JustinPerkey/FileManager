@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -6,11 +7,11 @@ use std::time::{Duration, Instant};
 use fm_core::{AppDirs, Store};
 use fm_tarpack::archive::{BuildPhase, BuildSummary, Progress};
 use fm_tarpack::format::ArchiveFormat;
-use fm_tarpack::sources::{Assignments, RememberedState};
+use fm_tarpack::sources::{Assignments, DropOutcome, RememberedState};
 use fm_tarpack::{BuildError, PlanError};
 use tempfile::TempDir;
 
-use super::core::Core;
+use super::core::{Core, DropJob};
 use super::progress::{coalescing, ProgressCoalescer, PROGRESS_INTERVAL};
 use super::types::{
     ArchiveFormatOption, BuildBlockedReason as Blocked, TarpackError, TarpackErrorKind as K,
@@ -95,6 +96,13 @@ fn run_build(
 
 fn build(core: &mut Core, overwrite: bool) -> Result<BuildSummary, TarpackError> {
     run_build(core, overwrite, |_| {})
+}
+
+/// Begins, runs, and finishes a drop with nothing in between.
+fn drop_now(core: &mut Core, paths: &[PathBuf]) -> Result<DropOutcome, TarpackError> {
+    let job = core.begin_drop()?;
+    let outcome = job.run(paths);
+    Ok(core.finish_drop(&job, outcome)?.expect("session unchanged"))
 }
 
 /// A core with `TWO_FILES` open, both entries assigned, and an output set.
@@ -317,7 +325,7 @@ fn assign_dropped_matches_by_name() {
     core.open(&m).unwrap();
     let a = env.source("a.bin", b"a");
     let b = env.source("b.bin", b"b");
-    let outcome = core.assign_dropped(&[a.clone(), b]).unwrap();
+    let outcome = drop_now(&mut core, &[a.clone(), b]).unwrap();
     assert_eq!(outcome.matched, vec![("a".to_owned(), a)]);
     assert_eq!(outcome.unmatched.len(), 1, "b is a failed entry: no match");
     assert_eq!(core.snapshot().ready_count, 1);
@@ -858,10 +866,14 @@ fn assert_contract(events: &[Progress], file_ids: &[&str]) {
             );
         }
     }
-    // The verifying run starts over rather than continuing from the total. Its
-    // first event may already be past 0: a directory record is counted before
-    // the library reports it.
+    // Each phase starts over, and its first event may already be past 0: a
+    // record is counted before the library reports it. Both phases process the
+    // same records in the same order, so verifying is never further along.
     assert!(verifying[0].bytes_done < total, "verifying restarts");
+    assert!(
+        verifying[0].bytes_done <= writing[0].bytes_done,
+        "verifying starts no later than writing"
+    );
     assert_eq!(events.last().unwrap().phase, BuildPhase::Verifying);
 }
 
@@ -1035,4 +1047,161 @@ fn watcher_emits_once_per_edit() {
     // Another file in the same directory is not this manifest.
     fs::write(env.work("other.toml"), "x").unwrap();
     assert!(rx.recv_timeout(Duration::from_millis(900)).is_err());
+}
+
+#[test]
+fn drop_job_is_send_and_static() {
+    fn assert_send_static<T: Send + 'static>() {}
+    assert_send_static::<DropJob>();
+}
+
+/// A manifest with `a.bin` and `b.bin`, and a folder holding only `a.bin`.
+fn drop_fixture(env: &Env) -> (PathBuf, PathBuf) {
+    let m = env.write("m.toml", TWO_FILES);
+    let folder = env.tmp.path().join("dropped");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("a.bin"), b"a").unwrap();
+    (m, folder)
+}
+
+#[test]
+fn stale_drop_is_not_applied() {
+    let env = Env::new();
+    let (m, folder) = drop_fixture(&env);
+    let mut core = env.core();
+    core.open(&m).unwrap();
+    let job = core.begin_drop().unwrap();
+    let b = env.source("b.bin", b"b");
+    core.assign("b", &b).unwrap();
+    let outcome = job.run(std::slice::from_ref(&folder));
+    assert!(core.finish_drop(&job, outcome).unwrap().is_none());
+
+    let s = core.snapshot();
+    assert_eq!(manifest(&s).entries[0].assigned, None);
+    assert_eq!(
+        manifest(&s).entries[1].assigned.as_deref(),
+        Some(b.to_string_lossy().as_ref())
+    );
+    let mut restarted = env.core();
+    let s = restarted.session();
+    assert_eq!(
+        manifest(&s).entries[0].assigned,
+        None,
+        "a is not remembered"
+    );
+
+    let mut core = env.core();
+    core.open(&m).unwrap();
+    drop_now(&mut core, &[folder]).unwrap();
+    assert!(manifest(&core.snapshot()).entries[0].assigned.is_some());
+}
+
+#[test]
+fn drop_after_reopen_is_not_applied() {
+    let env = Env::new();
+    let (m1, folder) = drop_fixture(&env);
+    let m2 = env.write("m2.toml", TWO_FILES);
+    let mut core = env.core();
+    core.open(&m1).unwrap();
+    let job = core.begin_drop().unwrap();
+    core.open(&m2).unwrap();
+    let outcome = job.run(&[folder]);
+    assert!(core.finish_drop(&job, outcome).unwrap().is_none());
+    assert_eq!(manifest(&core.snapshot()).entries[0].assigned, None);
+}
+
+#[test]
+fn drop_applies_when_session_unchanged() {
+    let env = Env::new();
+    let (m, folder) = drop_fixture(&env);
+    let mut core = env.core();
+    core.open(&m).unwrap();
+    let job = core.begin_drop().unwrap();
+    let outcome = job.run(&[folder]);
+    let expected = outcome.matched.clone();
+    let applied = core.finish_drop(&job, outcome).unwrap().expect("applied");
+    assert_eq!(applied.matched, expected);
+    assert!(manifest(&core.snapshot()).entries[0].assigned.is_some());
+
+    let mut restarted = env.core();
+    let s = restarted.session();
+    assert!(manifest(&s).entries[0].assigned.is_some(), "persisted");
+}
+
+#[test]
+fn write_new_file_removes_partial_file_on_failure() {
+    use std::io::Write;
+    let env = Env::new();
+    let p = env.work("partial.toml");
+    let err = super::core::write_new_file(&p, |f| {
+        f.write_all(b"partial")?;
+        Err(io::Error::other("injected"))
+    })
+    .unwrap_err();
+    assert_eq!(err.kind, K::Io);
+    assert!(err.message.contains("injected"));
+    assert!(!p.exists());
+}
+
+#[test]
+fn write_new_file_never_removes_existing_file() {
+    let env = Env::new();
+    let p = env.write("mine.toml", "keep me");
+    let err = super::core::write_new_file(&p, |_| panic!("must not be called")).unwrap_err();
+    assert_eq!(err.kind, K::PathExists);
+    assert_eq!(fs::read_to_string(&p).unwrap(), "keep me");
+}
+
+#[test]
+fn session_reports_unrestorable_recent_manifest() {
+    let env = Env::new();
+    let m = env.write("gone.toml", TWO_FILES);
+    env.core().open(&m).unwrap();
+    fs::remove_file(&m).unwrap();
+
+    let mut core = env.core();
+    let s = core.session();
+    assert!(s.manifest.is_none());
+    assert!(s.state_warning.as_deref().unwrap().contains("gone.toml"));
+    assert_eq!(core.recent_manifests(), [m.to_string_lossy().into_owned()]);
+}
+
+#[test]
+fn warnings_accumulate() {
+    let mut core = Core::unpersisted("first.".into());
+    core.add_warning("second.".into());
+    assert_eq!(
+        core.snapshot().state_warning.as_deref(),
+        Some("first. second.")
+    );
+    core.add_warning("second.".into());
+    assert_eq!(
+        core.snapshot().state_warning.as_deref(),
+        Some("first. second.")
+    );
+}
+
+#[test]
+fn reload_persists_remembered_state() {
+    let env = Env::new();
+    let m = env.write("m.toml", TWO_FILES);
+    let mut core = env.core();
+    core.open(&m).unwrap();
+    core.assign("a", &env.source("a.bin", b"a")).unwrap();
+    core.assign("b", &env.source("b.bin", b"b")).unwrap();
+    env.write(
+        "m.toml",
+        "version = 1\nname = \"One\"\n[[file]]\nid = \"a\"\nsource = \"a.bin\"\ndir = \"/opt/x\"\n",
+    );
+    core.reload().unwrap();
+
+    let (store, _) = Store::<RememberedState>::load(
+        &AppDirs::at(env.tmp.path().join("app")),
+        "tarpack",
+        "state",
+    )
+    .unwrap();
+    let all = store.get().restore_all(&m);
+    assert!(all.get("a").is_some());
+    assert!(all.get("b").is_none());
 }

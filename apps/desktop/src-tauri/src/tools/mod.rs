@@ -117,4 +117,28 @@ mod tests {
             }
         }
     }
+
+    /// The capability file grants exactly what the webview uses.
+    #[test]
+    fn capabilities_are_minimal() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities/default.json");
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path).expect("read")).expect("parse");
+        let mut granted: Vec<&str> = json["permissions"]
+            .as_array()
+            .expect("permissions")
+            .iter()
+            .map(|p| p.as_str().expect("string permission"))
+            .collect();
+        granted.sort_unstable();
+        assert_eq!(
+            granted,
+            [
+                "core:event:allow-listen",
+                "core:event:allow-unlisten",
+                "dialog:allow-open",
+                "dialog:allow-save",
+            ]
+        );
+    }
 }

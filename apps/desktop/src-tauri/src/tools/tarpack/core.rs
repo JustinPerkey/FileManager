@@ -4,13 +4,13 @@
 
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{ErrorKind, Write};
+use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use fm_core::{AppDirs, Store};
 use fm_tarpack::archive::{ArchivePlan, BuildSummary, Progress};
 use fm_tarpack::format::ArchiveFormat;
-use fm_tarpack::manifest::{load, LoadedManifest, ManifestView};
+use fm_tarpack::manifest::{load, LoadedManifest, Manifest, ManifestView};
 use fm_tarpack::sources::{
     apply, match_dropped, Assignments, DropOutcome, EntryStatus, RememberedState,
 };
@@ -40,6 +40,24 @@ pub struct Core {
     loaded: Option<Loaded>,
     building: bool,
     last_built: Option<PathBuf>,
+    /// Bumped whenever the loaded manifest or its assignments change, so a
+    /// drop matched off-lock can tell it went stale.
+    revision: u64,
+}
+
+/// Everything a drop needs, cloned out of the session so the folder walk
+/// runs without it. `Send + 'static`.
+pub struct DropJob {
+    manifest: Manifest,
+    assignments: Assignments,
+    revision: u64,
+}
+
+impl DropJob {
+    /// Walks and matches. Touches no session state.
+    pub fn run(&self, paths: &[PathBuf]) -> DropOutcome {
+        match_dropped(&self.manifest, &self.assignments, paths)
+    }
 }
 
 /// A build that passed every check, ready to run without holding the session.
@@ -78,6 +96,39 @@ fn io_error(what: &str, path: &Path, e: &std::io::Error) -> TarpackError {
     TarpackError::new(K::Io, format!("{what} {}: {e}", path.display()))
 }
 
+/// Creates `path` (never replacing a file), runs `write` on it, and syncs it.
+/// If `write` or the sync fails, removes the file it created.
+pub(super) fn write_new_file(
+    path: &Path,
+    write: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> Result<(), TarpackError> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| match e.kind() {
+            ErrorKind::AlreadyExists => {
+                TarpackError::new(K::PathExists, format!("{} already exists", path.display()))
+            }
+            _ => io_error("creating", path, &e),
+        })?;
+    if let Err(e) = write(&mut file).and_then(|()| file.sync_all()) {
+        drop(file);
+        return Err(match fs::remove_file(path) {
+            Ok(()) => io_error("writing", path, &e),
+            Err(r) => TarpackError::new(
+                K::Io,
+                format!(
+                    "writing {}: {e}; removing the incomplete file also failed ({r}), so it was left at {}",
+                    path.display(),
+                    display(path)
+                ),
+            ),
+        });
+    }
+    Ok(())
+}
+
 impl Core {
     pub fn new(dirs: AppDirs) -> Core {
         match Store::<RememberedState>::load(&dirs, "tarpack", "state") {
@@ -88,14 +139,14 @@ impl Core {
                     remembered,
                     warning.map(|w| {
                         format!(
-                            "{} (the unusable file was kept as {})",
+                            "{} (the unusable file was kept as {}).",
                             w.reason,
                             w.kept_file.display()
                         )
                     }),
                 )
             }
-            Err(e) => Core::unpersisted(format!("saved state could not be read: {e}")),
+            Err(e) => Core::unpersisted(format!("saved state could not be read: {e}.")),
         }
     }
 
@@ -117,6 +168,7 @@ impl Core {
             loaded: None,
             building: false,
             last_built: None,
+            revision: 0,
         }
     }
 
@@ -127,7 +179,20 @@ impl Core {
         let snapshot = self.remembered.clone();
         store.update(|s| *s = snapshot);
         if let Err(e) = store.save() {
-            self.state_warning = Some(format!("saved state could not be written: {e}"));
+            self.add_warning(format!("saved state could not be written: {e}."));
+        }
+    }
+
+    /// Adds a warning sentence after any earlier one, once.
+    pub(super) fn add_warning(&mut self, text: String) {
+        match &mut self.state_warning {
+            None => self.state_warning = Some(text),
+            Some(existing) => {
+                if !existing.contains(&text) {
+                    existing.push(' ');
+                    existing.push_str(&text);
+                }
+            }
         }
     }
 
@@ -153,8 +218,15 @@ impl Core {
         if !self.restored {
             self.restored = true;
             if let Some(recent) = self.remembered.recent_manifests.first().cloned() {
-                // An unreadable recent manifest simply leaves nothing loaded.
-                let _ = self.load_manifest(&recent);
+                if let Err(e) = self.load_manifest(&recent) {
+                    // Nothing is loaded; say why. The recent list is kept: the
+                    // file may be on a drive that is only temporarily away.
+                    self.add_warning(format!(
+                        "the last manifest, {}, could not be reopened: {}.",
+                        recent.display(),
+                        e.message.trim_end_matches('.')
+                    ));
+                }
             }
         }
         self.snapshot()
@@ -183,6 +255,7 @@ impl Core {
             .remembered
             .restore_output(path)
             .map(|p| with_format(&p, format));
+        self.revision += 1;
         self.loaded = Some(Loaded {
             manifest,
             assignments,
@@ -218,6 +291,8 @@ impl Core {
             l.assignments = kept;
         }
         l.manifest = manifest;
+        self.revision += 1;
+        self.remember();
         Ok(())
     }
 
@@ -262,6 +337,7 @@ impl Core {
             ));
         }
         self.loaded_mut()?.assignments.insert(id, source);
+        self.revision += 1;
         self.remember();
         Ok(())
     }
@@ -269,16 +345,37 @@ impl Core {
     pub fn clear(&mut self, id: &str) -> Result<(), TarpackError> {
         self.require_entry(id)?;
         self.loaded_mut()?.assignments.remove(id);
+        self.revision += 1;
         self.remember();
         Ok(())
     }
 
-    pub fn assign_dropped(&mut self, paths: &[PathBuf]) -> Result<DropOutcome, TarpackError> {
+    /// Clones out what a drop needs. Pair with [`Core::finish_drop`].
+    pub fn begin_drop(&self) -> Result<DropJob, TarpackError> {
+        let l = self.loaded()?;
+        Ok(DropJob {
+            manifest: l.manifest.report.manifest.clone(),
+            assignments: l.assignments.clone(),
+            revision: self.revision,
+        })
+    }
+
+    /// Applies a drop matched off-lock. `Ok(None)` when the session changed
+    /// meanwhile: nothing is applied or persisted.
+    pub fn finish_drop(
+        &mut self,
+        job: &DropJob,
+        outcome: DropOutcome,
+    ) -> Result<Option<DropOutcome>, TarpackError> {
+        let revision = self.revision;
         let l = self.loaded_mut()?;
-        let outcome = match_dropped(&l.manifest.report.manifest, &l.assignments, paths);
+        if revision != job.revision {
+            return Ok(None);
+        }
         apply(&mut l.assignments, &outcome);
+        self.revision += 1;
         self.remember();
-        Ok(outcome)
+        Ok(Some(outcome))
     }
 
     pub fn set_format(&mut self, format: ArchiveFormat) -> Result<(), TarpackError> {
@@ -311,20 +408,7 @@ impl Core {
 
     /// Writes the bundled example manifest to a new file and opens it.
     pub fn create_from_example(&mut self, path: &Path) -> Result<(), TarpackError> {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .map_err(|e| match e.kind() {
-                ErrorKind::AlreadyExists => {
-                    TarpackError::new(K::PathExists, format!("{} already exists", path.display()))
-                }
-                _ => io_error("creating", path, &e),
-            })?;
-        file.write_all(EXAMPLE_MANIFEST.as_bytes())
-            .and_then(|()| file.sync_all())
-            .map_err(|e| io_error("writing", path, &e))?;
-        drop(file);
+        write_new_file(path, |f| f.write_all(EXAMPLE_MANIFEST.as_bytes()))?;
         self.open(path)
     }
 

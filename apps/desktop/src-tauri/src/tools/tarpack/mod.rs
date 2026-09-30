@@ -39,7 +39,7 @@ pub struct TarpackState {
 pub fn state() -> TarpackState {
     let core = match AppDirs::from_system() {
         Ok(dirs) => Core::new(dirs),
-        Err(e) => Core::unpersisted(format!("saved state is unavailable: {e}")),
+        Err(e) => Core::unpersisted(format!("saved state is unavailable: {e}.")),
     };
     TarpackState {
         core: Mutex::new(core),
@@ -125,12 +125,34 @@ pub async fn tarpack_assign_dropped(
     state: State<'_, TarpackState>,
     paths: Vec<PathBuf>,
 ) -> Result<DroppedAssignment, TarpackError> {
-    let mut core = lock(&state.core);
-    let outcome = core.assign_dropped(&paths)?;
-    Ok(DroppedAssignment {
-        session: core.snapshot(),
-        outcome,
-    })
+    const ATTEMPTS: usize = 3;
+    for _ in 0..ATTEMPTS {
+        let job = lock(&state.core).begin_drop()?;
+        let walked = paths.clone();
+        // The folder walk runs on a blocking thread with no lock held.
+        let (job, outcome) = tauri::async_runtime::spawn_blocking(move || {
+            let outcome = job.run(&walked);
+            (job, outcome)
+        })
+        .await
+        .map_err(|e| {
+            TarpackError::new(
+                TarpackErrorKind::Io,
+                format!("matching the dropped files stopped unexpectedly: {e}"),
+            )
+        })?;
+        let mut core = lock(&state.core);
+        if let Some(outcome) = core.finish_drop(&job, outcome)? {
+            return Ok(DroppedAssignment {
+                session: core.snapshot(),
+                outcome,
+            });
+        }
+    }
+    Err(TarpackError::new(
+        TarpackErrorKind::Io,
+        "the session changed while the dropped files were being matched; drop them again",
+    ))
 }
 
 #[tauri::command]

@@ -15,4 +15,9 @@ outputPath: string | null, format: ArchiveFormat,
 /**
  * All four formats, in `ArchiveFormat::ALL` order.
  */
-formats: Array<ArchiveFormatOption>, suggestedOutputName: string | null, readyCount: number, totalCount: number, canBuild: boolean, buildBlockedReason: BuildBlockedReason | null, stateWarning: string | null, };
+formats: Array<ArchiveFormatOption>, suggestedOutputName: string | null, readyCount: number, totalCount: number, canBuild: boolean, buildBlockedReason: BuildBlockedReason | null, 
+/**
+ * Store warnings, save failures, and a recent manifest that could not be
+ * reopened at startup, as sentences joined by a space.
+ */
+stateWarning: string | null, };
