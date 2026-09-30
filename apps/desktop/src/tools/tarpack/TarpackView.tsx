@@ -4,6 +4,9 @@ import { Banner } from "../../app/Banner";
 import { Button } from "../../app/Button";
 import { DropZone } from "../../app/DropZone";
 import { openFileDialog, saveFileDialog } from "../../lib/tauri";
+import type { ArchiveFormat } from "../../lib/generated/ArchiveFormat";
+import type { Progress } from "../../lib/generated/Progress";
+import { ConfirmDialog } from "../../app/ConfirmDialog";
 import type { DropOutcome } from "../../lib/generated/DropOutcome";
 import type { SessionEntry } from "../../lib/generated/SessionEntry";
 import type { TarpackError } from "../../lib/generated/TarpackError";
@@ -11,12 +14,17 @@ import type { TarpackSession } from "../../lib/generated/TarpackSession";
 import {
   assign,
   assignDropped,
+  build,
   clear,
   createManifestFromExample,
+  onBuildProgress,
   onManifestChanged,
   openInEditor,
   openManifest,
   reloadManifest,
+  revealOutput,
+  setFormat,
+  setOutput,
   session as fetchSession,
 } from "../../lib/tarpack";
 import { errorMessage, toTarpackError } from "./errorMessages";
@@ -25,6 +33,10 @@ import { ManifestErrors } from "./ManifestErrors";
 import { EntryTable } from "./EntryTable";
 import { ManifestHeader } from "./ManifestHeader";
 import { assignedFolder } from "./pathParts";
+import { BuildBar } from "./BuildBar";
+import { BuildResult, type BuildOutcome } from "./BuildResult";
+import { FORMAT_NAME } from "./FormatPicker";
+import { fileName, resultAnnouncement } from "./reportText";
 
 /** Functions later tasks call on the view. */
 export interface TarpackActions {
@@ -34,7 +46,7 @@ export interface TarpackActions {
 
 interface TarpackViewProps {
   actionsRef?: Ref<TarpackActions>;
-  /** A build is running (wired in U5): drops are ignored. */
+  /** Forces the building state: drops and controls are disabled. The view sets it itself during a build. */
   building?: boolean;
 }
 
@@ -59,7 +71,7 @@ function manifestSentence(s: TarpackSession, prevErrors: number, origin: Origin)
   return null;
 }
 
-export function TarpackView({ actionsRef, building = false }: TarpackViewProps) {
+export function TarpackView({ actionsRef, building: buildingProp = false }: TarpackViewProps) {
   const [session, setSession] = useState<TarpackSession | null>(null);
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [commandError, setCommandError] = useState<TarpackError | null>(null);
@@ -74,6 +86,13 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
   const [pendingShown, setPendingShown] = useState(false);
   const pendingRef = useRef(false);
   const [announcement, setAnnouncement] = useState("");
+  const [buildRunning, setBuildRunning] = useState(false);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [result, setResult] = useState<BuildOutcome | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [formatNotice, setFormatNotice] = useState("");
+  const refocusCreate = useRef(false);
+  const building = buildingProp || buildRunning;
   const reportRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLElement>(null);
   const sessionRef = useRef<TarpackSession | null>(null);
@@ -208,7 +227,9 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
     async (id: string) => {
       const assigned = sessionRef.current?.manifest?.entries.find((e) => e.id === id)?.assigned;
       try {
-        const path = await openFileDialog({ defaultPath: assigned ? assignedFolder(assigned) : undefined });
+        const path = await openFileDialog({
+          defaultPath: assigned ? assignedFolder(assigned) : undefined,
+        });
         if (path) await run(() => assign(id, path), "other");
       } catch (e) {
         fail(e);
@@ -247,6 +268,83 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
     [apply, announce, fail],
   );
 
+  const focusCreate = useCallback(() => {
+    rootRef.current?.querySelector<HTMLElement>(".build-bar__create")?.focus();
+  }, []);
+
+  // Focus was on Create archive, which is disabled while building: put it back afterwards.
+  useEffect(() => {
+    if (!building && !confirming && refocusCreate.current) {
+      refocusCreate.current = false;
+      focusCreate();
+    }
+  }, [building, confirming, focusCreate]);
+
+  const runBuild = useCallback(
+    async (overwrite: boolean) => {
+      refocusCreate.current = true;
+      setBuildRunning(true);
+      setProgress(null);
+      setResult(null);
+      let unlisten: (() => void) | undefined;
+      try {
+        unlisten = await onBuildProgress(setProgress).catch(() => undefined);
+        const summary = await build(overwrite);
+        setResult({ ok: summary });
+        announce(resultAnnouncement(summary));
+      } catch (e) {
+        const err = toTarpackError(e);
+        if (err.kind === "OutputExists" && !overwrite) setConfirming(true);
+        else if (err.kind === "ManifestChangedOnDisk") {
+          if (!changedRef.current) announce("The manifest changed on disk.");
+          changedRef.current = true;
+          setChanged(true);
+        } else setResult({ err });
+      } finally {
+        unlisten?.();
+        setProgress(null);
+        setBuildRunning(false);
+      }
+    },
+    [announce],
+  );
+
+  const onChooseOutput = useCallback(
+    async (path: string) => {
+      const before = sessionRef.current?.format;
+      try {
+        const next = await setOutput(path);
+        apply(next, "other");
+        setFormatNotice(
+          before !== undefined && next.format !== before
+            ? `Format changed to ${FORMAT_NAME[next.format]} to match the file name.`
+            : "",
+        );
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [apply, fail],
+  );
+  const onFormatChange = useCallback(
+    async (format: ArchiveFormat) => {
+      setFormatNotice("");
+      await run(() => setFormat(format), "other");
+    },
+    [run],
+  );
+  const onReveal = useCallback(async () => {
+    try {
+      await revealOutput();
+    } catch (e) {
+      fail(e);
+    }
+  }, [fail]);
+  const dismissResult = useCallback(() => {
+    setResult(null);
+    focusCreate();
+  }, [focusCreate]);
+
   const pending = drop?.kind === "pending";
   useEffect(() => {
     if (!pending) return;
@@ -274,98 +372,130 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
         label="Drop files or folders to match them to the manifest"
         onDrop={onDrop}
       />
-      {loading ? (
-        <>
-          <span className="visually-hidden">Loading manifest</span>
-          {showSkeleton && (
-            <div className="skeleton" aria-hidden="true">
-              <div className="skeleton__bar skeleton__bar--wide" />
-              <div className="skeleton__bar" />
-            </div>
-          )}
-        </>
-      ) : manifest && session ? (
-        <ManifestHeader
-          session={session}
-          onOpen={onOpen}
-          onOpenRecent={onOpenRecent}
-          onReload={onReload}
-          onEdit={onEdit}
-        />
-      ) : (
-        <h1>Tar Packager</h1>
-      )}
-      {!loading && (
-        <div className="banners">
-          {commandError && (
-            <CommandError
-              key={failureCount}
-              error={commandError}
-              session={session}
-              onDismiss={() => setCommandError(null)}
-            />
-          )}
-          {changed && manifest && (
-            <Banner
-              tone="warn"
-              message="The manifest changed on disk."
-              action={{ label: "Reload", onAction: onReload }}
-            />
-          )}
-          {stateWarning && (
-            <Banner
-              tone="info"
-              message={stateWarning}
-              onDismiss={() => {
-                dismissedRef.current = stateWarning;
-                setStateWarningDismissed(stateWarning);
-              }}
-            />
-          )}
-        </div>
-      )}
-      {!loading && !manifest && (
-        <div className="empty">
-          <p>Open a manifest to list the files this package needs.</p>
-          <div className="empty__actions">
-            <Button variant="primary" onClick={onOpen}>
-              Open manifest…
-            </Button>
-            <Button onClick={onCreate}>Create from example…</Button>
+      <fieldset className="tarpack__controls" disabled={building}>
+        {loading ? (
+          <>
+            <span className="visually-hidden">Loading manifest</span>
+            {showSkeleton && (
+              <div className="skeleton" aria-hidden="true">
+                <div className="skeleton__bar skeleton__bar--wide" />
+                <div className="skeleton__bar" />
+              </div>
+            )}
+          </>
+        ) : manifest && session ? (
+          <ManifestHeader
+            session={session}
+            onOpen={onOpen}
+            onOpenRecent={onOpenRecent}
+            onReload={onReload}
+            onEdit={onEdit}
+          />
+        ) : (
+          <h1>Tar Packager</h1>
+        )}
+        {!loading && (
+          <div className="banners">
+            {commandError && (
+              <CommandError
+                key={failureCount}
+                error={commandError}
+                session={session}
+                onDismiss={() => setCommandError(null)}
+              />
+            )}
+            {changed && manifest && (
+              <Banner
+                tone="warn"
+                message="The manifest changed on disk."
+                action={{ label: "Reload", onAction: onReload }}
+              />
+            )}
+            {stateWarning && (
+              <Banner
+                tone="info"
+                message={stateWarning}
+                onDismiss={() => {
+                  dismissedRef.current = stateWarning;
+                  setStateWarningDismissed(stateWarning);
+                }}
+              />
+            )}
           </div>
-          <p className="empty__hint">
-            A manifest is a TOML file that lists each file, its Linux path, and its permissions.
-          </p>
-        </div>
-      )}
-      {manifest && (
-        <ManifestErrors
-          manifest={manifest}
-          expanded={expanded}
-          onExpandedChange={setExpanded}
-          onEdit={onEdit}
-          reportRef={reportRef}
+        )}
+        {!loading && !manifest && (
+          <div className="empty">
+            <p>Open a manifest to list the files this package needs.</p>
+            <div className="empty__actions">
+              <Button variant="primary" onClick={onOpen}>
+                Open manifest…
+              </Button>
+              <Button onClick={onCreate}>Create from example…</Button>
+            </div>
+            <p className="empty__hint">
+              A manifest is a TOML file that lists each file, its Linux path, and its permissions.
+            </p>
+          </div>
+        )}
+        {manifest && (
+          <ManifestErrors
+            manifest={manifest}
+            expanded={expanded}
+            onExpandedChange={setExpanded}
+            onEdit={onEdit}
+            reportRef={reportRef}
+          />
+        )}
+        {manifest && pending && pendingShown && <DropPending />}
+        {manifest && drop?.kind === "result" && (
+          <DropResult
+            outcome={drop.outcome}
+            entries={drop.entries}
+            hasFailedEntries={drop.hasFailedEntries}
+            onDismiss={removeResult}
+          />
+        )}
+        {manifest && (
+          <EntryTable
+            entries={manifest.entries}
+            failedCount={manifest.failedEntries.length}
+            entriesWithheld={manifest.entriesWithheld}
+            onBrowse={onBrowse}
+            onClear={onClear}
+          />
+        )}
+      </fieldset>
+      <ConfirmDialog
+        open={confirming}
+        title={`Replace ${fileName(session?.outputPath ?? "")}?`}
+        body={`A file with this name already exists in ${assignedFolder(session?.outputPath ?? "") ?? "that folder"}. Replacing it can't be undone.`}
+        confirmLabel="Replace"
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          void runBuild(true);
+        }}
+      />
+      {result && (
+        <BuildResult
+          result={result}
+          entries={manifest?.entries ?? []}
+          onReveal={onReveal}
+          onDismiss={dismissResult}
         />
       )}
-      {manifest && pending && pendingShown && <DropPending />}
-      {manifest && drop?.kind === "result" && (
-        <DropResult
-          outcome={drop.outcome}
-          entries={drop.entries}
-          hasFailedEntries={drop.hasFailedEntries}
-          onDismiss={removeResult}
+      {session && (
+        <BuildBar
+          session={session}
+          building={building}
+          progress={progress}
+          formatNotice={formatNotice}
+          onChooseOutput={onChooseOutput}
+          onFormatChange={onFormatChange}
+          onBuild={() => void runBuild(false)}
+          onShowErrors={showErrors}
         />
       )}
-      {manifest && (
-        <EntryTable
-          entries={manifest.entries}
-          failedCount={manifest.failedEntries.length}
-          entriesWithheld={manifest.entriesWithheld}
-          onBrowse={onBrowse}
-          onClear={onClear}
-        />
-      )}
-      {/* Slot for a later task: build result and bar (U5). */}
     </section>
   );
 }
@@ -373,7 +503,12 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
 type DropState =
   | null
   | { kind: "pending" }
-  | { kind: "result"; outcome: DropOutcome; entries: SessionEntry[]; hasFailedEntries: boolean };
+  | {
+      kind: "result";
+      outcome: DropOutcome;
+      entries: SessionEntry[];
+      hasFailedEntries: boolean;
+    };
 
 const TABBABLE = "button, a[href], input, select, textarea, summary, [tabindex]";
 

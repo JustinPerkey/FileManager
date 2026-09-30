@@ -244,18 +244,15 @@ test("building disables drops", async () => {
 
 const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
 
-test("focus after Dismiss with nothing following goes to the last tabbable before the result", async () => {
+test("focus after Dismiss goes to the first tabbable after the result (the build bar)", async () => {
   const empty = session(manifest({ entries: [], failedEntries: [failure(1)] }));
   vi.mocked(tp.assignDropped).mockResolvedValue({ session: empty, outcome });
   await mount();
   await drop();
   screen.getByRole("button", { name: "Dismiss drop result" }).focus();
-  const before = Array.from(document.querySelectorAll<HTMLElement>("button, summary, [tabindex]")).filter(
-    (el) => !el.closest(".drop-result") && !el.matches(":disabled"),
-  );
   await userEvent.keyboard("{Enter}");
   expect(screen.queryByRole("region", { name: "Drop result" })).toBeNull();
-  expect(document.activeElement).toBe(before[before.length - 1]);
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Choose…" }));
   expect(document.querySelector(".tarpack")).not.toHaveAttribute("tabindex");
 });
 

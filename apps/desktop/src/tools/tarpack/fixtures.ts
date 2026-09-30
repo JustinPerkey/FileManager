@@ -1,3 +1,4 @@
+import type { BuildSummary } from "../../lib/generated/BuildSummary";
 import type { Diagnostic } from "../../lib/generated/Diagnostic";
 import type { EntryFailure } from "../../lib/generated/EntryFailure";
 import type { SessionEntry } from "../../lib/generated/SessionEntry";
@@ -68,4 +69,46 @@ export function session(m: SessionManifest | null, over: Partial<TarpackSession>
     stateWarning: null,
     ...over,
   } as TarpackSession;
+}
+
+export const FORMATS = [
+  { format: "tar", extension: ".tar", filterExtension: "tar" },
+  { format: "tarGz", extension: ".tar.gz", filterExtension: "gz" },
+  { format: "tarZst", extension: ".tar.zst", filterExtension: "zst" },
+  { format: "tarXz", extension: ".tar.xz", filterExtension: "xz" },
+] as const;
+
+/** A session ready to build: every entry assigned, an output chosen. */
+export function buildable(m: SessionManifest, over: Partial<TarpackSession> = {}): TarpackSession {
+  return session(m, {
+    formats: [...FORMATS],
+    format: "tarZst",
+    outputPath: "C:\\out\\gateway.tar.zst",
+    suggestedOutputName: "gateway.tar.zst",
+    readyCount: m.entries.length,
+    canBuild: true,
+    buildBlockedReason: null,
+    ...over,
+  });
+}
+
+export function summary(over: Partial<BuildSummary> = {}): BuildSummary {
+  return {
+    path: "C:\\out\\gateway.tar.zst",
+    format: "tarZst",
+    entries: 3,
+    files: 2,
+    dirs: 1,
+    bytes: 2048,
+    uncompressedBytes: 10 * 1024 * 1024,
+    sha256Hex: "ab".repeat(32),
+    extractCommand: "tar --zstd --no-overwrite-dir -xpPf gateway.tar.zst",
+    normalizedEntries: [],
+    builtIds: ["gateway", "core"],
+    leftOut: [],
+    manifestErrors: [],
+    warnings: [],
+    errorCount: 0,
+    ...over,
+  };
 }
