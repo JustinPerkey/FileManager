@@ -3,3 +3,14 @@
 # apps/desktop/src-tauri/src/generated_types.rs. A stray #[ts(export)] writes
 # here, inside the ignored target dir, never into a crate.
 TS_RS_EXPORT_DIR = { value = "target/ts-rs-stray", relative = true }
+
+# Portable exe: link the C runtime statically so a clean machine needs no
+# VC++ redistributable. +crt-static makes Rust link libcmt, libvcruntime, and
+# libucrt statically, and the cc crate builds zstd/liblzma with /MT.
+# This only holds because build.windows.staticVCRuntime is false in
+# apps/desktop/src-tauri/tauri.conf.json: tauri-build's default (true) forces
+# the dynamic UCRT (ucrt.lib, api-ms-win-crt-*.dll).
+# A RUSTFLAGS environment variable replaces these rustflags entirely, and the
+# deprecated STATIC_VCRUNTIME variable overrides the config; set neither.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

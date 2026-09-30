@@ -62,3 +62,32 @@ jobs:
       - run: npm run build -w apps/desktop
       - run: cargo test --workspace --locked
       - run: npm run tauri:build
+      - name: Exe must import no C runtime, zstd, liblzma, or WebView2Loader DLL
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          if (-not $dumpbin) { Write-Error "dumpbin.exe not found"; exit 1 }
+          $out = (& $dumpbin /dependents target\release\filemanager.exe | Out-String)
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { Write-Error "dumpbin failed"; exit 1 }
+          if ($out -notmatch '(?i)KERNEL32\.dll') { Write-Error "dumpbin output looks wrong"; exit 1 }
+          $bad = [regex]::Matches($out, '(?im)^\s*(vcruntime\S*\.dll|msvcp\S*\.dll|api-ms-win-crt-\S*|zstd\S*\.dll|liblzma\S*\.dll|WebView2Loader\.dll)\s*$')
+          if ($bad.Count -gt 0) {
+            Write-Error ("Forbidden dependencies: " + (($bad | ForEach-Object { $_.Value.Trim() }) -join ', '))
+            exit 1
+          }
+      - name: Stage artifact (exe only, no .pdb)
+        shell: pwsh
+        run: |
+          $v = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          New-Item -ItemType Directory -Force dist-artifact | Out-Null
+          Copy-Item target\release\filemanager.exe "dist-artifact\FileManager-$v-x64.exe"
+          "ARTIFACT_NAME=FileManager-$v-x64.exe" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: dist-artifact/${{ env.ARTIFACT_NAME }}
+          if-no-files-found: error

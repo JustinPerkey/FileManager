@@ -33,7 +33,8 @@ hosts several independent tools; the first is the Tar Packager (`tarpack`).
 ```
 Cargo.toml                    workspace: members crates/*, apps/desktop/src-tauri;
                               [workspace.dependencies] pins ts-rs (and tempfile)
-.cargo/config.toml            [env] TS_RS_EXPORT_DIR points stray #[ts(export)] into target/
+.cargo/config.toml            [env] TS_RS_EXPORT_DIR points stray #[ts(export)] into target/;
+                              [target.x86_64-pc-windows-msvc] static CRT (+crt-static)
 .gitattributes                apps/desktop/src/lib/generated/** text eol=lf
 rust-toolchain.toml           stable channel (latest stable, not pinned)
 rustfmt.toml
@@ -52,6 +53,7 @@ crates/
                               atomic archive writer and post-write verification
 examples/tarpack/             example manifests, valid, used by tests through include_str!
 docs/tarpack-manifest.md      the manifest, archive-layout, and extraction reference
+docs/tarpack-e2e.md           manual end-to-end release checklist (Windows exe to Linux target)
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, eslint.config.js, index.html
   src-tauri/                  package and binary name: filemanager
@@ -79,7 +81,9 @@ apps/desktop/
                               onManifestChanged, onBuildProgress
     lib/generated/            TS types generated from Rust (ts-rs)
     tools/registry.ts         export const tools: ToolEntry[]
-.github/workflows/ci.yml      linux and windows jobs, both run cargo test --workspace
+.github/workflows/ci.yml      linux and windows jobs, both run cargo test --workspace;
+                              windows also runs the dumpbin dependency check and
+                              uploads the FileManager-<version>-x64.exe artifact
 .env.example                  configuration keys (none yet)
 ```
 
@@ -102,6 +106,16 @@ PowerShell form of the regenerate command:
 $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_current; Remove-Item Env:UPDATE_GENERATED
 ```
 
+- `.cargo/config.toml` links the C runtime statically for
+  `x86_64-pc-windows-msvc` (`+crt-static`), so the portable exe needs no VC++
+  redistributable; `cc` then builds zstd/liblzma with `/MT`.
+  `build.windows.staticVCRuntime` is `false` in `tauri.conf.json` on purpose:
+  tauri-build's default (`true`) re-links the UCRT dynamically. A `RUSTFLAGS`
+  environment variable overrides the config's rustflags (dropping
+  `+crt-static`), and `STATIC_VCRUNTIME` overrides `staticVCRuntime`, so set
+  neither. The Windows CI job runs `dumpbin /dependents` on the exe and fails if
+  it lists `vcruntime*`, `msvcp*`, `api-ms-win-crt-*`, `zstd*`, `liblzma*`, or
+  `WebView2Loader.dll`, then uploads `FileManager-<version>-x64.exe`.
 - Both CI jobs run `cargo test --workspace`, so the generated-types test runs
   on both.
 - Building the shell on Linux needs the webkit2gtk dev packages:
