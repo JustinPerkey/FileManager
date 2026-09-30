@@ -122,7 +122,10 @@ were errors."* So:
     `{ phase: "writing" | "verifying", entryId: string | null, bytesDone: number, bytesTotal: number }`:
     - bytes are uncompressed tar-stream bytes, and both phases share the same
       `bytesTotal`;
-    - `writing` comes first; `verifying` follows and runs its own pass from 0;
+    - `writing` comes first; `verifying` follows, and each phase starts
+      over. A phase's first event is not necessarily at 0: the backend
+      reports after the first 512-byte record, so it may already be past 0,
+      and it is always below `bytesTotal`;
     - `bytesDone` never decreases within a phase;
     - `entryId` is the file entry being processed, in both phases, and `null`
       for directory records, long-name records, and the end-of-archive blocks;
@@ -335,8 +338,9 @@ were errors."* So:
     The percentage beside it uses `.num`, so the digits do not jitter.
   - One determinate progress bar (`role="progressbar"`, `aria-valuemin="0"`,
     `aria-valuemax="100"`, `aria-valuenow`, and an accessible name "Building
-    archive"). It fills 0 → 100% from `bytesDone / bytesTotal` in each phase,
-    and resets to 0 when the phase changes to `verifying`.
+    archive"). It fills from `bytesDone / bytesTotal` up to 100% in each
+    phase, and starts over when the phase changes to `verifying`, showing
+    that phase's first event (which may already be a little past 0).
   - `aria-valuetext` names the phase and the entry: "Writing gateway.conf,
     40%" or "Verifying gateway.conf, 40%", mapping `entryId` to the entry's
     `source`; with a `null` `entryId` (directories, long-name records, the
@@ -443,7 +447,11 @@ were errors."* So:
   - `OutputExists` from `build(false)`: open the replace confirmation above.
     Never shown as an error.
   - `ManifestChangedOnDisk`: show the warn banner "The manifest changed on
-    disk." with **Reload**, not a `BuildResult`.
+    disk." with **Reload**, not a `BuildResult`. The backend raises this kind
+    both when the file's hash differs and when the manifest can no longer be
+    read at build time (deleted, locked); the copy fits both, and if the
+    file is gone, **Reload** then reports `ManifestUnreadable` with its own
+    copy.
   - Every other kind from `build`: an error `BuildResult` whose message is
     `errorMessage(error, entries)`, with the backend `message` below it in a
     collapsed "Details" disclosure.
@@ -558,7 +566,7 @@ How to run it:
 - The overwrite flow is: `build(false)`, then `OutputExists`, then the dialog.
   Cancel makes no further call; Replace calls `build(true)`.
 - Progress shows "Step 1 of 2 · Writing" then "Step 2 of 2 · Verifying", each
-  running 0 → 100% from events, with `aria-valuetext` naming the phase and
+  starting over and running up to 100% from events, with `aria-valuetext` naming the phase and
   file (no file for `null` `entryId`); "Finishing…" appears on the final
   verifying event without waiting for another event; a rejected build stops
   the progress and shows the error. Controls, including the picker, are disabled while building.

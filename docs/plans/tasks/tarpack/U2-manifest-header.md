@@ -440,13 +440,19 @@ placeholder then reads "A file". (The ids of failed entries are not in
 `NoEntries` is defensive: the build bar (U5) disables the build when no file
 passed, so it should not be seen in normal use.
 
+`ManifestChangedOnDisk` is raised both when the manifest's hash differs from
+the loaded one and when the manifest can no longer be read at build time
+(deleted, locked). The copy above fits both; if the file is gone, **Reload**
+then reports `ManifestUnreadable` with its own copy.
+
 - **Loading:** while the first `session()` call is pending, show a quiet
   skeleton: two `--surface-sunken` bars in the header's place, with no
   spinner and no shimmer animation. It must not flash for fast loads; delay it
   by about 150 ms. Give it `aria-busy="true"` on the view and the visually
   hidden text "Loading manifest".
-- `session.stateWarning`, when set, shows an info `Banner` (for example that
-  saved locations were reset).
+- `session.stateWarning`, when set, shows an info `Banner` with its text (for
+  example that saved locations were reset, or that the last manifest could
+  not be reopened at startup; several warnings arrive joined in one string).
 
 **Rules that bind this task.**
 

@@ -1,6 +1,7 @@
 # M6 — Tauri commands, events, watcher, and the typed client
 
-Status: awaiting approval
+Status: implemented at 17678e4, reviewer-approved; review follow-up R1–R7
+pending (see "Review follow-up" at the end)
 Project: tarpack   Depends on: M4 (landed), M5 (landed, including its review
 follow-up); M3's partial-results follow-up (landed before M4 and M5)
 
@@ -174,7 +175,11 @@ this API.
 - The archive stores absolute names, and the target extracts with GNU tar `-P`.
   This task passes `extract_command` through to the UI, and does not build
   commands itself.
-- Capabilities grant only what is used.
+- Capabilities grant only what is used. The opener plugin is called from
+  Rust only (`tarpack_open_in_editor`, `tarpack_reveal_output`), so the
+  webview needs no opener permission. The UI listens to events and never
+  emits one. The capability list is exactly `core:event:allow-listen`,
+  `core:event:allow-unlisten`, `dialog:allow-open`, and `dialog:allow-save`.
 - **The shell throttles progress, not the library** (decided after M4's
   review). M4 reports every chunk; `tarpack_build` passes M4's events through
   a coalescer and emits only what it forwards. The coalescer never alters,
@@ -255,7 +260,8 @@ this API.
   canBuild: boolean,
   buildBlockedReason: null | "noManifest" | "noEntries" | "entriesNotReady" | "noOutput",
                                      // first failing condition, in this order; errors alone never block
-  stateWarning: string | null        // from fm-core StoreWarning
+  stateWarning: string | null        // fm-core StoreWarning, a failed save, or (R3) a recent
+                                     // manifest that could not be reopened at startup
 }
 ```
 
@@ -293,13 +299,19 @@ it from `extension`.
   manifest has an `output_name`, else `format.with_extension(<manifest file stem>)`.
   It is `null` with no manifest.
 - `tarpack_set_format(format)` sets the format. If `outputPath` is set, it
-  rewrites the path's file name with `format.with_extension(...)`. It persists
-  the choice, as `last_format`, for this manifest.
+  rewrites the path's file name with `format.with_extension(...)`: a
+  recognised suffix is replaced by the new format's canonical extension. It
+  persists the choice, as `last_format`, for this manifest.
 - `tarpack_set_output(path)`:
-  - If the file name ends with the current format's extension, it is kept.
-  - If it ends with a *different* known archive suffix, `format` switches to
-    that format and is persisted, because the user typed that name.
-  - Otherwise the current extension is appended.
+  - If the file name ends with a recognised archive suffix (`.tar`,
+    `.tar.gz`, `.tgz`, `.tar.zst`, `.tar.xz`, in any case), `format` becomes
+    that suffix's format (persisted when it differs, because the user typed
+    that name), and the suffix is rewritten to the format's canonical
+    extension: `.tgz` becomes `.tar.gz`, and `.TAR.GZ` becomes `.tar.gz`.
+  - Otherwise the current format's extension is appended.
+- In both commands the stored `outputPath` therefore always ends with the
+  exact `extension` of the current format, in lower case; the stem and the
+  directory are kept as given.
 - Work on `OsStr`/`PathBuf`; never lossily convert the path, except for the
   display strings in the session.
 - **With no manifest loaded:**
@@ -360,7 +372,8 @@ it from `extension`.
     manifest or touching the output. If it ever reached M4,
     `PlanError::NoEntries` maps to `NoEntries` too.
   - Otherwise it checks the manifest hash as always (`ManifestChangedOnDisk`
-    on a mismatch), then plans with `ArchivePlan::new(&loaded.report, &assignments)`
+    on a mismatch, and also when the file can no longer be read: what is on
+    disk is then not what the user saw), then plans with `ArchivePlan::new(&loaded.report, &assignments)`
     using the `ParseReport` of the loaded manifest, so the report matches
     what the user saw and what is on disk. It never re-derives the failures
     itself.
@@ -391,7 +404,7 @@ switches over it exhaustively, so:
 | `NoManifest` | any command needing a loaded manifest | No manifest is loaded | — |
 | `ManifestUnreadable` | open, reload | The manifest file could not be read (missing, permission) | — |
 | `NoEntries` | build | No entry can be built: every entry is withheld or failed, or the manifest lists none (defensive: `canBuild` already blocks this); also `PlanError::NoEntries` | — |
-| `ManifestChangedOnDisk` | build | The file hash differs from the loaded one | — |
+| `ManifestChangedOnDisk` | build | The file hash differs from the loaded one, or the manifest can no longer be read at build time (deleted, locked, permission) | — |
 | `UnknownEntry` | assign, clear | No passed entry has that id (this includes the ids of failed entries) | the id |
 | `NotAFile` | assign | The path is not an existing regular file | the id |
 | `NoOutput` | build, reveal output | No output path is set (defensive); for reveal, no build has succeeded in this session | — |
@@ -417,13 +430,13 @@ match, so the mapping is reviewable in one place.
 | `tarpack_assign_dropped(paths)` | `{ session, outcome: DropOutcome }` | |
 | `tarpack_assign(id, path)` | `TarpackSession` | |
 | `tarpack_clear(id)` | `TarpackSession` | Clears the assignment only. |
-| `tarpack_set_output(path)` | `TarpackSession` | Extension normalisation and format switch, as above. |
-| `tarpack_set_format(format)` | `TarpackSession` | Rewrites the `outputPath` extension and remembers the format per manifest. |
+| `tarpack_set_output(path)` | `TarpackSession` | Extension normalisation and format switch, as above: a recognised suffix is rewritten to the canonical extension (`.tgz` → `.tar.gz`, case normalised). |
+| `tarpack_set_format(format)` | `TarpackSession` | Rewrites the `outputPath` extension to the format's canonical extension and remembers the format per manifest. |
 | `tarpack_build(overwrite)` | `BuildSummary` | Runs on `spawn_blocking` with the session's `format`. Builds the passed entries even when errors exist; the summary is the final report. Progress goes through the coalescer (see Events). On success, stores the output `PathBuf` it wrote in state for `tarpack_reveal_output`. Errors: `NoEntries`, `OutputExists`, `ManifestChangedOnDisk`, `SourceMissing`, `SourceUnreadable`, `SourceChanged`, `VerifyFailed`, … |
 | `tarpack_recent_manifests()` | `string[]` | |
 | `tarpack_open_in_editor()` | `()` | Opener plugin, on the manifest path. |
 | `tarpack_reveal_output()` | `()` | Opener plugin; reveal the output in Explorer. Takes no argument: it reveals the `PathBuf` the last successful build in this session wrote, held in state, never a string from the UI. With no successful build yet it fails with `NoOutput`. |
-| `tarpack_create_manifest_from_example(path)` | `TarpackSession` | Writes the bundled `examples/tarpack/example.toml` (`include_str!`). Errors if the path exists. |
+| `tarpack_create_manifest_from_example(path)` | `TarpackSession` | Writes the bundled `examples/tarpack/example.toml` (`include_str!`) to a new file (`PathExists` if the path exists; never replaces a file), then opens the created manifest as `tarpack_open_manifest` does (restore, `touch_recent`), arms the watcher on it, and returns the session. |
 
 Every mutating command persists `RememberedState` afterwards, including the
 current format.
@@ -467,8 +480,11 @@ must never be parsed back into paths, by the backend or the UI:
   (u64 on the Rust side, annotated `#[ts(type = "number")]`).
   - The byte counts are uncompressed tar-stream bytes. Both phases use the same
     `bytesTotal`.
-  - The verifying phase follows the writing phase and has its own run from 0
-    to the total.
+  - The verifying phase follows the writing phase, and each phase starts
+    over: its `bytesDone` runs up to the total again. A phase's first event
+    is not necessarily at 0. M4 counts a record before reporting it (the
+    first event can come after the first 512-byte record), so the first
+    event may already be past 0; it is always below `bytesTotal`.
   - **`entryId`** in both phases is the id of the file entry whose bytes are
     being written or checked. It is `null` while directory records or long-name
     records are processed, and on each phase's final event.
@@ -570,8 +586,10 @@ and `onBuildProgress`, all typed from `lib/generated/`.
   simulated restart (new state over the same temp app dir).
 - A build writes the session's format, and the returned summary carries it and
   the extraction command.
-- Capabilities list only the dialog, opener, and event permissions used. There
-  is no clipboard permission.
+- `capabilities/default.json` lists exactly `core:event:allow-listen`,
+  `core:event:allow-unlisten`, `dialog:allow-open`, and `dialog:allow-save`.
+  There is no opener permission (the opener is called from Rust only), no
+  event-emit permission (the UI never emits), and no clipboard permission.
 - The generated `TarpackErrorKind.ts` is a string-literal union of exactly the
   kinds in the table, and `TarpackError.ts` has `kind: TarpackErrorKind` and
   `entryId?: string`.
@@ -646,8 +664,10 @@ and `onBuildProgress`, all typed from `lib/generated/`.
     *emits* (after the coalescer, with the real clock) for a build with two
     files, and assert:
     - writing reaches `bytesDone == bytesTotal` with `entryId: null`;
-    - verifying restarts from 0, carries file ids, and ends with one final
-      null-id event;
+    - verifying starts over: its first event is below the total (not
+      necessarily 0) and no later than writing's first event
+      (`verifying[0].bytes_done <= writing[0].bytes_done`); it carries file
+      ids and ends with one final null-id event;
     - nothing is emitted after it.
   - `progress_coalescer_forwards_boundaries_and_throttles`: feed the
     coalescer a synthetic sequence with synthetic `Instant`s (a base instant
@@ -719,3 +739,310 @@ and `onBuildProgress`, all typed from `lib/generated/`.
   committed files. Always regenerate before running them. Never run them in
   the same `cargo test` invocation as update mode; the regenerate command's
   filter already prevents this.
+
+## Review follow-up
+
+M6 was implemented in 17678e4 and the reviewer approved it with low-severity
+findings. This section is the complete brief for a separate implementer run:
+do R1–R7 on top of 17678e4, keep everything above that R1–R7 does not change,
+then hand the diff to the reviewer.
+
+What 17678e4 contains, by path (all under `apps/desktop/src-tauri/` unless
+noted):
+
+- `src/tools/tarpack/mod.rs`: the `#[tauri::command]` handlers,
+  `TarpackState { core: Mutex<Core>, watcher: Mutex<Option<ManifestWatcher>> }`,
+  the `lock` helper (recovers from poisoning), and `arm_watcher`.
+- `src/tools/tarpack/core.rs`: `Core`, the plain-function session logic
+  (`session`, `open`, `reload`, `assign`, `clear`, `assign_dropped`,
+  `set_format`, `set_output`, `create_from_example`, `begin_build` /
+  `finish_build`, `reveal_target`, `snapshot`), with the private helpers
+  `load_manifest`, `remember` (calls `RememberedState::remember`, then
+  `persist`), and `persist` (saves the store; a save failure sets
+  `state_warning`).
+- `src/tools/tarpack/progress.rs` (`ProgressCoalescer`),
+  `src/tools/tarpack/watch.rs` (`ManifestWatcher`, over
+  `notify-debouncer-mini`), `src/tools/tarpack/types.rs` (the boundary
+  types), `src/tools/tarpack/tests.rs` (every `tools::tarpack` test; the
+  helpers `Env`, `ready`, `build`, `run_build`, and `assert_contract`).
+- `capabilities/default.json`, `Cargo.toml` (`notify-debouncer-mini = "0.7.0"`;
+  `serde_json` and `tempfile` are dev-dependencies).
+- `apps/desktop/src/lib/tarpack.ts`, `apps/desktop/src/lib/tauri.ts`, and
+  their tests.
+
+The boundary shapes do not change in this follow-up: nothing is added to or
+removed from `TarpackSession`, and `TarpackErrorKind` keeps its 17 kinds. The
+only generated change allowed is the doc comment on `stateWarning` (R3);
+regenerate with
+`UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current`
+and never hand-edit `lib/generated/`. No UI code changes.
+
+### Accepted as implemented (do not change)
+
+- `tarpack_build` takes a `BuildJob` from `Core::begin_build` under the lock,
+  releases the lock, and runs the job on `spawn_blocking`. R1 applies the
+  same pattern to drops.
+- `ManifestChangedOnDisk` also covers a manifest that can no longer be read at
+  build time (`begin_build` maps that `load` failure to it). The contract
+  table above says so.
+- `set_output` and `set_format` rewrite a recognised suffix to the format's
+  canonical extension (`.tgz` becomes `.tar.gz`, case normalised), as the
+  contract above now states.
+- `create_from_example` opens the created manifest, arms the watcher, and
+  returns the session.
+
+### R1. Drops are matched without holding the session lock
+
+`tarpack_assign_dropped` locks `state.core` (a `std::sync::Mutex`) and then
+calls `Core::assign_dropped`, which runs `match_dropped`. That walks every
+dropped folder (up to 8 levels) while the lock is held, on an async worker
+thread. A large drop therefore stalls every other command, each of which
+blocks its own async worker on the same lock. Do the walk with no lock held,
+on a blocking thread:
+
+- In `core.rs`, add
+  ```rust
+  /// Everything a drop needs, cloned out of the session so the folder walk
+  /// runs without it. `Send + 'static`.
+  pub struct DropJob { manifest: Manifest, assignments: Assignments, revision: u64 }
+
+  impl DropJob {
+      /// Walks and matches. Touches no session state.
+      pub fn run(&self, paths: &[PathBuf]) -> DropOutcome {
+          match_dropped(&self.manifest, &self.assignments, paths)
+      }
+  }
+  ```
+  `manifest` is a clone of `loaded.manifest.report.manifest` (passed entries
+  only, as today), and `assignments` a clone of the loaded assignments.
+- `Core` gains a private `revision: u64`. Every method that replaces the
+  loaded manifest or changes its assignments increments it: `load_manifest`
+  (so `open`, the first `session()` restore, and `create_from_example`),
+  `reload`, `assign`, `clear`, and `finish_drop` when it applies. Incrementing
+  it in other mutating methods too is harmless.
+- `Core::begin_drop(&self) -> Result<DropJob, TarpackError>`: `NoManifest`
+  with no manifest, as today.
+- `Core::finish_drop(&mut self, job: &DropJob, outcome: DropOutcome) -> Result<Option<DropOutcome>, TarpackError>`:
+  - `NoManifest` if no manifest is loaded;
+  - `Ok(None)` if `self.revision != job.revision`: the session changed
+    while the walk ran, so the outcome may name entries or statuses that no
+    longer hold. Nothing is applied and nothing is persisted;
+  - otherwise `apply` the outcome, increment `revision`, `remember()`
+    (which persists), and return `Ok(Some(outcome))`.
+- Remove `Core::assign_dropped`, so nothing can walk while holding `&mut
+  Core`. Tests use a local helper in `tests.rs`,
+  `fn drop_now(core: &mut Core, paths: &[PathBuf]) -> Result<DropOutcome, TarpackError>`,
+  that runs `begin_drop`, `run`, and `finish_drop` and unwraps the `Some`.
+- `tarpack_assign_dropped` in `mod.rs`, up to 3 attempts:
+  1. `let job = lock(&state.core).begin_drop()?;` (the guard is dropped at
+     the end of that statement);
+  2. move `job` and a clone of `paths` into
+     `tauri::async_runtime::spawn_blocking`, run `job.run(&paths)` there,
+     and return `(job, outcome)`; map a `JoinError` to `Io`;
+  3. lock again and call `finish_drop`. On `Some(outcome)`, return
+     `DroppedAssignment { session: core.snapshot(), outcome }`. On `None`,
+     release the lock and start over.
+
+  If all 3 attempts are stale, fail with
+  `TarpackError::new(Io, "the session changed while the dropped files were being matched; drop them again")`.
+  Nothing was applied, so the user loses nothing. No new
+  `TarpackErrorKind` is added.
+- The lock is never held across an `.await` or during `DropJob::run`.
+
+Tests (in `tools/tarpack/tests.rs`, in the temp dir):
+
+- `drop_job_is_send_and_static`: a compile-time check,
+  `fn assert_send_static<T: Send + 'static>() {}` called with `DropJob`.
+- `stale_drop_is_not_applied`: a manifest with entries `a` (`a.bin`) and
+  `b` (`b.bin`); a folder holding `a.bin`. `begin_drop`; then
+  `core.assign("b", <a file>)`; then `run` the job on the folder;
+  `finish_drop` returns `Ok(None)`, `a` is still unassigned, `b` keeps its
+  assignment, and after a restart (a new `Core` over the same temp app dir)
+  `a` is still not remembered. A fresh `drop_now` then assigns `a`.
+- `drop_after_reopen_is_not_applied`: `begin_drop` on manifest `m1`, open
+  `m2` (which also has an entry `a`), `run`, `finish_drop` → `Ok(None)`, and
+  `m2`'s `a` is unassigned.
+- `drop_applies_when_session_unchanged`: `begin_drop`, `run`, `finish_drop`
+  with no change in between → `Some(outcome)` equal to the outcome `run`
+  returned, `a` assigned, and persisted across a restart.
+- `assign_dropped_matches_by_name` (existing): switch to `drop_now`; its
+  assertions are unchanged. Every other existing caller of
+  `assign_dropped` switches to `drop_now` too.
+
+### R2. A failed example write leaves no partial file
+
+`create_from_example` creates the file with `create_new(true)`, then
+`write_all` and `sync_all`. If either fails, the error is returned and the
+partial file stays at the user's chosen path. The file was created by this
+call, so removing it destroys nothing of the user's.
+
+- Add a private helper in `core.rs`:
+  ```rust
+  /// Creates `path` (never replacing a file), runs `write` on it, and syncs it.
+  /// If `write` or the sync fails, removes the file it created.
+  fn write_new_file(
+      path: &Path,
+      write: impl FnOnce(&mut fs::File) -> io::Result<()>,
+  ) -> Result<(), TarpackError>
+  ```
+  - `create_new` failing with `AlreadyExists` → `PathExists`, as today. In
+    that case nothing is removed: the file is not ours.
+  - Any other `create_new` failure → `Io`, as today.
+  - `write` or `sync_all` failing → drop the handle, `fs::remove_file(path)`,
+    then return `Io` with the write error. If the removal also fails, the
+    `Io` message names both errors and says the incomplete file was left at
+    the path (display string), so the leftover is reported, not silent.
+- `create_from_example` calls
+  `write_new_file(path, |f| f.write_all(EXAMPLE_MANIFEST.as_bytes()))` and
+  then `self.open(path)`, as today. If `open` fails after a complete write,
+  the file stays (it is the complete example the user asked for) and the
+  error is returned.
+
+Tests:
+
+- `write_new_file_removes_partial_file_on_failure`: a closure that writes
+  `b"partial"` and then returns `Err(io::Error::other("injected"))` → `Err`
+  with kind `Io` whose message contains `injected`, and the path does not
+  exist afterwards.
+- `write_new_file_never_removes_existing_file`: an existing file with known
+  content → `PathExists`, the closure is never called (it panics if it is),
+  and the file's content is unchanged.
+- `create_from_example_refuses_existing_path` (existing): also assert that
+  the existing file's content is unchanged.
+
+### R3. A recent manifest that cannot be restored is reported
+
+`Core::session()` restores the most recent manifest on its first call and
+discards a failure (`let _ = self.load_manifest(&recent);`). The user then
+sees an empty tool with no explanation.
+
+- On that failure, set a warning that names the file and the reason, for
+  example `the last manifest, <path>, could not be reopened: <error message>.`
+  The path is converted lossily for display only. `session()` still
+  returns the snapshot, with `manifest: null`; startup never fails.
+- A warning never replaces an earlier one. Add a private
+  `fn add_warning(&mut self, text: String)` that sets `state_warning`, or
+  appends to an existing one separated by a single space. Each warning text
+  is a sentence ending with a period; `Core::new`, `Core::unpersisted`, and
+  `persist` use `add_warning` (or produce sentences ending with a period) so
+  the joined text reads correctly. `add_warning` skips a text that
+  `state_warning` already contains, so `persist` failing on every command
+  does not repeat its sentence.
+- The recent-manifest list is not changed by the failure: the manifest may
+  be on a drive that is temporarily unavailable.
+- `TarpackSession.stateWarning` stays `string | null`. Update its doc comment
+  in `types.rs` to say it carries store warnings, save failures, and a
+  recent manifest that could not be reopened. ts-rs copies doc comments into
+  the generated file, so regenerate and commit `TarpackSession.ts`.
+
+Tests:
+
+- `session_reports_unrestorable_recent_manifest`: open a manifest (so it is
+  recent and persisted), delete it, build a new `Core` over the same temp
+  app dir, call `session()` → `manifest` is `None`, `state_warning` is
+  `Some` and contains the manifest's file name, and `recent_manifests()`
+  still lists it.
+- `warnings_accumulate`: make `add_warning` `pub(super)` and call it from
+  `tests.rs` on a `Core::unpersisted("first.".into())`: after adding
+  `"second."`, the warning is `"first. second."`; adding `"second."` again
+  leaves it unchanged.
+
+### R4. `reload` persists remembered state
+
+Every mutating command persists `RememberedState` (the contract above), but
+`Core::reload` updates the assignments without calling `remember()`. With a
+valid manifest, reload prunes the assignments whose ids left the manifest;
+without a persist, a restart brings them back from the store.
+
+- End `reload` with `self.remember()` after the manifest and assignments are
+  updated. It runs for valid and invalid manifests alike: with an invalid
+  one, reload keeps every assignment, so `remember` writes the failed
+  entries' sources back (they are not pruned). It also records the current
+  output and format, unchanged.
+- Increment `revision` in `reload` (R1).
+
+Tests:
+
+- `reload_persists_remembered_state`: open a valid manifest with `a` and
+  `b`, assign both; rewrite the manifest on disk without `b`; `reload`. Load
+  the store directly (`Store::<RememberedState>::load(&dirs, "tarpack", "state")`)
+  → `restore_all(manifest_path)` has `a` and no `b`.
+- `invalid_manifest_keeps_remembered_source_of_failed_entry` (existing): its
+  "reload" step now persists too; it must still pass unchanged.
+
+### R5. Capabilities list exactly what is used
+
+`capabilities/default.json` grants `core:event:default`, which includes
+`allow-emit` and `allow-emit-to`. The UI never emits events, and the opener
+is called from Rust only.
+
+- Set `permissions` to exactly
+  `["core:event:allow-listen", "core:event:allow-unlisten", "dialog:allow-open", "dialog:allow-save"]`,
+  and keep the `description` accurate (events are listened to, including
+  drag and drop; the native open and save dialogs; the opener is used from
+  Rust only).
+- `tauri-build` validates permission identifiers when it builds the crate,
+  so an unknown identifier fails `cargo test`. Do not add any other
+  permission.
+
+Tests:
+
+- `capabilities_are_minimal`, in the existing `#[cfg(test)] mod tests` of
+  `src/tools/mod.rs` (after `#[cfg(test)]`, so the hook test does not scan
+  it): read `capabilities/default.json` from
+  `env!("CARGO_MANIFEST_DIR")`, parse it with `serde_json`, and assert that
+  `permissions` equals the list above as a set, with no duplicates.
+- Manual, recorded in the handoff: run `npm run tauri:dev` and check that
+  dropping files, the `manifest-changed` event (edit the manifest in an
+  editor), the Open and Save dialogs, Edit in editor, and Show in folder all
+  still work. If the dev environment cannot run the app, say so in the
+  handoff; M7's end-to-end check covers it on Windows.
+
+### R6. The verifying phase starts no later than the writing phase
+
+`assert_contract` in `tests.rs` checks that verifying's first event is below
+the total. Also assert
+`verifying[0].bytes_done <= writing[0].bytes_done`: both phases process the
+same records in the same order, and M4 reports each after its first record,
+so verifying's first event is never further along than writing's. Keep
+"below the total". Update the comment above the assertion: each phase starts
+over, and its first event may already be past 0. Both
+`build_progress_events_follow_contract` and `build_progress_is_coalesced`
+use `assert_contract`, and the coalescer forwards the first event of each
+phase unchanged, so both get the check.
+
+### R7. Documentation
+
+`CLAUDE.md`, the "Layout" block only. Change nothing else in `CLAUDE.md`.
+
+- Keep the `src/tools/mod.rs` registry line unchanged, and add below it a
+  `src/tools/tarpack/` entry, wrapped like its neighbours, listing `mod.rs` (the `tarpack_*` commands and managed
+  state), `core.rs` (session logic as plain functions, no Tauri types),
+  `progress.rs` (`ProgressCoalescer`), `watch.rs` (manifest watcher,
+  `notify-debouncer-mini`), `types.rs` (boundary types exported through
+  ts-rs), and `tests.rs`.
+- Under `src-tauri/`, on the `Cargo.toml` line, note the
+  `notify-debouncer-mini` dependency (manifest file watcher).
+- Under `src/`, add `lib/tarpack.ts` (typed client: one function per
+  `tarpack_*` command, `onManifestChanged`, `onBuildProgress`) next to
+  `lib/tauri.ts`.
+
+### Follow-up acceptance
+
+- `cargo fmt --all --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, and
+  `cargo test --workspace` pass, including `generated_types_are_current`,
+  `generated_types_have_no_bigint`, `error_kind_is_string_union`, and
+  `tools::tests::builder_hooks_only_in_tool_registry`.
+- `cargo test -p filemanager tools::` runs every test named in R1–R6.
+- `npm run typecheck && npm run lint && npm run test` pass.
+- No code path in `tarpack_assign_dropped` walks the filesystem while
+  holding `state.core`; `Core::assign_dropped` no longer exists.
+- A failed example write leaves no file at the path; an existing file is
+  never removed or changed.
+- A recent manifest that cannot be reopened at startup shows in
+  `stateWarning`, and the session loads with no manifest.
+- After `reload`, a restart restores exactly what the reloaded session held.
+- `capabilities/default.json` grants exactly the four permissions in R5.
+- The `CLAUDE.md` layout names `src-tauri/src/tools/tarpack/` and its files,
+  `src/lib/tarpack.ts`, and `notify-debouncer-mini`.
