@@ -321,23 +321,31 @@ test("during a build, header and table controls are disabled; describedby has no
   const user = userEvent.setup();
   let done!: (s: ReturnType<typeof summary>) => void;
   vi.mocked(tp.build).mockReturnValue(new Promise((r) => (done = r)));
-  const s = buildable(
-    manifest({ entries: [entry("gateway", "gateway.conf")], failedEntries: [failure(1)] }),
-  );
-  await mount(s);
+  const assigned = { ...entry("gateway", "gateway.conf"), assigned: "C:\\src\\gateway.conf", status: "ready" as const };
+  await mount(buildable(manifest({ entries: [assigned] })));
+  const names = [/^Reload/, /^Edit in editor/, /^Browse…/, /^Clear/];
+  for (const name of names) expect(screen.getByRole("button", { name })).toBeEnabled();
+  await user.click(create());
+  await screen.findByRole("progressbar");
+  for (const name of names) expect(screen.getByRole("button", { name })).toBeDisabled();
+  expect(create().getAttribute("aria-describedby")).toBeNull();
+  await act(async () => done(summary()));
+  await screen.findByRole("heading", { level: 2, name: /Created/ });
+  for (const name of names) expect(screen.getByRole("button", { name })).toBeEnabled();
+});
+
+test("describedby ids all exist while building with errors", async () => {
+  const user = userEvent.setup();
+  let done!: (s: ReturnType<typeof summary>) => void;
+  vi.mocked(tp.build).mockReturnValue(new Promise((r) => (done = r)));
+  await mount(buildable(manifest({ entries: [entry("gateway", "gateway.conf")], failedEntries: [failure(1)] })));
   expect(create().getAttribute("aria-describedby")).toBeTruthy();
   await user.click(create());
   await screen.findByRole("progressbar");
-  for (const name of [/Reload/, /Edit in editor/, /Browse/, /Clear/]) {
-    for (const b of screen.queryAllByRole("button", { name })) expect(b).toBeDisabled();
-  }
-  expect(screen.getAllByRole("button", { name: /Reload/ }).length).toBeGreaterThan(0);
-  expect(screen.getAllByRole("button", { name: /Browse/ }).length).toBeGreaterThan(0);
   const ids = (create().getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
   for (const id of ids) expect(document.getElementById(id)).not.toBeNull();
   await act(async () => done(summary()));
   await screen.findByRole("heading", { level: 2, name: /Created/ });
-  expect(screen.getAllByRole("button", { name: /Reload/ })[0]).toBeEnabled();
 });
 
 test("a saveFileDialog rejection from Choose shows the error banner", async () => {
@@ -379,18 +387,20 @@ test("after a build, focus moves to Create archive only if it was lost", async (
   // Dismiss loses focus (the button unmounts): it returns to Create archive.
   await user.click(screen.getByRole("button", { name: "Dismiss result" }));
   await waitFor(() => expect(create()).toHaveFocus());
-  // Focus elsewhere when a build settles stays there.
+});
+
+test("focus that is elsewhere when a build settles stays there", async () => {
+  const user = userEvent.setup();
   let done!: (s: ReturnType<typeof summary>) => void;
   vi.mocked(tp.build).mockReturnValue(new Promise((r) => (done = r)));
+  await mount(buildable(manifest({ entries: [entry("gateway", "gateway.conf")], failedEntries: [failure(1)] })));
   await user.click(create());
   await screen.findByRole("progressbar");
-  const picker = screen.getByRole("combobox", { name: "Format" });
-  await act(async () => {
-    (picker as HTMLElement).focus();
-  });
-  // A disabled control cannot hold focus in a browser; simulate a user who moved on
-  // by focusing something that stays enabled after the build.
+  const report = document.getElementById("manifest-error-report") as HTMLElement;
+  act(() => report.focus());
+  expect(report).toHaveFocus();
   await act(async () => done(summary()));
   await screen.findByRole("heading", { level: 2, name: /Created/ });
-  expect(document.activeElement).not.toBe(document.body);
+  expect(report).toHaveFocus();
+  expect(create()).not.toHaveFocus();
 });
