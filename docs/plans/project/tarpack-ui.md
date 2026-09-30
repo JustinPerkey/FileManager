@@ -283,7 +283,7 @@ All components live under `apps/desktop/src/`.
 | `Button` | `app/Button.tsx` (+ `styles/controls.css`) | native `<button>` props plus `variant: "primary" \| "secondary" \| "quiet"`, `icon?` | default / hover / active / focus / disabled / busy | shared (U2) |
 | `Icon` | `app/icons.tsx` | `name`, `label?` | — | shared (U2) |
 | `Banner` | `app/Banner.tsx` | `tone, message, action?, onDismiss?, children?` (children: the Details disclosure) | info / warn / error (`role="alert"` for error only; info and warn are announced by the owning view's announcer) | shared |
-| `ConfirmDialog` | `app/ConfirmDialog.tsx` | `open, title, body, confirmLabel, onConfirm, onCancel` | open | shared |
+| `ConfirmDialog` | `app/ConfirmDialog.tsx` | `open, title, body, confirmLabel, onConfirm, onCancel` | open (`aria-labelledby` title, `aria-describedby` body, `useId()` ids) | shared |
 | `TarpackView` | `tools/tarpack/TarpackView.tsx` | `actionsRef?: Ref<TarpackActions>`, a test-only seam exposing `showErrors()` and `announce(text)`; product code never passes it (owns both functions and the always-mounted polite announcer; U5 and U6 call them inside the view) | loading / no-manifest (also after a failed restore, with the error banner) / errors (entries shown) / errors (entries withheld) / partial / ready / building (writing, verifying) / success / error | tool |
 | `ManifestHeader` | `tools/tarpack/ManifestHeader.tsx` | `session, onOpen, onOpenRecent, onReload, onEdit` | loaded / changed-on-disk | tool |
 | `ManifestErrors` | `tools/tarpack/ManifestErrors.tsx` | `manifest, expanded, onExpandedChange, onEdit, reportRef` | hidden / warnings only / errors expanded / errors collapsed / errors with entries withheld | tool (U2) |
@@ -295,7 +295,7 @@ All components live under `apps/desktop/src/`.
 | `MiddlePath` | `tools/tarpack/MiddlePath.tsx` | `path` | fits / truncated (CSS) / revealed (keyboard-focused row) | tool (U3; reused by U5) |
 | `pathParts` | `tools/tarpack/pathParts.ts` | `pathParts(path): { head, tail }` (module) | — | tool (U3) |
 | `DropResult` | `tools/tarpack/DropResult.tsx` | `outcome, entries, hasFailedEntries, onDismiss` (module also exports `dropResultText(outcome, entries, hasFailedEntries)` and `DropPending`) | matched / unmatched, one line per `UnmatchedReason` / unmatched with failed entries / ambiguous (both directions) / nothing matched; "Full paths" collapsed / expanded; pending ("Matching dropped files…", via `DropPending`) | tool |
-| `BuildBar` | `tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild, onShowErrors` | disabled-with-reason / no entries (three cases) / ready / ready with files left out / ready with manifest errors only / building | tool |
+| `BuildBar` | `tools/tarpack/BuildBar.tsx` | `session, building, progress, progressUnavailable, onChooseOutput, onFormatChange, onBuild, onShowErrors, onError`, `formatNotice?` | disabled-with-reason / no entries (three cases) / ready / ready with files left out / ready with manifest errors only / building / building without progress | tool |
 | `FormatPicker` | `tools/tarpack/FormatPicker.tsx` | `formats, value, disabled, onChange` | enabled / disabled | tool |
 | `BuildProgress` | `tools/tarpack/BuildProgress.tsx` | `progress, entries` | writing / verifying / finishing | tool |
 | `BuildResult` | `tools/tarpack/BuildResult.tsx` | `result, entries, onReveal, onDismiss` | success / success with files left out / success with manifest errors only / error | tool |
@@ -442,6 +442,7 @@ One phrase, "left out", everywhere a count of failed entries appears:
 | Build bar note (U5) | "{n} files will be left out; errors will be listed after the build" |
 | Result heading (U5) | "Created {file} with {n} files left out" |
 | Result announcement (U5) | "Created {file}. {n} files were left out because of errors." |
+| Failed-build announcement (U5) | `errorMessage(error, entries)`, once, for every build error except `OutputExists` (dialog) and `ManifestChangedOnDisk` (warn banner, already announced) |
 
 Every count has a singular form ("1 file is", "1 file will be", "with 1 file
 left out").
@@ -783,3 +784,49 @@ at cbce88a. Open items, none blocking U4:
   the tab order is lines, then "Full paths", then Dismiss.
 - **Tests (optional polish):** dismiss the "with rows" focus test by keyboard,
   and assert a named control in the "nothing follows" test.
+
+## 12. Amendments from U5's review (ui-designer, 2026-09-30)
+
+The reviewer's findings against the U5 implementation (716297b, 2357f69)
+that traced to plan gaps were resolved in the U5 task plan, which now lists
+them under "Fixes required after review":
+
+- **Failed build announced (P0).** Every build error except `OutputExists`
+  (opens the dialog) and `ManifestChangedOnDisk` (warn banner, already
+  announced) is announced once through the view's announcer, with
+  `errorMessage(error, entries)` as the copy, as a success is announced. The
+  error `BuildResult` is not itself a live region.
+- **Format labels.** Short labels tar, gzip, zstd, xz (accepted); the option
+  reads "{label} ({extension})", so "tar (.tar)". "tar — uncompressed" is
+  gone.
+- **Progress text.** `aria-valuetext` for a `null`-`entryId` event is
+  "{Phase}, {n}%" with no file name; only the visible label keeps the last
+  named file, and that memory resets at the phase change.
+- **Progress subscription failure.** The build still runs; the bar shows
+  "Creating the archive… (progress is unavailable)" instead of a 0% bar.
+- **Accepted decisions, now recorded.** `BuildBar` calls the Save dialog
+  itself but routes errors to the view's error banner through `onError`
+  (like `onOpen`, `onCreate`, `onBrowse`); the header and table are disabled
+  during a build by one `<fieldset disabled>` with `display: contents`,
+  tested through a real build; after a build or Dismiss, focus returns to
+  Create archive only when it was lost (`document.activeElement` is body or
+  null); `ConfirmDialog` uses `aria-describedby` for its body and `useId()`
+  ids; while building, Create archive's `aria-describedby` never names an
+  unrendered element.
+- **Overwrite dialog folder.** `{folder}` comes from a new display-only
+  `displayFolder(path)` in `pathParts.ts`, which shows a lossy (U+FFFD)
+  folder as is. No "that folder" fallback; `assignedFolder` stays the
+  lib-safe variant for dialog start folders. `fileName` moves from
+  `reportText.ts` to `pathParts.ts`.
+- **Clipboard failure.** "Couldn't copy" in the same live region as
+  "Copied".
+- **Rendered checks.** `scroll-padding-bottom` is the bar's measured
+  two-line height at 800×560 and a 32 px root font size, in rem, rounded up
+  to 0.25 rem plus 0.5 rem. Rendered checks and `/impeccable audit` run in
+  the pre-installed Chromium (`/opt/pw-browsers`, global Playwright; no
+  `playwright install`) against the Vite dev server with the Tauri IPC
+  mocked.
+- **Tests.** The view's announcer has `data-testid="tarpack-announcer"`;
+  tests stop selecting it by position.
+- **`DESIGN.md`.** The confirmation dialog moves from planned to landed
+  (U5 updates the status line only).
