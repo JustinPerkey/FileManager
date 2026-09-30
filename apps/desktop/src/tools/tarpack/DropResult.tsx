@@ -1,6 +1,8 @@
 import { Button } from "../../app/Button";
 import { Icon, type IconName } from "../../app/icons";
+import type { Ambiguity } from "../../lib/generated/Ambiguity";
 import type { DropOutcome } from "../../lib/generated/DropOutcome";
+import type { SessionEntry } from "../../lib/generated/SessionEntry";
 import type { UnmatchedReason } from "../../lib/generated/UnmatchedReason";
 
 type Tone = "ok" | "warn" | "muted";
@@ -46,7 +48,10 @@ const reasons: Record<UnmatchedReason, ReasonCopy> = {
     tone: "warn",
   },
   notUnicode: {
-    phrase: () => "can't be assigned: the path has unsupported characters. Rename it",
+    phrase: (n) =>
+      n === 1
+        ? "not assigned, unsupported characters in its path \u2014 rename it or its folder"
+        : "not assigned, unsupported characters in their paths \u2014 rename them or their folders",
     icon: "alert-triangle",
     tone: "warn",
   },
@@ -54,8 +59,16 @@ const reasons: Record<UnmatchedReason, ReasonCopy> = {
 const ORDER = Object.keys(reasons) as UnmatchedReason[];
 
 const HINT = "Files for entries with errors can't be matched until those errors are fixed.";
-const EMPTY = "Nothing was dropped that could be matched.";
+const EMPTY = "Nothing was matched";
 const MAX_NAMES = 8;
+
+interface Item {
+  label: string;
+  title: string;
+  mono?: boolean;
+  /** Parenthesised note after the label: `{ count }` renders as "({count} files)". */
+  note?: { count: number } | { text: string };
+}
 
 interface Line {
   key: string;
@@ -63,11 +76,11 @@ interface Line {
   tone: Tone;
   /** Leading count, rendered with `.num`; null for lines without one. */
   count: number | null;
-  /** Text after the count, up to and including the colon when there are names. */
+  /** Text after the count, including the colon when items follow. */
   lead: string;
-  names: { label: string; title: string }[];
+  items: Item[];
+  /** Items beyond the cap. */
   more: number;
-  tail: string;
 }
 
 /** The last path segment of a display path. */
@@ -76,16 +89,28 @@ function baseName(path: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : path;
 }
 
-function named(paths: string[]) {
+function capped(items: Item[]) {
+  return { items: items.slice(0, MAX_NAMES), more: Math.max(0, items.length - MAX_NAMES) };
+}
+
+function ambiguousItem(a: Ambiguity, byId: Map<string, SessionEntry>): Item {
+  const entry = byId.get(a.id);
+  const first = a.candidates[0] ?? "";
+  const fileName = baseName(first);
   return {
-    names: paths.slice(0, MAX_NAMES).map((p) => ({ label: baseName(p), title: p })),
-    more: Math.max(0, paths.length - MAX_NAMES),
+    // An id missing from `entries` should not happen; never show the raw id.
+    label: entry ? entry.targetPath : fileName,
+    mono: entry !== undefined,
+    title: `Matching files:\n${a.candidates.join("\n")}`,
+    note:
+      a.candidates.length > 1
+        ? { count: a.candidates.length }
+        : { text: `${fileName} fits more than one entry` },
   };
 }
 
-function buildLines(outcome: DropOutcome, hasFailedEntries: boolean): Line[] {
+function buildLines(outcome: DropOutcome, entries: SessionEntry[], hasFailedEntries: boolean): Line[] {
   const lines: Line[] = [];
-  const none = { names: [], more: 0, tail: "" };
   if (outcome.matched.length > 0) {
     lines.push({
       key: "matched",
@@ -93,7 +118,8 @@ function buildLines(outcome: DropOutcome, hasFailedEntries: boolean): Line[] {
       tone: "ok",
       count: outcome.matched.length,
       lead: "matched",
-      ...none,
+      items: [],
+      more: 0,
     });
   }
   for (const reason of ORDER) {
@@ -106,77 +132,69 @@ function buildLines(outcome: DropOutcome, hasFailedEntries: boolean): Line[] {
       tone: copy.tone,
       count: paths.length,
       lead: `${copy.phrase(paths.length, hasFailedEntries)}:`,
-      tail: "",
-      ...named(paths),
+      ...capped(paths.map((p) => ({ label: baseName(p), title: p }))),
     });
   }
   const showHint = outcome.unmatched.some((u) => u.reason === "noEntry" || u.reason === "folderNoMatch");
   if (hasFailedEntries && showHint) {
-    lines.push({
-      key: "hint",
-      icon: "info",
-      tone: "muted",
-      count: null,
-      lead: HINT,
-      ...none,
-    });
+    lines.push({ key: "hint", icon: "info", tone: "muted", count: null, lead: HINT, items: [], more: 0 });
   }
   if (outcome.ambiguous.length > 0) {
-    const items = outcome.ambiguous.map(
-      (a) =>
-        `${baseName(a.candidates[0] ?? a.id)} could be ${a.candidates.length} ${one(a.candidates.length, "file", "files")}`,
-    );
+    const n = outcome.ambiguous.length;
+    const byId = new Map(entries.map((e) => [e.id, e]));
     lines.push({
       key: "ambiguous",
       icon: "alert-triangle",
       tone: "warn",
-      count: outcome.ambiguous.length,
-      lead: "ambiguous:",
-      names: [],
-      more: 0,
-      tail: `${items.join(", ")} — use Browse`,
+      count: n,
+      lead: `ambiguous, not assigned \u2014 use Browse\u2026 on ${n === 1 ? "its row" : "their rows"}:`,
+      ...capped(outcome.ambiguous.map((a) => ambiguousItem(a, byId))),
     });
+  }
+  if (lines.length === 0) {
+    lines.push({ key: "empty", icon: "info", tone: "muted", count: null, lead: EMPTY, items: [], more: 0 });
   }
   return lines;
 }
 
+function itemText(i: Item): string {
+  if (!i.note) return i.label;
+  return `${i.label} (${"count" in i.note ? `${i.note.count} files` : i.note.text})`;
+}
+
 function lineText(l: Line): string {
-  const names = l.names.map((n) => n.label).join(", ") + (l.more > 0 ? ` and ${l.more} more` : "");
-  const text = [l.count === null ? "" : String(l.count), l.lead, names, l.tail].filter(Boolean).join(" ");
+  const names = l.items.map(itemText).join(", ") + (l.more > 0 ? `, and ${l.more} more` : "");
+  const text = [l.count === null ? "" : String(l.count), l.lead, names].filter(Boolean).join(" ");
   return text.endsWith(".") ? text : `${text}.`;
 }
 
 /** The result lines as plain text, each ending in a full stop, for the announcer. */
-export function dropResultText(outcome: DropOutcome, hasFailedEntries: boolean): string {
-  const lines = buildLines(outcome, hasFailedEntries);
-  if (lines.length === 0) return EMPTY;
-  return lines.map(lineText).join(" ");
+export function dropResultText(
+  outcome: DropOutcome,
+  entries: SessionEntry[],
+  hasFailedEntries: boolean,
+): string {
+  return buildLines(outcome, entries, hasFailedEntries).map(lineText).join(" ");
 }
 
 interface DropResultProps {
   outcome: DropOutcome;
+  /** The entries of the same session result as `outcome`. */
+  entries: SessionEntry[];
   hasFailedEntries: boolean;
   onDismiss: () => void;
 }
 
 /** What the last drop did. Deliberately not a live region: the view announces `dropResultText`. */
-export function DropResult({ outcome, hasFailedEntries, onDismiss }: DropResultProps) {
-  const lines = buildLines(outcome, hasFailedEntries);
+export function DropResult({ outcome, entries, hasFailedEntries, onDismiss }: DropResultProps) {
+  const lines = buildLines(outcome, entries, hasFailedEntries);
   return (
     <section className="drop-result" aria-label="Drop result">
       <ul className="drop-result__lines">
-        {lines.length === 0 && (
-          <li className="drop-result__line drop-result__line--hint">
-            <span className="drop-result__icon drop-result__icon--muted">
-              <Icon name="info" />
-            </span>
-            <span>{EMPTY}</span>
-          </li>
-        )}
         {lines.map((l) => (
           <li
             key={l.key}
-            className={`drop-result__line${l.key === "hint" ? " drop-result__line--hint" : ""}`}
+            className={`drop-result__line${l.key === "hint" || l.key === "empty" ? " drop-result__line--hint" : ""}`}
           >
             <span className={`drop-result__icon drop-result__icon--${l.tone}`}>
               <Icon name={l.icon} />
@@ -184,15 +202,29 @@ export function DropResult({ outcome, hasFailedEntries, onDismiss }: DropResultP
             <span>
               {l.count !== null && <span className="num">{l.count} </span>}
               {l.lead}
-              {l.names.length > 0 && " "}
-              {l.names.map((n, i) => (
+              {l.items.length > 0 && " "}
+              {l.items.map((it, i) => (
                 <span key={i}>
-                  <span title={n.title}>{n.label}</span>
-                  {i < l.names.length - 1 && ", "}
+                  <span title={it.title}>
+                    {it.mono ? <span className="mono">{it.label}</span> : it.label}
+                    {it.note && (
+                      <>
+                        {" ("}
+                        {"count" in it.note ? (
+                          <>
+                            <span className="num">{it.note.count}</span> files
+                          </>
+                        ) : (
+                          it.note.text
+                        )}
+                        {")"}
+                      </>
+                    )}
+                  </span>
+                  {i < l.items.length - 1 && ", "}
                 </span>
               ))}
-              {l.more > 0 && ` and ${l.more} more`}
-              {l.tail && ` ${l.tail}`}
+              {l.more > 0 && `, and ${l.more} more`}
             </span>
           </li>
         ))}

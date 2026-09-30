@@ -5,6 +5,7 @@ import { Button } from "../../app/Button";
 import { DropZone } from "../../app/DropZone";
 import { openFileDialog, saveFileDialog } from "../../lib/tauri";
 import type { DropOutcome } from "../../lib/generated/DropOutcome";
+import type { SessionEntry } from "../../lib/generated/SessionEntry";
 import type { TarpackError } from "../../lib/generated/TarpackError";
 import type { TarpackSession } from "../../lib/generated/TarpackSession";
 import {
@@ -23,6 +24,7 @@ import { DropResult, dropResultText } from "./DropResult";
 import { ManifestErrors } from "./ManifestErrors";
 import { EntryTable } from "./EntryTable";
 import { ManifestHeader } from "./ManifestHeader";
+import { assignedFolder } from "./pathParts";
 
 /** Functions later tasks call on the view. */
 export interface TarpackActions {
@@ -68,9 +70,12 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
   const [stateWarningDismissed, setStateWarningDismissed] = useState<string | null>(null);
   const dismissedRef = useRef<string | null>(null);
   const [expanded, setExpanded] = useState(true);
-  const [dropOutcome, setDropOutcome] = useState<DropOutcome | null>(null);
+  const [dropOutcome, setDropOutcome] = useState<{ outcome: DropOutcome; entries: SessionEntry[] } | null>(
+    null,
+  );
   const [announcement, setAnnouncement] = useState("");
   const reportRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
   const sessionRef = useRef<TarpackSession | null>(null);
   const frame = useRef(0);
 
@@ -203,7 +208,7 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
     async (id: string) => {
       const assigned = sessionRef.current?.manifest?.entries.find((e) => e.id === id)?.assigned;
       try {
-        const path = await openFileDialog({ defaultPath: folderOf(assigned) });
+        const path = await openFileDialog({ defaultPath: assigned ? assignedFolder(assigned) : undefined });
         if (path) await run(() => assign(id, path), "other");
       } catch (e) {
         fail(e);
@@ -218,8 +223,10 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
       try {
         const { session: next, outcome } = await assignDropped(paths);
         apply(next, "other");
-        setDropOutcome(outcome);
-        announce(dropResultText(outcome, next.manifest?.failedEntries.length ? true : false));
+        const entries = next.manifest?.entries ?? [];
+        const failed = (next.manifest?.failedEntries.length ?? 0) > 0;
+        setDropOutcome({ outcome, entries });
+        announce(dropResultText(outcome, entries, failed));
       } catch (e) {
         fail(e);
       }
@@ -235,7 +242,7 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
     session?.stateWarning && session.stateWarning !== stateWarningDismissed ? session.stateWarning : null;
 
   return (
-    <section className="tool-view tarpack" aria-busy={loading ? true : undefined}>
+    <section ref={rootRef} tabIndex={-1} className="tool-view tarpack" aria-busy={loading ? true : undefined}>
       <Announcer text={announcement} />
       <DropZone
         enabled={dropState.enabled}
@@ -318,9 +325,14 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
       )}
       {manifest && dropOutcome && (
         <DropResult
-          outcome={dropOutcome}
+          outcome={dropOutcome.outcome}
+          entries={dropOutcome.entries}
           hasFailedEntries={hasFailedEntries}
-          onDismiss={() => setDropOutcome(null)}
+          onDismiss={() => {
+            setDropOutcome(null);
+            // The focused Dismiss button unmounts; keep focus inside the view.
+            rootRef.current?.focus({ preventScroll: true });
+          }}
         />
       )}
       {manifest && (
@@ -335,13 +347,6 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
       {/* Slot for a later task: build result and bar (U5). */}
     </section>
   );
-}
-
-/** The folder part of a display path, or undefined when there is none or the path is lossy. */
-function folderOf(path: string | null | undefined): string | undefined {
-  if (!path || path.includes("\uFFFD")) return undefined;
-  const i = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
-  return i > 0 ? path.slice(0, i) : undefined;
 }
 
 function dropAvailability(

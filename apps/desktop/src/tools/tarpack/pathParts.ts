@@ -33,3 +33,26 @@ export function pathParts(path: string): { head: string; tail: string } {
   const shown = name.length > NAME_CAP ? `…${name.slice(-NAME_CAP).join("")}` : name.join("");
   return { head, tail: lead + shown };
 }
+
+/**
+ * The folder of an assigned file's display path, for a dialog's start folder:
+ * everything before the last separator, keeping the separator when only a
+ * drive or UNC-share prefix remains. `undefined` when there is no separator or
+ * the path is lossy (contains U+FFFD, so it must not be passed back to `lib`).
+ * Works on code points.
+ */
+export function assignedFolder(path: string): string | undefined {
+  if (path.includes("\uFFFD")) return undefined;
+  const cps = Array.from(path);
+  const pre = prefixLength(cps);
+  const from = pre > 0 && isSep(cps[pre - 1]) ? pre - 1 : pre;
+  let sep = -1;
+  for (let i = cps.length - 1; i >= from; i--) {
+    if (isSep(cps[i])) {
+      sep = i;
+      break;
+    }
+  }
+  if (sep < 0) return undefined;
+  return cps.slice(0, sep < Math.max(pre, 1) ? sep + 1 : sep).join("");
+}

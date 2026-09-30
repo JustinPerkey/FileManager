@@ -1,3 +1,6 @@
+.tarpack:focus {
+  outline: none;
+}
 .tarpack {
   /* .tool-view pads its block edges by --space-4; sticky offsets derive from this. */
   --view-pad-block: var(--space-4);

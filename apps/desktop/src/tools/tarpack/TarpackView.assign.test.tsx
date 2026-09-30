@@ -84,10 +84,13 @@ test("drop calls assignDropped with the dropped paths, renders session and outco
   expect(tp.assignDropped).toHaveBeenCalledWith(["C:\\d\\app.bin"]);
   expect(screen.getByText("C:\\d\\app.bin", { exact: false, selector: "td *" })).toBeInTheDocument();
   expect(screen.getByRole("region", { name: "Drop result" })).toHaveTextContent("1 matched");
-  await waitFor(() => expect(announcer()).toHaveTextContent(dropResultText(outcome, false)));
+  await waitFor(() =>
+    expect(announcer()).toHaveTextContent(dropResultText(outcome, next.manifest!.entries, false)),
+  );
   expect(screen.queryByRole("region", { name: "Drop result" })!.closest("[aria-live]")).toBeNull();
   await user().click(screen.getByRole("button", { name: "Dismiss drop result" }));
   expect(screen.queryByRole("region", { name: "Drop result" })).toBeNull();
+  expect(container.querySelector(".tarpack")).toHaveFocus();
   expect((await axe(container)).violations).toEqual([]);
 });
 const user = () => userEvent.setup();
@@ -190,7 +193,9 @@ test("silence on assign: Browse and Clear leave the announcer alone; a drop anno
   await act(async () => new Promise((r) => setTimeout(r, 30)));
   expect(announcer()).toHaveTextContent("has 1 error");
   await drop();
-  await waitFor(() => expect(announcer().textContent).toBe(dropResultText(outcome, true)));
+  await waitFor(() =>
+    expect(announcer().textContent).toBe(dropResultText(outcome, s.manifest!.entries, true)),
+  );
   expect(announcer().textContent).not.toMatch(/has \d+ errors?/);
 });
 

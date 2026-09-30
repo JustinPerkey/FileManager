@@ -5,14 +5,16 @@ import { expect, test, vi } from "vitest";
 import type { DropOutcome } from "../../lib/generated/DropOutcome";
 import type { UnmatchedReason } from "../../lib/generated/UnmatchedReason";
 import { DropResult, dropResultText } from "./DropResult";
+import { entry } from "./fixtures";
 
 const empty: DropOutcome = { matched: [], unmatched: [], ambiguous: [] };
 const out = (over: Partial<DropOutcome>): DropOutcome => ({
   ...empty,
   ...over,
 });
+const entries = [entry("app"), entry("core"), entry("other")];
 const show = (o: DropOutcome, failed = false, onDismiss = vi.fn()) =>
-  render(<DropResult outcome={o} hasFailedEntries={failed} onDismiss={onDismiss} />);
+  render(<DropResult outcome={o} entries={entries} hasFailedEntries={failed} onDismiss={onDismiss} />);
 const lines = (c: HTMLElement) => Array.from(c.querySelectorAll("li")).map((l) => l.textContent);
 
 test("matched line", () => {
@@ -36,7 +38,11 @@ const cases: [UnmatchedReason, string, "muted" | "warn", boolean?][] = [
   ["linkNotFollowed", "1 link not followed: notes.txt", "muted"],
   ["notFound", "1 no longer found: notes.txt", "warn"],
   ["unreadable", "1 could not be read: notes.txt", "warn"],
-  ["notUnicode", "1 can't be assigned: the path has unsupported characters. Rename it: notes.txt", "warn"],
+  [
+    "notUnicode",
+    "1 not assigned, unsupported characters in its path \u2014 rename it or its folder: notes.txt",
+    "warn",
+  ],
 ];
 test.each(cases)("unmatched reason %s has its copy and icon", (reason, text, tone) => {
   const { container } = show(out({ unmatched: [{ path: "C:\\d\\notes.txt", reason }] }));
@@ -67,13 +73,52 @@ test("two items with one reason share one line", () => {
   expect(lines(container)).toEqual(["2 already assigned, left unchanged: app.dll, core.dll"]);
 });
 
-test("ambiguous line", () => {
+test("ambiguous: an entry with two candidates", () => {
+  const { container } = show(
+    out({ ambiguous: [{ id: "app", candidates: ["C:\\a\\app.dll", "C:\\b\\app.dll"] }] }),
+  );
+  expect(lines(container)).toEqual([
+    "1 ambiguous, not assigned \u2014 use Browse\u2026 on its row: /opt/app (2 files)",
+  ]);
+  expect(container.querySelector(".mono")).toHaveTextContent("/opt/app");
+  expect(screen.getByText("/opt/app").closest("[title]")).toHaveAttribute(
+    "title",
+    "Matching files:\nC:\\a\\app.dll\nC:\\b\\app.dll",
+  );
+});
+
+test("ambiguous: two entries sharing one candidate", () => {
+  const c = ["C:\\x\\app.dll"];
+  const o = out({
+    ambiguous: [
+      { id: "app", candidates: c },
+      { id: "core", candidates: c },
+    ],
+  });
+  const { container } = show(o);
+  expect(lines(container)).toEqual([
+    "2 ambiguous, not assigned \u2014 use Browse\u2026 on their rows: /opt/app (app.dll fits more than one entry), /opt/core (app.dll fits more than one entry)",
+  ]);
+});
+
+test("ambiguous: an id not in entries falls back to the file name, never the id", () => {
+  const { container } = show(out({ ambiguous: [{ id: "ghost", candidates: ["C:\\x\\app.dll"] }] }));
+  expect(lines(container)[0]).toContain("on its row: app.dll (app.dll fits more than one entry)");
+  expect(container.textContent).not.toContain("ghost");
+});
+
+test("notUnicode plural copy", () => {
   const { container } = show(
     out({
-      ambiguous: [{ id: "app", candidates: ["C:\\a\\app.dll", "C:\\b\\app.dll"] }],
+      unmatched: [
+        { path: "C:\\a\\x.pdf", reason: "notUnicode" },
+        { path: "C:\\a\\y.pdf", reason: "notUnicode" },
+      ],
     }),
   );
-  expect(lines(container)).toEqual(["1 ambiguous: app.dll could be 2 files — use Browse"]);
+  expect(lines(container)).toEqual([
+    "2 not assigned, unsupported characters in their paths \u2014 rename them or their folders: x.pdf, y.pdf",
+  ]);
 });
 
 test("U+FFFD paths render", () => {
@@ -85,13 +130,15 @@ test("U+FFFD paths render", () => {
   expect(lines(container)).toEqual(["1 not in the manifest: bad\uFFFDname.txt"]);
 });
 
-test("very long lists are capped", () => {
-  const unmatched = Array.from({ length: 20 }, (_, i) => ({
-    path: `C:\\f${i}`,
-    reason: "noEntry" as const,
-  }));
-  const { container } = show(out({ unmatched }));
-  expect(lines(container)[0]).toMatch(/^20 not in the manifest: f0, .*f7 and 12 more$/);
+test("more than 8 names: 8 shown, full count, and the same in dropResultText", () => {
+  const unmatched = Array.from({ length: 9 }, (_, i) => ({ path: `C:\\f${i}`, reason: "noEntry" as const }));
+  const o = out({ unmatched });
+  const { container } = show(o);
+  expect(lines(container)[0]).toBe("9 not in the manifest: f0, f1, f2, f3, f4, f5, f6, f7, and 1 more");
+  expect(screen.queryByText("f8")).toBeNull();
+  expect(dropResultText(o, entries, false)).toBe(
+    "9 not in the manifest: f0, f1, f2, f3, f4, f5, f6, f7, and 1 more.",
+  );
 });
 
 test("failed entries: noEntry reads not matched and the hint follows; also after folderNoMatch alone", () => {
@@ -130,10 +177,12 @@ test("combined outcome: order, and dropResultText matches the rendered lines", (
     "1 already assigned, left unchanged",
     "1 no longer found",
     "Files for entries with errors can't be matched until those errors are fixed.",
-    "1 ambiguous",
+    "1 ambiguous, not assigned \u2014 use Browse\u2026 on its row",
   ]);
-  expect(dropResultText(combined, true)).toBe(rendered.map((l) => `${l}.`.replace(/\.\.$/, ".")).join(" "));
-  expect(dropResultText(out({ matched: [["a", "b"]] }), false)).toBe("1 matched.");
+  expect(dropResultText(combined, entries, true)).toBe(
+    rendered.map((l) => (l!.endsWith(".") ? l : `${l}.`)).join(" "),
+  );
+  expect(dropResultText(out({ matched: [["a", "b"]] }), entries, false)).toBe("1 matched.");
 });
 
 test("dismiss by keyboard; no live role; axe clean", async () => {
@@ -150,6 +199,6 @@ test("dismiss by keyboard; no live role; axe clean", async () => {
 
 test("an outcome with nothing in it says so", () => {
   const { container } = show(empty);
-  expect(lines(container)).toEqual(["Nothing was dropped that could be matched."]);
-  expect(dropResultText(empty, false)).toBe("Nothing was dropped that could be matched.");
+  expect(lines(container)).toEqual(["Nothing was matched"]);
+  expect(dropResultText(empty, entries, false)).toBe("Nothing was matched.");
 });
