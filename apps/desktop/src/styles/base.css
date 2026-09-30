@@ -11,15 +11,45 @@ body,
   margin: 0;
 }
 
+html {
+  scrollbar-color: var(--border) var(--surface-sunken);
+}
+
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   line-height: 1.4;
 }
 
 :focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }

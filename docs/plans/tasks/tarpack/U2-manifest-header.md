@@ -1,6 +1,9 @@
 # U2 — Manifest header, empty state, error report and notice, changed-on-disk banner
 
-Status: awaiting approval
+Status: done (landed 2026-09-30, reviewer-approved)
+Amended: 2026-09-30 by the ui-designer, after the reviewer's findings on the
+first implementation (test seam, menu elevation, banner announcements and
+order, failed restore, error normalisation, stylesheet home, tests).
 Project: tarpack   Depends on: U1 (landed), M6 (landed; this task reads its
 partial-results fields `entriesWithheld`, `failedEntries`, and `errorCount`)
 
@@ -108,7 +111,8 @@ quiet, dense, restrained palette, with tonal depth, no shadows at rest, system
 UI type, and mono for data. This is an **Operate** surface that extends the
 established world. Invent no new visual identity and do not rewrite
 `DESIGN.md`, except to change its "Planned (U2)" markers to landed once you
-build them.
+build them. The ui-designer has already updated its intro and its Elevation &
+Depth section for this task; leave those as they are.
 
 **The single source of truth.** Every command returns a full `TarpackSession`,
 and the view renders it. Keep it in one piece of React state in
@@ -134,13 +138,13 @@ empty slots.
 
 | Component | Path | Props | States |
 | --- | --- | --- | --- |
-| `TarpackView` | `src/tools/tarpack/TarpackView.tsx` | — | loading / no-manifest / loaded / errors (entries shown) / errors (entries withheld) / changed-on-disk |
+| `TarpackView` | `src/tools/tarpack/TarpackView.tsx` | `actionsRef?: Ref<TarpackActions>` (test-only seam, below) | loading / no-manifest / no-manifest after a failed restore / loaded / errors (entries shown) / errors (entries withheld) / changed-on-disk |
 | `ManifestHeader` | `src/tools/tarpack/ManifestHeader.tsx` | `session, onOpen, onOpenRecent, onReload, onEdit` | loaded |
 | `ManifestErrors` | `src/tools/tarpack/ManifestErrors.tsx` | `manifest, expanded, onExpandedChange(expanded), onEdit, reportRef` | hidden / warnings only / errors expanded / errors collapsed / errors with entries withheld |
 | `FailureList` | `src/tools/tarpack/FailureList.tsx` | `failures: EntryFailure[], headingLevel: 3 \| 4` | — (renders nothing for `[]`) |
 | `DiagnosticList` | `src/tools/tarpack/DiagnosticList.tsx` | `diagnostics: Diagnostic[], label: string` | — (renders nothing for `[]`) |
-| `errorMessages` | `src/tools/tarpack/errorMessages.ts` (module) | exports `errorMessage(error: TarpackError, entries): string` | one entry per kind |
-| `Banner` | `src/app/Banner.tsx` (shared) | `tone: "info"\|"warn"\|"error", message, action?: { label, onAction }, onDismiss?` | info / warn / error |
+| `errorMessages` | `src/tools/tarpack/errorMessages.ts` (module) | exports `errorMessage(error: TarpackError, entries): string` and `toTarpackError(e: unknown): TarpackError` | one entry per kind |
+| `Banner` | `src/app/Banner.tsx` (shared) | `tone: "info"\|"warn"\|"error", message, action?: { label, onAction }, onDismiss?, children?` (children: the Details disclosure) | info / warn / error |
 | `Button` | `src/app/Button.tsx` (shared) + `src/styles/controls.css` | native `<button>` props, plus `variant: "primary"\|"secondary"\|"quiet"` (default `"secondary"`) and `icon?: IconName` | default / hover / active / focus / disabled / busy |
 | `Icon` | `src/app/icons.tsx` (shared) | `name: IconName` | — |
 
@@ -159,6 +163,16 @@ same before and after a build. `reportRef` is a ref to the report body, so
 - **`announce(text)`**: sets the text of the view's announcer (below). U5 uses
   it to announce the build result.
 
+**Test-only seam.** Export
+`interface TarpackActions { showErrors(): void; announce(text: string): void }`
+from `TarpackView.tsx`, and give `TarpackView` one optional prop,
+`actionsRef?: Ref<TarpackActions>`, filled with `useImperativeHandle`. It
+exists only so this task's tests can call the two functions before any caller
+exists. The registry and `AppShell` never pass it, and product code never
+reads it: U5 and U6 call `showErrors()` and `announce()` inside `TarpackView`
+(passed down as props, or from a hook the view owns). Do not add other
+imperative methods to it.
+
 ### Shared vocabulary (you create it)
 
 An `impeccable` critique of the plan found that without this, U2–U5 would each
@@ -176,8 +190,10 @@ they do not change with the theme:
 | `--font-size-xl` | `1.25rem` | the view heading |
 
 Also add `--shadow-overlay`: `0 8px 24px rgb(0 0 0 / 0.18)` in light, and
-`0 8px 24px rgb(0 0 0 / 0.5)` in both dark blocks. U5 and U6 use it for the
-dialog and popover; nothing else has a shadow.
+`0 8px 24px rgb(0 0 0 / 0.5)` in both dark blocks. It is for surfaces that
+float over content, and only three use it: the **Recent** menu (this task),
+U5's confirmation dialog, and U6's shortcuts popover. Nothing else has a
+shadow.
 
 Point `body` in `base.css` at `--font-size-md`, and `.tool-view h1` in
 `app.css` at `--font-size-xl`, so the values have one home.
@@ -189,6 +205,9 @@ Point `body` in `base.css` at `--font-size-md`, and `.tool-view h1` in
   build custom scrollbars;
 - a `.num` utility class sets `font-variant-numeric: tabular-nums`. Use it for
   counts ("3 errors", "N warnings");
+- a `.mono` utility class, beside `.num`, sets
+  `font-family: var(--font-mono)` only; the size inherits from its context.
+  Use it for ids, sources, paths, and `line:col`;
 - a `.visually-hidden` utility (the standard clip pattern), if U1 did not
   already add one. The report and the announcer use it.
 
@@ -204,7 +223,14 @@ prop and ref. Every button in the app uses it. Styles go in
 - **secondary:** `--surface` fill, `--border` outline, `--text` label. This is
   the default, used for the header actions and the error notice's actions.
 - **quiet:** transparent with a transparent border; `--surface-sunken` on
-  hover. Use it for Dismiss and the Details disclosure toggle.
+  hover. Use it for Dismiss.
+- **Details disclosure:** not a `Button`. It is a native
+  `<details>`/`<summary>` (the browser supplies the toggle semantics and
+  Enter/Space), with the `<summary>` styled like a quiet control: a minimum
+  24×24 px target, the quiet-button padding (`--space-1 --space-3`),
+  `--radius`, `cursor: pointer`, a `--surface-sunken` fill on hover, and the
+  global `:focus-visible` ring. The rule is `.banner__details summary` in
+  `controls.css`.
 - **hover:** secondary and quiet use `--surface-sunken`. Primary uses
   `color-mix(in srgb, var(--accent) 88%, var(--text))`. The mix references
   only tokens, so it follows the theme.
@@ -239,10 +265,19 @@ library, and the CSP forbids remote assets.
 - The tone is also given in visually hidden text before the message:
   "Information:", "Warning:", or "Error:".
 - There is no tinted fill and no colored side border thicker than 1 px.
-- The container is `role="status"` for info and warn, and `role="alert"` for
-  error.
-- Banners stack above the error region, newest first. The changed-on-disk
-  banner has no dismiss; it clears on reload.
+- The container is `role="alert"` for error. Info and warn banners are **not**
+  live regions (no `role="status"`, no `aria-live`): a region that mounts
+  with its text already in it is not reliably announced. The view that shows
+  an info or warn banner announces its text through its own always-mounted
+  announcer instead (see "The announcement" below).
+- The **Details** disclosure that command-error banners carry is passed as
+  `Banner` children; its style (`.banner__details`) lives in `controls.css`
+  with the rest of `Banner`, because U4 and U5 reuse it.
+- Banners sit in one container directly below the header, in a **fixed
+  order**, at most one of each: command error, changed on disk, state
+  warning. A fixed order is predictable; nothing is ordered by time. A new
+  command error replaces the previous one. The changed-on-disk banner has no
+  dismiss; it clears on reload.
 
 ### Behaviour
 
@@ -256,8 +291,15 @@ library, and the CSP forbids remote assets.
     or Down, arrows move through it, and Escape closes it and returns focus),
     **Reload**, and **Edit in editor**. All stay enabled when the manifest
     has errors.
-- **No-manifest state** (`session.manifest === null`): one sentence, "Open a
-  manifest to list the files this package needs.", and two buttons:
+  - The **Recent** menu floats over the content below it: `--surface`, a
+    1 px `--border`, `--radius`, `--space-1` padding, and `--shadow-overlay`.
+    Items are paths in `.mono` at `--font-size-sm` and wrap
+    (`overflow-wrap: anywhere`) rather than truncate.
+- **No-manifest state** (`session.manifest === null`, or the first
+  `session()` call rejected; see "Other states"). Top to bottom: the view
+  heading `h1` "Tar Packager", the banners container (above), then one
+  sentence, "Open a manifest to list the files this package needs.", and two
+  buttons:
   - **Open manifest…** (primary): an open dialog filtered to `*.toml`;
   - **Create from example…** (secondary): a save dialog, then
     `createManifestFromExample`.
@@ -349,6 +391,11 @@ not say "12 colon 5". Messages, long ids, and source names wrap
 
 #### The announcement (screen-reader notification)
 
+The announcer and the error banner (`role="alert"`) are the view's only live
+regions. The error region, the info and warn banners, and (in U4) the drop
+result are not live regions; their text reaches screen readers through
+`announce()`.
+
 - An always-mounted, visually hidden `role="status"` (`aria-live="polite"`)
   announcer in `TarpackView`. It is in the DOM from the first render,
   including the loading state, so the first message is announced. Do not make
@@ -367,9 +414,21 @@ not say "12 colon 5". Messages, long ids, and source names wrap
     the text on the next frame.
   - A reload that takes `errorCount` from above 0 to 0: "{name} reloaded. No
     errors."
-  - Otherwise, announce nothing.
-- Do not announce on assign, clear, drop, or format changes; the error count
-  does not change there.
+  - Otherwise, announce nothing for the manifest itself.
+- **Changed on disk:** when the banner goes from hidden to shown, announce
+  "The manifest changed on disk." Further events while it is already shown
+  announce nothing.
+- **State warning:** when a session result carries a `stateWarning` that is
+  not already on screen, announce its text. When the same result also has an
+  error sentence (for example the first restore), make **one** `announce()`
+  call with the state warning first, then the error sentence, separated by a
+  space, in the banners' visual order. Two calls in a row would lose the
+  first, because `announce()` clears and sets on the next frame.
+- A command error banner is `role="alert"` and announces itself; do not also
+  pass it to `announce()`.
+- Do not announce the error count on assign, clear, drop, or format changes;
+  the error count does not change there. (U2 has none of these flows; U4
+  tests that assign and clear stay silent.)
 
 #### Warnings
 
@@ -404,6 +463,17 @@ build. The backend emits three kinds; show each `message` exactly as given:
     state in place so the user can try another name.
   - **Edit in editor** can fail with `OpenerFailed`.
   - Any command can fail with `Io`.
+  - **The first `session()` call rejects** (for example `Io`): there is no
+    session to show, so render the **no-manifest state** with the error
+    banner in the banners container, below the `h1` and above the sentence
+    and buttons. Clear `aria-busy`. **Open manifest…** and **Create from
+    example…** work as usual; a successful one replaces the state and clears
+    the banner. There is no Recent menu here (it lives in the header). Never
+    leave the error banner alone on an otherwise empty view.
+- **Normalising rejections.** `src/lib/tarpack.ts` passes rejections through
+  unchanged, so a rejection may not be a `TarpackError` (a Tauri IPC failure,
+  a thrown `Error`). Every `catch` in the view passes the value through
+  `toTarpackError` (below) before storing it.
 
 ### Error copy (you create `errorMessages.ts`)
 
@@ -416,6 +486,17 @@ looks up `entryId` in `session.manifest.entries` and passes that entry's
 `source`, or `null` when `entryId` is omitted or unknown; a `{source}`
 placeholder then reads "A file". (The ids of failed entries are not in
 `entries`, so they read "A file" too.)
+
+The same module exports `toTarpackError(e: unknown): TarpackError`. It
+returns `e` unchanged when `e` is an object whose `kind` is an own key of the
+`messages` Record (`Object.hasOwn(messages, kind)`), whose `message` is a
+string, and whose `entryId` is a string or absent. Anything else becomes
+`{ kind: "Io", message: e instanceof Error ? e.message : String(e) }`. Key the
+check off the Record: do not write a second list of the 17 kinds anywhere.
+This guard is temporary. Normalising rejections belongs in `lib/` (the
+backend implementer's side); when `lib/tarpack.ts` guarantees `TarpackError`,
+the guard is removed. Until then, U4 and U5 import this function and write no
+guard of their own.
 
 | Kind | Raised by | Message |
 | --- | --- | --- |
@@ -454,6 +535,22 @@ then reports `ManifestUnreadable` with its own copy.
   example that saved locations were reset, or that the last manifest could
   not be reopened at startup; several warnings arrive joined in one string).
 
+### Stylesheets
+
+- Styles for this tool's components live in `src/styles/tarpack.css`,
+  imported from `src/App.tsx` after `controls.css`. Every selector in it is
+  scoped under the view root class `.tarpack` (for example
+  `.tarpack .menu`, `.tarpack .empty`, `.tarpack .skeleton`,
+  `.tarpack .banners`), so its generic class names cannot reach another
+  tool. The view's root `<section>` carries `tool-view tarpack` in **every**
+  state, including loading, no-manifest, and a failed restore.
+- Shared components (`Button`, `Banner`, including `.banner__details`) are
+  styled in `src/styles/controls.css`.
+- Utilities (`.num`, `.mono`, `.visually-hidden`) live in
+  `src/styles/base.css`.
+- Later tasks add their tool styles to `tarpack.css` under the same scope,
+  and shared-component styles to `controls.css`.
+
 **Rules that bind this task.**
 
 - Tokens only, no hex. Font sizes only from `--font-size-*`.
@@ -474,9 +571,11 @@ then reports `ManifestUnreadable` with its own copy.
   `errorMessages.ts`
 - `src/app/Banner.tsx`, `src/app/Button.tsx`, `src/app/icons.tsx`
 - `src/styles/tokens.css` (the new tokens), `src/styles/base.css` (the browser
-  surfaces, `.num`, `.visually-hidden`, and body size), `src/styles/app.css`
-  (the heading size), and `src/styles/controls.css` (new, imported from
-  `src/App.tsx`)
+  surfaces, `.num`, `.mono`, `.visually-hidden`, and body size),
+  `src/styles/app.css` (the heading size), `src/styles/controls.css` (new,
+  imported from `src/App.tsx`: `Button`, `Banner`, `.banner__details`), and
+  `src/styles/tarpack.css` (new, imported from `src/App.tsx` after
+  `controls.css`; every selector scoped under `.tarpack`)
 - The root `DESIGN.md`: change the "Planned (U2)" markers to "Landed (U2)" for
   what you built. Change nothing else in it.
 - Tests next to each
@@ -507,8 +606,25 @@ How to run it:
   `×` character appears in any `.tsx` file.
 - `Button` renders each variant, forwards `ref` and `disabled`, is at least
   24×24 px, and keeps the focus ring. Busy sets `aria-busy` and disables it.
-- A `Banner` of each tone has a 1 px tone border, no tinted fill, the tone
-  word in its accessible text, and the right role.
+- A `Banner` of each tone has a 1 px tone border, no tinted fill, and the
+  tone word in its accessible text. Error is `role="alert"`; info and warn
+  have no live role.
+- Banners render in the fixed order command error, changed on disk, state
+  warning.
+- The changed-on-disk banner appearing, and a newly shown state warning, are
+  announced through the announcer (one call when the state warning and an
+  error sentence arrive together).
+- A rejected first `session()` call shows the no-manifest state (heading,
+  sentence, **Open manifest…**, **Create from example…**) with the error
+  banner below the heading; `aria-busy` is cleared, and Open from there
+  loads a manifest and clears the banner.
+- A rejection that is not a `TarpackError` shows the `Io` copy, with the
+  thrown text under Details.
+- The Recent menu uses `--shadow-overlay`; nothing else in this task has a
+  `box-shadow`.
+- Every selector in `tarpack.css` starts with `.tarpack`; `.mono` and `.num`
+  are in `base.css`; `.banner__details` is in `controls.css`.
+- `actionsRef` is optional and is passed only by tests.
 - Every state above renders from a `TarpackSession` fixture.
 - **Open…** calls `openFileDialog` with a `.toml` filter, then `openManifest`.
   A cancelled dialog does nothing.
@@ -557,26 +673,52 @@ How to run it:
 - `TarpackView.states.test.tsx`: loading, no-manifest, loaded, errors with
   entries shown, errors with entries withheld, and changed-on-disk;
   `ManifestUnreadable` from Open and Reload; `PathExists` from Create from
-  example.
-- `TarpackView.errors.test.tsx`:
+  example; a rejected first `session()` (`Io`) showing the no-manifest state
+  with the error banner and working Open / Create buttons; a non-`TarpackError`
+  rejection showing the `Io` copy; the banner order with all three banners
+  shown; the root `<section>` having the `tarpack` class in the loading,
+  no-manifest, and loaded states.
+- `TarpackView.errors.test.tsx` (calls `showErrors()` and `announce()`
+  through `actionsRef`):
   - the announcer text after open, reload, and restore with errors (withheld,
     failed entries, manifest-level only); the repeat on a same-count reload;
-    "No errors." on a reload to 0; silence on assign;
+    "No errors." on a reload to 0;
+  - the announcer text for the changed-on-disk banner appearing (once, not
+    again on a second event), and for a restore that has both a
+    `stateWarning` and errors (one combined text);
+  - `announce(text)` setting the announcer text;
   - the report re-expanding after a reload when the user had collapsed it;
-  - `showErrors()` moving focus to the report body; no focus change on open.
+  - `showErrors()` expanding the body and moving focus to it; doing nothing
+    when `errorCount` is 0;
+  - **no focus change on open or reload:** focus **Open…** (or **Reload**),
+    trigger it, let a session with errors resolve, and assert
+    `document.activeElement` is still that button and the report body is not
+    focused;
+  - **200 failed entries:** a fixture with 200 `failedEntries` renders all
+    200 entry headings and their items; the report body is the only element
+    in the region with `tabIndex=0` (no descendant is a tab stop), and it
+    carries the scrolling class (`error-region__report`, whose rule in
+    `tarpack.css` sets the `40vh` max height and `overflow-y: auto`).
 - `ManifestHeader.test.tsx`: each action calls the right `lib` function;
   Recent is hidden when empty; and the Recent menu opens, moves, and closes
   with Escape, returning focus by keyboard.
 - `Button.test.tsx`: variants, `disabled`, `busy`, `ref` forwarding, and an
   axe check.
-- `Banner.test.tsx`: each tone's role and hidden tone word; dismiss present
-  only with `onDismiss`.
+- `Banner.test.tsx`: `role="alert"` for error and no live role for info and
+  warn; each tone's hidden tone word; dismiss present only with `onDismiss`;
+  children (the Details disclosure) rendered.
 - `tokens.test.ts` (extend U1's): the four size tokens and `--shadow-overlay`
   exist.
 - `errorMessages.test.ts`: a non-empty message for each of the 17 kinds
   (listed explicitly in the test, including `NoEntries`), `{source}` filled
   from `entryId`, and "A file" when `entryId` is omitted or unknown.
-  `npm run typecheck` proves exhaustiveness.
+  `npm run typecheck` proves exhaustiveness. `toTarpackError`: a valid
+  `TarpackError` passes through unchanged; an unknown `kind`, a missing
+  `message`, a string, an `Error`, and `undefined` each become `Io` with the
+  thrown text as `message`.
+- `tokens.test.ts` also reads `tarpack.css` (`?raw`) and asserts every
+  selector starts with `.tarpack`, and that `box-shadow` appears only on the
+  Recent menu rule.
 - `ManifestErrors.test.tsx`: the count heading (singular and plural); each
   consequence line; the Whole manifest group; the toggle; warnings alongside
   errors; and a long-name warning whose message (with its byte count) renders
@@ -585,18 +727,23 @@ How to run it:
   `id`, one with `id: null` and a `source`, and one with both `null`; every
   error of a multi-error entry listed; the "Line N, column M:" accessible
   text; empty input renders nothing.
-- Axe checks on each state, including the report expanded and collapsed.
+- Axe checks on each state, including the report expanded and collapsed,
+  and explicitly on: loading (after the 150 ms delay, skeleton shown);
+  changed-on-disk; a command error banner with Details closed and with
+  Details open; and the no-manifest state after a failed restore.
 
 ## States covered
 
-Loading, no-manifest, loaded, errors with entries shown (expanded and
-collapsed), errors with entries withheld, manifest-level errors only, warnings
-only, errors plus warnings, changed-on-disk, and command error
-(`ManifestUnreadable`, `PathExists`, `OpenerFailed`, `Io`).
+Loading, no-manifest, no-manifest after a failed restore, loaded, errors
+with entries shown (expanded and collapsed), errors with entries withheld,
+manifest-level errors only, warnings only, errors plus warnings,
+changed-on-disk, state warning, and command error (`ManifestUnreadable`,
+`PathExists`, `OpenerFailed`, `Io`, and a non-`TarpackError` rejection).
 
 ## Out of scope
 
 - The entry table, including its empty and withheld messages (U3).
-- Drops (U4).
+- Drops, assign, and clear (U4), including the test that they do not
+  announce the error count.
 - The build bar, its route to the report, and the build's final report (U5).
 - Keyboard shortcuts, including the one that shows the errors (U6).

@@ -1,4 +1,5 @@
 import css from "./tokens.css?raw";
+import tarpackCss from "./tarpack.css?raw";
 import { expect, test } from "vitest";
 
 function block(selectorStart: string): Record<string, string> {
@@ -49,3 +50,26 @@ for (const [name, t] of themes.filter(([n]) => n !== "dark (attribute)")) {
     expect(contrast(t[fg], t[bg])).toBeGreaterThanOrEqual(4.5);
   });
 }
+
+test.each(themes)("%s defines the overlay shadow", (_name, t) => {
+  expect(t["--shadow-overlay"]).toMatch(/^0 8px 24px rgb\(0 0 0 \/ 0\.(18|5)\)$/);
+});
+
+test("type-size tokens exist on :root", () => {
+  const t = themes[0][1];
+  expect(t["--font-size-sm"]).toBe("0.8125rem");
+  expect(t["--font-size-md"]).toBe("0.875rem");
+  expect(t["--font-size-lg"]).toBe("1rem");
+  expect(t["--font-size-xl"]).toBe("1.25rem");
+});
+
+test("every tarpack.css selector is scoped under .tarpack, and only the Recent menu has a shadow", () => {
+  const rules = [...tarpackCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  expect(rules.length).toBeGreaterThan(0);
+  const shadowed: string[] = [];
+  for (const [, sel, body] of rules) {
+    for (const one of sel.split(",")) expect(one.trim().startsWith(".tarpack")).toBe(true);
+    if (/box-shadow/.test(body)) shadowed.push(sel.trim());
+  }
+  expect(shadowed).toEqual([".tarpack .menu__list"]);
+});

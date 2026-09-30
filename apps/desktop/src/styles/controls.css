@@ -1,0 +1,120 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 24px;
+  min-height: 24px;
+  padding: var(--space-1) var(--space-3);
+  font: inherit;
+  font-size: var(--font-size-md);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--surface-sunken);
+}
+
+.btn:active {
+  background: var(--surface-sunken);
+  translate: 0 1px;
+}
+
+.btn--primary {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn--primary:hover,
+.btn--primary:active {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+
+.btn--quiet {
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn:disabled {
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border-color: var(--border);
+  cursor: default;
+  translate: none;
+}
+
+.icon {
+  flex: none;
+  width: 1em;
+  height: 1em;
+}
+
+.icon--flip {
+  rotate: 180deg;
+}
+
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--tone, var(--border));
+  border-radius: var(--radius);
+}
+
+.banner--info {
+  --tone: var(--accent);
+}
+.banner--warn {
+  --tone: var(--warn);
+}
+.banner--error {
+  --tone: var(--danger);
+}
+
+.banner__icon {
+  color: var(--tone);
+}
+
+.banner__body {
+  flex: 1 1 16rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.banner__actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.banner__details {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.banner__details p {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.banner__details > summary {
+  display: list-item;
+  width: fit-content;
+  min-height: 24px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.banner__details > summary:hover {
+  background: var(--surface-sunken);
+}
