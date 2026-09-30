@@ -5,7 +5,9 @@ from U3; sticky offsets from `--view-pad-block`; `MiddlePath` slot width;
 amended 2026-09-30 after review: failed-build announcement, short format
 labels, progress text rules, accepted decisions, overwrite-dialog folder copy,
 rendered-check method, and the required fixes listed under "Fixes required
-after review")
+after review"; amended 2026-09-30 after re-review: short-window fallback
+for the bar (human's decision), measured `scroll-padding-bottom`,
+`/impeccable audit` waived to U6, test fixes F1, F3, F6)
 Project: tarpack   Depends on: U2 (landed; `FailureList`, `DiagnosticList`,
 `showErrors()`, `announce()`), U3 (landed), M6 (landed; this task reads its
 partial-results and build-report fields). May run alongside U4.
@@ -329,13 +331,29 @@ were errors."* So:
     next 0.25 rem, and add 0.5 rem of breathing room. Then verify: from the
     top of the view, Tab through every table control and check each focused
     element's `getBoundingClientRect().bottom` is at or above the bar's
-    `top`. Record the measured height and the chosen value in your report;
+    `top`. Record the measured height and the chosen value in your report.
+    **Measured and decided (2026-09-30).** A root font of 32 px does not
+    trigger media queries, so the 200%-text check is done at a **400×280**
+    viewport at the default root size (the same layout in CSS pixels as
+    800×560 at 200% zoom). There the sidebar leaves the view about 480 px
+    of device width, the bar wraps to its full height of **448 px =
+    14 rem**, so `.tarpack { scroll-padding-bottom: 14.5rem; }`;
+  - **Short-window fallback (the human's decision, 2026-09-30).** At
+    `@media (max-height: 30rem)` the bar is `position: static` (it sits at
+    the end of the scroll, still the last child of `.tarpack`) and
+    `.tarpack { scroll-padding-bottom: 0; }`, because a sticky bar of
+    14 rem would cover most of a view that short. Accepted limitation: the
+    threshold is height-only while the bar's height depends on width, so,
+    for example, a window of about 480×520 CSS pixels at 200% zoom stays
+    sticky with the bar covering about 40% of the view. Keep this rule as
+    is; do not add a width condition;
   - `BuildResult` sits in the page flow above the bar, with no `overflow`,
     no `max-height`, and no sticky position; only `BuildReport` inside it
     scrolls, capped at `40vh`, like U2's error report;
   - add no other scroll container. At the default window, at 800×560, and at
     200% text the table is in its stacked layout with no sticky header; at
-    800×560 with 200% text the bar takes two lines;
+    800×560 with 200% text the bar wraps to its full height (14 rem, more
+    than two lines) and, under the short-window fallback, is static;
     the view scrolls past the error report, the table, and the result to the
     bar, and every control stays reachable by Tab.
   **Choose…** is a secondary `Button` with the `folder` icon. The disabled
@@ -669,8 +687,10 @@ were errors."* So:
 
 `/impeccable layout` and `/impeccable clarify` (including every left-out,
 report, and announcement string), then `/impeccable animate` for the progress
-bar only. Finish with `/impeccable audit` on the bar, dialog, result, and
-report, and fix every P0 and P1 finding.
+bar only. **`/impeccable audit` is waived for U5 (decided 2026-09-30,
+after re-review)**: the axe checks in the tests and the rendered check below
+stand in for it, and U6 runs the audit, with the detector, over U5's bar,
+dialog, result, and report.
 
 How to run it:
 
@@ -692,14 +712,18 @@ How to run it:
   `src/tools/tarpack/fixtures.ts`), and a `transformCallback` so
   `listen`/`onBuildProgress` can be fed scripted events. Check at 1400×800,
   1000×700, and 800×560, in light and dark (`colorScheme`), and at 200% text
-  (root font size 32 px, via `page.addStyleTag({ content: 'html{font-size:32px}' })`):
-  the bar flush at the bottom edge while scrolling and at the end; the bar on
-  two lines at 800×560 with 200% text; no horizontal scroll
+  (root font size 32 px, via `page.addStyleTag({ content: 'html{font-size:32px}' })`,
+  for text reflow; **for anything involving media queries, use a 400×280
+  viewport instead**, since the root-font hack does not trigger them):
+  the bar flush at the bottom edge while scrolling and at the end; at
+  400×280 the bar static (short-window fallback) and `scroll-padding-bottom`
+  0; no horizontal scroll
   (`scrollWidth <= clientWidth` on `.tarpack` and `document.documentElement`);
   every control reachable by Tab; the `scroll-padding-bottom` measurement
   above; the result and dialog in both themes. Take screenshots of each and
-  look at them. Run `/impeccable audit` against this rendered page, not only
-  against the source.
+  look at them. (`/impeccable audit` is waived to U6; see above.)
+  Known and deferred to U6: U2's manifest header overflows by about 3 px at
+  400×280; do not fix it in U5.
 - If the skill is not installed, install it with `npx impeccable install`, or
   follow the named commands' reference docs from
   `github.com/pbakaus/impeccable` by hand. Say which in your report.
@@ -708,7 +732,8 @@ How to run it:
 
 - The bar is `position: sticky; bottom: calc(var(--view-pad-block) * -1)`
   inside `.tarpack`, flush with the bottom edge both while scrolling and at
-  the end of the scroll, `.tarpack` sets a rem `scroll-padding-bottom`, and neither the bar, the result, nor
+  the end of the scroll, `.tarpack` sets a rem `scroll-padding-bottom`
+  (14.5rem; 0 and a static bar at `max-height: 30rem`), and neither the bar, the result, nor
   the table adds a scroll container (only `BuildReport`, capped at `40vh`).
   At 800×560 with 200% text the view scrolls to every control, and nothing
   scrolls horizontally.
@@ -897,6 +922,35 @@ one:
     not `getAllByRole("status")[0]`.
 11. Update `DESIGN.md` (~line 185): the confirmation dialog is landed
     (`ConfirmDialog`, U5), no longer planned.
+
+### Fixes required after re-review (2026-09-30)
+
+The fixes above landed in 49ed82a and the product code was accepted. The
+re-review left test fixes only:
+
+- **F1.** In `TarpackView.build.test.tsx` (~lines 382-395), the "focus
+  elsewhere stays there" part proves nothing: it focuses the Format picker,
+  which is disabled during the build, and asserts only
+  `document.activeElement !== document.body`. Rewrite it: mount a session
+  with manifest errors, so U2's error report region (`tabIndex={0}`,
+  outside the `<fieldset>`, so not disabled) is rendered; start a build
+  with a pending `build` promise; focus that report region; settle the
+  build; assert the report region has focus and Create archive does not.
+  Delete the comment about simulating a user who moved on.
+- **F3.** The disabled-controls test (~lines 320-338) uses an unassigned
+  entry, so Clear is disabled anyway, and never proves Edit in editor
+  exists. Use an entry with an assigned file. For each of Reload, Edit in
+  editor, Browse…, and Clear, assert the button exists (`getByRole`, not
+  `queryAllByRole` over a possibly empty list), is `disabled` while the
+  build is pending, and is enabled after it settles.
+- **F6.** Give the test in `EntryTable.scale.test.tsx` (~line 16, "2,000
+  rows render…") an explicit timeout of 15000 ms (third argument to
+  `test`); it flakes under full-suite load. Optional: in the "announces no
+  error message" test, replace the 50 ms sleep and regex with an assertion
+  that the announcer (`getByTestId("tarpack-announcer")`) never contains the
+  exact `errorMessage(...)` string for that error.
+
+These are tests only; change no product code for them.
 
 ## Out of scope
 

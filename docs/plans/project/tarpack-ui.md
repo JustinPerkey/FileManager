@@ -98,7 +98,9 @@ Tar Packager surface.
      accent button in the view.
    - Feedback is inline, in live regions, not in toasts.
    - Motion only conveys state: the drop overlay fade and the progress fill.
-   - The build bar wraps onto two lines at narrow widths and at 200% text.
+   - The build bar wraps at narrow widths and at 200% text (to 14 rem, more
+     than two lines, at 800×560 with 200% text); in a window under 30rem
+     tall it is static, not sticky (§12).
 7. **Constraints and open decisions.**
    - WebView2 under a restrictive CSP: no remote assets, so icons are inline
      SVG.
@@ -828,5 +830,26 @@ them under "Fixes required after review":
   mocked.
 - **Tests.** The view's announcer has `data-testid="tarpack-announcer"`;
   tests stop selecting it by position.
+
+**Re-review (2026-09-30, 2357f69..49ed82a).** Product code accepted; the rest
+is recorded here and in the U5 task plan:
+
+- **Short-window fallback (the human's decision, 2026-09-30).** The
+  implementer's fallback is accepted: at `@media (max-height: 30rem)` the
+  build bar is `position: static` and `.tarpack`'s `scroll-padding-bottom`
+  is 0. Measured: at 800×560 with 200% text the sidebar leaves the view about
+  480 px wide and the bar is 448 px = 14 rem, so `scroll-padding-bottom` is
+  14.5rem. The check runs at a 400×280 viewport, because setting the root
+  font size does not trigger media queries. Accepted limitation: the
+  threshold is height-only while the bar's height depends on width (a window
+  of about 480×520 CSS pixels at 200% zoom stays sticky with the bar at about
+  40% of the view). `DESIGN.md` notes the exception.
+- **`/impeccable audit` waived for U5, moved to U6.** U5 relied on axe in
+  its tests plus the rendered checks; U6 already runs the audit with the
+  detector and now covers U5's bar, dialog, result, and report.
+- **Test fixes F1, F3, F6** are listed in the U5 task plan ("Fixes required
+  after re-review").
+- **Follow-up for U6.** U2's manifest header overflows by about 3 px at
+  400×280 (200% text at the minimum window). Added to the U6 task plan.
 - **`DESIGN.md`.** The confirmation dialog moves from planned to landed
   (U5 updates the status line only).
