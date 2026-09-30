@@ -3,3 +3,8 @@
 # apps/desktop/src-tauri/src/generated_types.rs. A stray #[ts(export)] writes
 # here, inside the ignored target dir, never into a crate.
 TS_RS_EXPORT_DIR = { value = "target/ts-rs-stray", relative = true }
+
+# Portable exe: link the C runtime statically so a clean machine needs no
+# VC++ redistributable. The cc crate sees this and builds zstd/liblzma with /MT.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -102,6 +102,13 @@ PowerShell form of the regenerate command:
 $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_current; Remove-Item Env:UPDATE_GENERATED
 ```
 
+- `.cargo/config.toml` links the C runtime statically for
+  `x86_64-pc-windows-msvc` (`+crt-static`), so the portable exe needs no VC++
+  redistributable; `cc` then builds zstd/liblzma with `/MT`. The Windows CI job
+  runs `dumpbin /dependents` on the exe and fails if it lists `vcruntime*`,
+  `msvcp*`, `api-ms-win-crt-*`, `zstd*`, or `liblzma*` DLLs, then uploads
+  `FileManager-<version>-x64.exe`. `docs/tarpack-e2e.md` is the manual
+  end-to-end checklist.
 - Both CI jobs run `cargo test --workspace`, so the generated-types test runs
   on both.
 - Building the shell on Linux needs the webkit2gtk dev packages:
