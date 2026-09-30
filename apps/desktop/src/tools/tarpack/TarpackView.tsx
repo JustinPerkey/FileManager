@@ -525,7 +525,7 @@ function focusAfterResult(root: HTMLElement) {
       !result.contains(el) &&
       !el.matches(":disabled") &&
       el.getAttribute("tabindex") !== "-1" &&
-      !el.closest("[hidden], [inert]"),
+      !el.closest("[hidden], [inert], dialog:not([open])"),
   );
   const after = tabbable.find((el) => result.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
   const before = tabbable.filter(
