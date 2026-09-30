@@ -29,7 +29,11 @@ That loop must take a few keystrokes, not a mouse trip.
   `DiagnosticList.tsx`. A polite live-region announcer in `TarpackView`
   announces the error count after each open, reload, and session restore.
   `TarpackView` has a `showErrors()` handler that expands the report and
-  moves focus to it (it does nothing when `errorCount` is 0);
+  moves focus to it (it does nothing when `errorCount` is 0). Call it from
+  inside the view (the shortcut hook is owned by `TarpackView`); the optional
+  `actionsRef` prop is a test-only seam, not for product code. Info and warn
+  banners are not live regions; the view announces them through the
+  announcer;
 - `EntryTable.tsx`, with per-row Browse… and Clear, `EntryStatus.tsx`, and
   `EolMarker.tsx` (the non-interactive "CRLF → LF" marker on rows whose line
   endings are converted);
@@ -63,7 +67,11 @@ Under `src/app/`:
 - the shared vocabulary from U2: `Button.tsx` (`primary`, `secondary`,
   `quiet`), `icons.tsx` (`Icon`, `IconName`, including `keyboard`), and
   `src/styles/controls.css`. The type-size tokens `--font-size-sm/md/lg/xl`,
-  `--shadow-overlay`, and the `.num` utility are in `src/styles/`.
+  `--shadow-overlay`, and the `.num` and `.mono` utilities are in
+  `src/styles/`. Tool styles are in `src/styles/tarpack.css`, every selector
+  scoped under the view root class `.tarpack`; shared component styles are
+  in `controls.css`. `--shadow-overlay` is used by the Recent menu (U2), the
+  confirmation dialog (U5), and your shortcuts popover, and nothing else.
 
 **Design context.** The root `PRODUCT.md` and `DESIGN.md` record the product
 and its visual system ("The Packing List"). `DESIGN.md` lists one known drift
@@ -126,7 +134,8 @@ access to them; it adds no new behaviour.
   dot.
 - **Vocabulary sweep.** No `<button>` outside `Button.tsx` and `ToolNav.tsx`;
   no glyph icons; no literal `font-size`; no `box-shadow` except
-  `--shadow-overlay`; no colored border thicker than 1 px except the drop
+  `--shadow-overlay` on the Recent menu, the dialog, and the shortcuts
+  popover; every selector in `tarpack.css` starts with `.tarpack`; no colored border thicker than 1 px except the drop
   overlay's dashed border and the focus ring.
 - The layout is intact at 200% text size and at the 800×560 minimum,
   including the worst case: the error report expanded, a build result with
@@ -159,7 +168,8 @@ access to them; it adds no new behaviour.
 - `src/tools/tarpack/useTarpackShortcuts.ts`
 - `src/tools/tarpack/ShortcutsHelp.tsx`
 - Touch-ups across `src/tools/tarpack/`, `src/app/`, and `src/styles/`
-  (including the nav fix in `app.css`)
+  (including the nav fix in `app.css`); the shortcuts popover's styles in
+  `src/styles/tarpack.css`, scoped under `.tarpack`
 - The root `DESIGN.md`: the Navigation entry only, plus any drift the audit
   proves
 - Tests

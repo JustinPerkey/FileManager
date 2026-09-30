@@ -88,8 +88,13 @@ match.
   `entryId` is omitted when absent. `src/tools/tarpack/errorMessages.ts` (U2)
   exports `errorMessage(error, entries)`, an exhaustive
   `Record<TarpackErrorKind, …>` of user copy; use it, and do not write your own
-  copy or fallback. `src/app/Banner.tsx` (U2) shows an error banner:
-  `tone, message, action?`. The kinds these commands can raise, and the copy
+  copy or fallback. The same module exports
+  `toTarpackError(e: unknown): TarpackError`: pass every caught rejection
+  through it before showing it (a rejection may not be a `TarpackError`;
+  unknown shapes become `Io`). Write no guard or kind list of your own.
+  `src/app/Banner.tsx` (U2) shows an error banner:
+  `tone, message, action?, onDismiss?`, with the Details disclosure as
+  children (styled by `.banner__details` in `controls.css`). The kinds these commands can raise, and the copy
   `errorMessage` returns for them:
 
   | Kind | Raised by | Message |
@@ -108,10 +113,20 @@ match.
     `icon?`;
   - `src/app/icons.tsx`: `Icon` with `name: IconName`, including `folder`,
     `check-circle`, `alert-triangle`, `info`, and `x`;
-  - the `.num` utility class for counts.
+  - the `.num` and `.mono` utility classes in `src/styles/base.css`.
+- `TarpackView` (U2) owns `announce(text)`, which sets the text of its
+  always-mounted, visually hidden polite announcer (it clears, then sets on
+  the next frame, so a repeated text is announced again). Apart from the
+  error banner (`role="alert"`), it is the view's only live region. Call it inside `TarpackView`; the
+  optional `actionsRef` prop is a test-only seam, not for product code.
+- **Stylesheets.** Tool styles go in `src/styles/tarpack.css`, and every
+  selector there is scoped under the view root class `.tarpack` (for example
+  `.tarpack .drop-result`). Shared component styles (`DropZone`) go in
+  `src/styles/controls.css`.
 - **Design context.** The root `DESIGN.md` records the visual system ("The
-  Packing List"): flat, tonal, with no shadows at rest. The drop overlay and
-  the confirmation dialog are the only things allowed to float. This is an
+  Packing List"): flat, tonal, with no shadows at rest. Only the drop
+  overlay, the confirmation dialog, and menus and popovers float; nothing in
+  this task has a shadow. This is an
   Operate surface extending that world; the overlay is a state, not a
   moment of delight.
 
@@ -147,8 +162,13 @@ match.
     "Fix the manifest errors first. No files can be matched yet.";
   - `entries` empty otherwise: "This manifest lists no files";
   - building (wired in U5; accept the flag now): "A build is running".
-- **After a drop**, `DropResult` appears above the table. It is a
-  `role="status"` region with `aria-live="polite"`. It has one line for
+- **After a drop**, `DropResult` appears above the table. It is **not** a
+  live region (a region that mounts with its text is not reliably
+  announced). `DropResult.tsx` also exports
+  `dropResultText(outcome, hasFailedEntries): string`: the same lines as
+  plain text, each ending in a full stop, joined by a space. After each drop
+  resolves, `TarpackView` calls `announce(dropResultText(...))`. It has one
+  line for
   matched, one line per **unmatched reason** that occurs (grouped by
   `reason`, in the table's order below), and one line for ambiguous, each
   only when non-empty. For example:
@@ -220,6 +240,8 @@ match.
 - `src/app/DropZone.tsx`
 - `src/tools/tarpack/DropResult.tsx`
 - Edits to `TarpackView.tsx` and `EntryTable.tsx` to wire Browse and Clear
+- Styles: `src/styles/controls.css` (`DropZone`), `src/styles/tarpack.css`
+  (`DropResult`, scoped under `.tarpack`)
 - Tests next to each
 
 ## Skill
@@ -246,7 +268,8 @@ How to run it:
   returned session and outcome.
 - Every bucket renders correctly, and every `UnmatchedReason` has its own
   line with its copy and icon; items with the same reason share one line.
-  The live-region text matches the outcome. The mapping is an exhaustive
+  The announcer text after a drop is `dropResultText` of the outcome, and
+  `DropResult` has no live role. The mapping is an exhaustive
   `Record<UnmatchedReason, …>`.
 - Disabled drops show the reason for each case (no manifest, entries
   withheld or every entry failed, no files) and make no `lib` call.
@@ -261,6 +284,10 @@ How to run it:
   dialog makes no call.
 - A rejected `assign` with `NotAFile` shows "{source}: the chosen path is not
   a file." through `errorMessage`, and the table is unchanged.
+- Assign (Browse) and Clear never change the announcer text, and a drop
+  announces only its result: none of them repeats the manifest's error-count
+  sentence, even when `errorCount > 0`.
+- Every new selector in `tarpack.css` starts with `.tarpack`.
 
 ## Tests proving completion
 
@@ -270,12 +297,16 @@ How to run it:
 - `DropResult.test.tsx`: each bucket; each of the seven unmatched reasons
   (copy and icon); two items with one reason on one line; combined buckets
   and reasons; a U+FFFD path renders; dismiss; and the `noEntry` wording and
-  hint with and without failed entries.
+  hint with and without failed entries; `dropResultText` for a combined
+  outcome matches the rendered lines; no live role on the result.
 - `TarpackView.assign.test.tsx`: the Browse flow, cancelled Browse, Clear,
   a `NotAFile` rejection, a drop plus Browse on a session with
   `errorCount > 0` and passed entries (enabled, `lib` called), and the
   disabled reasons for a withheld, an every-entry-failed, and a no-files
-  session.
+  session; **silence on assign**: on a session with `errorCount > 0`, a
+  Browse assign and a Clear leave the announcer text unchanged, and a drop
+  sets it to `dropResultText` only, with no "has N errors" sentence; a
+  non-`TarpackError` rejection from `assign` shows the `Io` copy.
 - Axe checks with the overlay and the result visible.
 
 ## States covered

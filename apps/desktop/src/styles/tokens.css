@@ -23,6 +23,11 @@
   --radius: 6px;
   --font-ui: "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", Consolas, monospace;
+  --font-size-sm: 0.8125rem;
+  --font-size-md: 0.875rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.25rem;
+  --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.18);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -41,6 +46,7 @@
     --danger: #ff8a80;
     --focus-ring: #7aa2ff;
     --drop-overlay: rgb(122 162 255 / 0.12);
+    --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.5);
   }
 }
 
@@ -59,4 +65,5 @@
   --danger: #ff8a80;
   --focus-ring: #7aa2ff;
   --drop-overlay: rgb(122 162 255 / 0.12);
+  --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.5);
 }

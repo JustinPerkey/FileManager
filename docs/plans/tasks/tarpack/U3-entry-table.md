@@ -67,7 +67,12 @@ never rows.
     `icon?`;
   - `src/app/icons.tsx`: `Icon` with `name: IconName`, including
     `check-circle`, `alert-triangle`, and `circle`;
-  - the `.num` utility class (tabular numerals) in `src/styles/base.css`.
+  - the `.num` (tabular numerals) and `.mono` (`--font-mono`) utility
+    classes in `src/styles/base.css`.
+- **Stylesheets.** Tool styles go in `src/styles/tarpack.css`, and every
+  selector there is scoped under the view root class `.tarpack` (for example
+  `.tarpack .entry-table`). Shared component styles go in
+  `src/styles/controls.css`. Nothing in this task has a shadow.
 - **Design context.** The root `DESIGN.md` records the visual system ("The
   Packing List"). This table is its signature component: the list of what
   goes in the crate. It is an Operate surface, dense and scannable, and never
@@ -198,6 +203,7 @@ add a second route to it here.
 
 - `src/tools/tarpack/EntryTable.tsx`, `EntryStatus.tsx`
 - Wire the table into `TarpackView.tsx`
+- Table styles in `src/styles/tarpack.css`, scoped under `.tarpack`
 - Tests next to each
 
 ## Skill

@@ -69,8 +69,9 @@ components:
 Generated 2026-09-29 by the `impeccable` document flow, in scan mode, from
 `apps/desktop/src/styles/` as landed in U1. The normative source is
 `apps/desktop/src/styles/tokens.css`; this file describes it and must change
-with it. Sections marked **Planned (U2)** describe vocabulary that the approved
-UI plan adds in task U2. They are rules for that task, not yet code.
+with it. Sections marked **Landed** describe code. Sections marked
+**Planned (U*n*)** describe vocabulary that the approved UI plan adds in a
+later task; they are rules for that task, not yet code.
 
 ## Overview
 
@@ -85,7 +86,7 @@ and wants the whole picture in one viewport.
 
 Depth comes from tone, not shadow. The sidebar sits one step darker than the
 content, panels are separated by 1 px borders, and nothing floats unless it
-has to: dialogs and the drop overlay.
+has to: the confirmation dialog, menus and popovers, and the drop overlay.
 
 **Key Characteristics:**
 
@@ -152,7 +153,7 @@ plus a coding mono for anything the user might paste into a terminal.
 - **Mono** (400, 0.875rem): paths, modes, hashes, and commands. Monospace is
   for data, never a "technical" costume.
 
-**Planned (U2).** Four size tokens fix the scale, so no component invents a
+**Landed (U2).** Four size tokens fix the scale, so no component invents a
 size: `--font-size-sm` 0.8125rem, `--font-size-md` 0.875rem (body),
 `--font-size-lg` 1rem, and `--font-size-xl` 1.25rem (title). Counts, sizes,
 percentages, and octal modes use `font-variant-numeric: tabular-nums`.
@@ -167,8 +168,8 @@ everything. There is no `clamp()` and no viewport-based type.
 A fixed two-column desktop frame. A 12rem sidebar (capped at 40% of the
 window) sits beside a main area that fills the rest and gives the active
 tool's view its full height. Each view owns its own scrolling. The Tar
-Packager view stacks, from top to bottom: the header, the problems region,
-the entry table (the only region that grows), and a sticky build bar. The
+Packager view stacks, from top to bottom: the header, the banners, the
+error region, the entry table (the only region that grows), and a sticky build bar. The
 minimum window is 800×560. At that size, and at 200% text, nothing scrolls
 horizontally at page level; toolbars wrap onto a second line.
 
@@ -179,10 +180,12 @@ inside groups, with a wider gap between them. The view is padded
 ## Elevation & Depth
 
 Flat. Depth is tonal: `--surface-sunken` is below and `--surface` is above,
-separated by 1 px `--border`. No component has a shadow at rest. Only the
-confirmation dialog and the shortcuts popover float, with one soft, offset
-shadow (`0 8px 24px rgb(0 0 0 / 0.18)`, planned in U5), over a dimmed
-backdrop for the dialog.
+separated by 1 px `--border`. No component has a shadow at rest. Only
+surfaces that float over content have one: the **Recent** menu (landed, U2),
+the confirmation dialog (planned, U5), and the shortcuts popover (planned,
+U6). They share one soft, offset shadow, `--shadow-overlay` (landed, U2):
+`0 8px 24px rgb(0 0 0 / 0.18)` in light and `rgb(0 0 0 / 0.5)` in dark. The
+dialog also sits over a dimmed backdrop.
 
 ## Shapes
 
@@ -203,7 +206,7 @@ overlay border, and the 2 px focus outline with a 2 px offset.
   it with a 1 px outline, and optionally a small accent dot or icon. Weight
   and fill already carry the state.
 
-### Buttons (Planned, U2)
+### Buttons (Landed, U2)
 
 - **Shape:** `--radius`, 1 px border, `--font-size-md`, at least 24×24 px, and
   padding `--space-1 --space-3`.
@@ -218,18 +221,22 @@ overlay border, and the 2 px focus outline with a 2 px offset.
   (`aria-busy="true"`, label unchanged).
 - **Menu trigger:** a chevron icon, never the `▾` glyph.
 
-### Icons (Planned, U2)
+### Icons (Landed, U2)
 
 One authored inline-SVG set in `src/app/icons.tsx`: a 16 px grid, 1.5 px
 stroke, round joins, and `currentColor`. It is `aria-hidden` unless it is the
 only content, which is never the case in this app. There are no Unicode or
 emoji stand-ins.
 
-### Banners (Planned, U2)
+### Banners (Landed, U2)
 
 `--surface` fill with a 1 px border in the tone color, a tone icon, and the
 message in `--text`. The tone is also stated in the accessible name. There is
-no tinted fill and no thick left stripe.
+no tinted fill and no thick left stripe. Banners sit below the view header in
+a fixed order (command error, changed on disk, state warning). Only the error
+banner is a live region (`role="alert"`); the view announces info and warn
+banners through its always-mounted polite announcer, because a region that
+mounts with its text is not reliably read.
 
 ### Data table (Planned, U3)
 

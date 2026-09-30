@@ -1,9 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { session } from "../tools/tarpack/fixtures";
 import { AppShell } from "./AppShell";
 import { tools as registry } from "../tools/registry";
+
+vi.mock("../lib/tarpack", () => ({
+  session: vi.fn(async () => session(null)),
+  recentManifests: vi.fn(async () => []),
+  onManifestChanged: vi.fn(async () => () => undefined),
+}));
 
 const tools = [
   { id: "a", label: "Alpha", view: () => <h1>Alpha view</h1> },
@@ -31,5 +38,6 @@ test("shows an empty state with no tools", () => {
 
 test("has no axe violations", async () => {
   const { container } = render(<AppShell tools={registry} />);
+  await screen.findByRole("heading", { name: "Tar Packager" });
   expect((await axe(container)).violations).toEqual([]);
 });

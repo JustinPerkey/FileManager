@@ -262,13 +262,14 @@ fixed rem scale with a ratio of about 1.125–1.25):
 | `--font-size-md` | `0.875rem` | body, controls, table cells, mono data (current `body` size) |
 | `--font-size-lg` | `1rem` | region headings ("3 errors in this manifest", "Created …") |
 | `--font-size-xl` | `1.25rem` | the view heading (current `.tool-view h1`) |
-| `--shadow-overlay` | `0 8px 24px rgb(0 0 0 / 0.18)` light, `0 8px 24px rgb(0 0 0 / 0.5)` dark | the confirmation dialog and the shortcuts popover only |
+| `--shadow-overlay` | `0 8px 24px rgb(0 0 0 / 0.18)` light, `0 8px 24px rgb(0 0 0 / 0.5)` dark | surfaces that float over content, only: the Recent menu (U2), the confirmation dialog (U5), and the shortcuts popover (U6) |
 
 U2 also themes the browser surfaces in `base.css`, with no new color values:
 
 - `::selection` uses `--accent` behind `--accent-text`;
 - `scrollbar-color` uses `--border` on `--surface-sunken`;
-- a `.num` utility sets `font-variant-numeric: tabular-nums`.
+- a `.num` utility sets `font-variant-numeric: tabular-nums`;
+- a `.mono` utility, beside it, sets `font-family: var(--font-mono)` only.
 
 ## 3. Component inventory
 
@@ -281,9 +282,9 @@ All components live under `apps/desktop/src/`.
 | `DropZone` | `app/DropZone.tsx` | `enabled, disabledReason, label, onDrop(paths)` | idle / hover / disabled | shared |
 | `Button` | `app/Button.tsx` (+ `styles/controls.css`) | native `<button>` props plus `variant: "primary" \| "secondary" \| "quiet"`, `icon?` | default / hover / active / focus / disabled / busy | shared (U2) |
 | `Icon` | `app/icons.tsx` | `name`, `label?` | — | shared (U2) |
-| `Banner` | `app/Banner.tsx` | `tone, message, action?` | info / warn / error | shared |
+| `Banner` | `app/Banner.tsx` | `tone, message, action?, onDismiss?, children?` (children: the Details disclosure) | info / warn / error (`role="alert"` for error only; info and warn are announced by the owning view's announcer) | shared |
 | `ConfirmDialog` | `app/ConfirmDialog.tsx` | `open, title, body, confirmLabel, onConfirm, onCancel` | open | shared |
-| `TarpackView` | `tools/tarpack/TarpackView.tsx` | — (owns `showErrors()`, `announce(text)`, and the always-mounted polite announcer) | loading / no-manifest / errors (entries shown) / errors (entries withheld) / partial / ready / building (writing, verifying) / success / error | tool |
+| `TarpackView` | `tools/tarpack/TarpackView.tsx` | `actionsRef?: Ref<TarpackActions>`, a test-only seam exposing `showErrors()` and `announce(text)`; product code never passes it (owns both functions and the always-mounted polite announcer; U5 and U6 call them inside the view) | loading / no-manifest (also after a failed restore, with the error banner) / errors (entries shown) / errors (entries withheld) / partial / ready / building (writing, verifying) / success / error | tool |
 | `ManifestHeader` | `tools/tarpack/ManifestHeader.tsx` | `session, onOpen, onOpenRecent, onReload, onEdit` | loaded / changed-on-disk | tool |
 | `ManifestErrors` | `tools/tarpack/ManifestErrors.tsx` | `manifest, expanded, onExpandedChange, onEdit, reportRef` | hidden / warnings only / errors expanded / errors collapsed / errors with entries withheld | tool (U2) |
 | `FailureList` | `tools/tarpack/FailureList.tsx` | `failures: EntryFailure[], headingLevel: 3 \| 4` | — (nothing for `[]`) | tool (U2; reused by U5) |
@@ -298,7 +299,7 @@ All components live under `apps/desktop/src/`.
 | `BuildResult` | `tools/tarpack/BuildResult.tsx` | `result, entries, onReveal, onDismiss` | success / success with files left out / success with manifest errors only / error | tool |
 | `BuildReport` | `tools/tarpack/BuildReport.tsx` | `leftOut, manifestErrors, warnings` | errors / warnings only / nothing | tool (U5) |
 | `reportText` | `tools/tarpack/reportText.ts` | `reportText(summary): string` (module, for Copy report) | — | tool (U5) |
-| `errorMessages` | `tools/tarpack/errorMessages.ts` | `errorMessage(error, entries)` (module, not a component) | one entry per `TarpackErrorKind` | tool |
+| `errorMessages` | `tools/tarpack/errorMessages.ts` | `errorMessage(error, entries)` and `toTarpackError(e: unknown)` (module, not a component; the guard is keyed off the exhaustive Record and is temporary, see §8) | one entry per `TarpackErrorKind` | tool |
 
 ### Shared vocabulary (U2, from the impeccable critique)
 
@@ -327,8 +328,22 @@ All components live under `apps/desktop/src/`.
 - **Banners.** `--surface` fill with a 1 px border in the tone color, the tone
   icon in the tone color, and the message in `--text`. The tone is also named
   in visually hidden text ("Warning:", "Error:"). There is no tinted fill and
-  no thick left stripe. Banners stack above the table, newest first, each
-  dismissible except changed-on-disk, which clears on reload.
+  no thick left stripe. Banners sit below the header in a fixed order, at
+  most one of each: command error, changed on disk, state warning. Each is
+  dismissible except changed-on-disk, which clears on reload. Only the error
+  banner is a live region (`role="alert"`); a region that mounts with its
+  text is not reliably announced, so the view announces info and warn
+  banners (and, in U4, the drop result) through its always-mounted
+  announcer.
+- **Floating surfaces.** The Recent menu (U2), the confirmation dialog (U5),
+  and the shortcuts popover (U6) float over content with
+  `--shadow-overlay`. Nothing else has a shadow.
+- **Stylesheets.** Tool component styles live in `styles/<tool>.css`
+  (`styles/tarpack.css`), imported from `App.tsx` after `controls.css`, with
+  every selector scoped under the view root class (`.tarpack`). Shared
+  component styles (`Button`, `Banner` and its `.banner__details`,
+  `DropZone`, `ConfirmDialog`) go in `styles/controls.css`; utilities
+  (`.num`, `.mono`, `.visually-hidden`) in `styles/base.css`.
 
 ### Entry table columns
 
@@ -580,3 +595,35 @@ exhaustive `Record<UnmatchedReason, …>` of copy and icons, and the
 failed-entries hint also after a `folderNoMatch` line. The copy in U4 is the
 planner's first draft; the ui-designer may revise the wording in U4 before
 it runs, keeping one line per reason and the exhaustive mapping.
+
+## 8. Amendments from U2's review (ui-designer, 2026-09-30)
+
+The reviewer's findings on the first U2 implementation were resolved in the
+U2 task plan, with the reach noted here:
+
+- **Test seam.** `TarpackView`'s optional `actionsRef` is ratified as
+  test-only. U5 and U6 call `showErrors()` and `announce()` inside the view.
+- **Elevation.** The Recent menu floats over content and uses
+  `--shadow-overlay`, with the dialog and the shortcuts popover (§2, §3,
+  `DESIGN.md`).
+- **Banners.** Fixed order instead of "newest first"; info and warn banners
+  are not live regions and are announced through the view's announcer. U4's
+  drop result follows the same rule.
+- **Failed restore.** A rejected first `session()` shows the no-manifest
+  state with the error banner below the heading.
+- **Stylesheet home.** `styles/tarpack.css`, scoped under `.tarpack`;
+  `.banner__details` in `controls.css`; `.mono` in `base.css` (§3). U3–U6
+  name it in their Files.
+- **Tests.** "Silence on assign" moved from U2 to U4, which has the assign
+  path.
+
+**Follow-up for the planner (backend, not planned here).**
+`src/lib/tarpack.ts` passes command rejections through unchanged, so a
+rejection can be something other than a `TarpackError` (an IPC failure, a
+thrown `Error`). Normalising that belongs in `lib/`, which the backend
+`implementer` owns: every wrapper should reject only with a `TarpackError`
+(unknown shapes mapped to `Io`, with the original text in `message`), with a
+test. Until that lands, U2's `toTarpackError` in `errorMessages.ts` is the
+only guard, keyed off the exhaustive `messages` Record; U4 and U5 import it
+and write none of their own. When it lands, the planner should tell the
+ui-designer so the guard and its mentions in U2, U4, and U5 are removed.

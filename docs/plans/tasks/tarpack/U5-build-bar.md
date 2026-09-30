@@ -84,12 +84,18 @@ were errors."* So:
 - `TarpackView.tsx` holds the `TarpackSession` in one piece of React state,
   replaced wholesale by every command result, and has a reserved slot for the
   sticky bottom bar. `src/app/Banner.tsx` exists:
-  `tone: "info"|"warn"|"error", message, action?: { label, onAction }`.
+  `tone: "info"|"warn"|"error", message, action?: { label, onAction }, onDismiss?`,
+  with a Details disclosure passed as children (styled by
+  `.banner__details` in `controls.css`). Only the error tone is a live
+  region (`role="alert"`).
   `TarpackView` (U2) defines `showErrors()`: it expands the error report,
   moves focus to it, and scrolls it into view. It does nothing when
   `errorCount` is 0. The report body has `id="manifest-error-report"`.
   `TarpackView` also defines `announce(text)`, which sets the text of its
-  always-mounted, visually hidden polite live region.
+  always-mounted, visually hidden polite live region. Call both inside
+  `TarpackView` (pass `showErrors` down as `onShowErrors`). `TarpackView`'s
+  optional `actionsRef` prop is a test-only seam; product code never uses
+  it.
 - U2 built two tool-local list components; reuse them unchanged in the final
   report so errors look the same before and after a build:
   - `src/tools/tarpack/FailureList.tsx`:
@@ -209,6 +215,9 @@ were errors."* So:
   `errorMessage(error, entries): string`, backed by an exhaustive
   `Record<TarpackErrorKind, (source: string | null) => string>`. Use it for
   every error you display; do not write copy of your own or add a fallback.
+  The same module exports `toTarpackError(e: unknown): TarpackError`; pass
+  every caught rejection through it (unknown shapes become `Io`), and write
+  no guard or kind list of your own.
   If a message below differs from the file, the file was written from this
   same table, so report the difference rather than patching around it.
 - The tokens you use are in `src/styles/tokens.css`: `--surface`,
@@ -220,7 +229,13 @@ were errors."* So:
     `icon?`, and `aria-busy` support;
   - `src/app/icons.tsx`: `Icon` with `name: IconName`, including `copy`,
     `folder`, `check-circle`, `x-circle`, and `x`;
-  - the `.num` utility class (tabular numerals).
+  - the `.num` (tabular numerals) and `.mono` (`--font-mono`) utility
+    classes in `src/styles/base.css`.
+- **Stylesheets.** Tool styles go in `src/styles/tarpack.css`, and every
+  selector there is scoped under the view root class `.tarpack`. Shared
+  component styles (`ConfirmDialog`) go in `src/styles/controls.css`.
+  `--shadow-overlay` is for floating surfaces only; in this task, only the
+  dialog.
 - **Design context.** The root `DESIGN.md` records the visual system ("The
   Packing List"). This is an Operate surface: the bar is the end of the
   daily loop, so it stays quiet until the result. **Create archive** is the
@@ -513,6 +528,8 @@ were errors."* So:
   `BuildResult.tsx`, `BuildReport.tsx`, `reportText.ts`
 - `src/app/ConfirmDialog.tsx`
 - Wiring in `TarpackView.tsx`
+- Styles: `src/styles/controls.css` (`ConfirmDialog`), `src/styles/tarpack.css`
+  (the bar, progress, result, and report, scoped under `.tarpack`)
 - Tests next to each
 
 ## Skill
