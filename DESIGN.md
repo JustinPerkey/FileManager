@@ -169,7 +169,8 @@ A fixed two-column desktop frame. A 12rem sidebar (capped at 40% of the
 window) sits beside a main area that fills the rest and gives the active
 tool's view its full height. Each view owns its own scrolling. The Tar
 Packager view stacks, from top to bottom: the header, the banners, the
-error region, the entry table (the only region that grows), and a sticky build bar. The
+error region, the entry table (the only region that grows), and a sticky build bar
+(static, not sticky, in a view under 30rem tall, where it would cover most of it). The
 minimum window is 800×560. At that size, and at 200% text, nothing scrolls
 horizontally at page level; toolbars wrap onto a second line.
 
@@ -182,7 +183,7 @@ inside groups, with a wider gap between them. The view is padded
 Flat. Depth is tonal: `--surface-sunken` is below and `--surface` is above,
 separated by 1 px `--border`. No component has a shadow at rest. Only
 surfaces that float over content have one: the **Recent** menu (landed, U2),
-the confirmation dialog (planned, U5), and the shortcuts popover (planned,
+the confirmation dialog (landed, U5, `ConfirmDialog`), and the shortcuts popover (planned,
 U6). They share one soft, offset shadow, `--shadow-overlay` (landed, U2):
 `0 8px 24px rgb(0 0 0 / 0.18)` in light and `rgb(0 0 0 / 0.5)` in dark. The
 dialog also sits over a dimmed backdrop.
@@ -258,7 +259,8 @@ status color.
 - **Sticky edges follow the view padding.** The view's block padding is
   `--view-pad-block`; the sticky header and the build bar are offset by its
   negative, because the browser sticks to the scroll container's content
-  box.
+  box. Exception: under `max-height: 30rem` the build bar is static and the
+  view's `scroll-padding-bottom` is 0.
 - **Middle truncation by CSS**, keeping the drive and the file name; a
   keyboard-focused row shows the full path.
 

@@ -4,6 +4,8 @@
   padding-block: var(--view-pad-block);
   scrollbar-gutter: stable;
   scroll-padding-top: 3.5rem;
+  /* Clears the build bar at 200% text with the note and Show errors: measured 448px = 14rem at 800x560, plus 0.5rem. */
+  scroll-padding-bottom: 14.5rem;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -552,4 +554,283 @@
 }
 .tarpack .drop-result__group li {
   overflow-wrap: anywhere;
+}
+
+/* Build bar: the last child of .tarpack, stuck to the bottom of the view's scroll box. */
+.tarpack .build-bar {
+  position: sticky;
+  bottom: calc(var(--view-pad-block) * -1);
+  z-index: 2;
+  margin-bottom: calc(var(--view-pad-block) * -1);
+  margin-inline: calc(var(--space-5) * -1);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+/* At 200% browser zoom on a short window the bar would fill most of the view:
+   let it scroll with the content instead, and drop the padding that reserved it. */
+@media (max-height: 30rem) {
+  .tarpack {
+    scroll-padding-bottom: 0;
+  }
+  .tarpack .build-bar {
+    position: static;
+  }
+}
+.tarpack .build-bar__settings {
+  flex: 1 1 24rem;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+.tarpack .build-bar__output {
+  flex: 1 1 16rem;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tarpack .build-bar__output-label {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.tarpack .build-bar__path {
+  flex: 1 1 12ch;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+.tarpack .build-bar__none {
+  color: var(--text-muted);
+}
+.tarpack .build-bar .format-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tarpack .format-picker__label {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.tarpack .format-picker__select {
+  min-height: 24px;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--font-size-md);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.tarpack .format-picker__select:disabled {
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+}
+.tarpack .build-bar__action {
+  flex: 1 1 24rem;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2) var(--space-3);
+}
+.tarpack .build-bar__status {
+  flex: 1 1 12rem;
+  min-width: 0;
+  text-align: right;
+}
+.tarpack .build-bar__reason,
+.tarpack .build-bar__note {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.tarpack .build-bar__reason {
+  color: var(--text-muted);
+}
+.tarpack .build-bar__note {
+  color: var(--text);
+}
+.tarpack .build-bar__note-icon {
+  color: var(--warn);
+  margin-right: var(--space-1);
+}
+
+.tarpack .build-progress {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.tarpack .build-progress__label {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.tarpack .build-progress__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tarpack .build-progress__track {
+  flex: 1;
+  height: 6px;
+  overflow: hidden;
+  background: var(--surface-sunken);
+  border-radius: var(--radius);
+}
+.tarpack .build-progress__fill {
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius);
+  transform-origin: left;
+  transition: transform 120ms linear;
+}
+.tarpack .build-progress__percent {
+  min-width: 4ch;
+  text-align: right;
+  font-size: var(--font-size-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tarpack .build-progress__fill {
+    transition: none;
+  }
+}
+
+/* Build result: in the page flow above the bar. Only the report scrolls. */
+.tarpack .build-result {
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.tarpack .build-result__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.tarpack .build-result__heading {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.tarpack .build-result__icon {
+  padding-top: 2px;
+}
+.tarpack .build-result__icon--ok {
+  color: var(--ok);
+}
+.tarpack .build-result__icon--warn {
+  color: var(--warn);
+}
+.tarpack .build-result__icon--danger {
+  color: var(--danger);
+}
+.tarpack .build-result__lede,
+.tarpack .build-result__path,
+.tarpack .build-result__facts,
+.tarpack .build-result__hint {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.tarpack .build-result__path {
+  font-size: var(--font-size-sm);
+}
+.tarpack .build-result__hint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+.tarpack .build-result__label {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.tarpack .build-result__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.tarpack .build-result__code {
+  flex: 1 1 16rem;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.tarpack .build-result__code--block {
+  padding: var(--space-2);
+  background: var(--surface-sunken);
+  border-radius: var(--radius);
+}
+.tarpack .build-result__list {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.tarpack .build-result__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tarpack .build-result__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.tarpack .build-result__copied {
+  min-width: 6ch;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.tarpack .build-report {
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.tarpack .build-report__group {
+  display: inline;
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+.tarpack .build-report > section > .build-report__group {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+.tarpack .build-report section + section,
+.tarpack .build-report section + details {
+  margin-top: var(--space-2);
+}
+.tarpack .build-report__warnings > summary {
+  cursor: pointer;
+}
+
+/* Disables every control above the bar during a build without adding a box. */
+.tarpack .tarpack__controls {
+  display: contents;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 }

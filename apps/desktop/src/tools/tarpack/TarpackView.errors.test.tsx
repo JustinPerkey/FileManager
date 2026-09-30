@@ -42,7 +42,7 @@ async function mount(initial = clean) {
   await screen.findByRole("heading", { level: 1 });
   return { ...utils, actions };
 }
-const announcer = () => screen.getByRole("status");
+const announcer = () => screen.getByTestId("tarpack-announcer");
 
 test.each([
   ["withheld", withheld, "gateway has 2 errors. No files can be built until the manifest errors are fixed."],
@@ -81,7 +81,9 @@ test("report re-expands after reload even if collapsed; no focus stolen", async 
   const user = userEvent.setup();
   await mount(failed);
   await user.click(screen.getByRole("button", { name: "Hide errors" }));
-  expect(screen.getByRole("button", { name: "Show errors" })).toHaveAttribute("aria-expanded", "false");
+  // The build bar also has a "Show errors" button; the report's own toggle is the one with aria-expanded.
+  const toggles = screen.getAllByRole("button", { name: "Show errors" });
+  expect(toggles.filter((b) => b.getAttribute("aria-expanded") === "false")).toHaveLength(1);
   vi.mocked(tp.reloadManifest).mockResolvedValue(failed);
   const reload = screen.getByRole("button", { name: "Reload" });
   reload.focus();

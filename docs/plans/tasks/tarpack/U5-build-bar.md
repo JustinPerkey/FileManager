@@ -1,7 +1,16 @@
 # U5 — Output, format, build, overwrite confirmation, progress, and result
 
-Status: awaiting approval (amended 2026-09-30: scroll model and `MiddlePath`
-from U3; sticky offsets from `--view-pad-block`; `MiddlePath` slot width)
+Status: done (landed 2026-09-30 at ec3d0c5, reviewer-approved; not yet
+run in real Tauri or on Windows, which moves to M7's Windows check;
+`/impeccable audit` of the bar, dialog, result and report moves to U6;
+amended 2026-09-30: scroll model and `MiddlePath`
+from U3; sticky offsets from `--view-pad-block`; `MiddlePath` slot width;
+amended 2026-09-30 after review: failed-build announcement, short format
+labels, progress text rules, accepted decisions, overwrite-dialog folder copy,
+rendered-check method, and the required fixes listed under "Fixes required
+after review"; amended 2026-09-30 after re-review: short-window fallback
+for the bar (human's decision), measured `scroll-padding-bottom`,
+`/impeccable audit` waived to U6, test fixes F1, F3, F6)
 Project: tarpack   Depends on: U2 (landed; `FailureList`, `DiagnosticList`,
 `showErrors()`, `announce()`), U3 (landed), M6 (landed; this task reads its
 partial-results and build-report fields). May run alongside U4.
@@ -23,11 +32,13 @@ with `tar -P`; without `-P`, tar strips the leading `/` and extracts into the
 current directory. The build result therefore shows the exact extraction
 command and lets the user copy it.
 
-**Formats (decided).** Four formats, picked before building:
+**Formats (decided).** Four formats, picked before building. The picker
+labels are the short names below (accepted at review); the option text adds
+the extension, so the uncompressed format reads "tar (.tar)":
 
 | `ArchiveFormat` | Extension (from the session) | Picker label (your copy) |
 | --- | --- | --- |
-| `"tar"` | `.tar` | tar — uncompressed |
+| `"tar"` | `.tar` | tar |
 | `"tarGz"` | `.tar.gz` | gzip |
 | `"tarZst"` | `.tar.zst` | zstd |
 | `"tarXz"` | `.tar.xz` | xz |
@@ -149,7 +160,13 @@ were errors."* So:
   (for example `zst`), so the backend's `setOutput` normalisation is what
   guarantees the full extension.
 - Clipboard: there is no `lib/` wrapper and no plugin. Call
-  `navigator.clipboard.writeText` directly from the Copy click handler.
+  `navigator.clipboard.writeText` directly from the Copy click handler. It
+  can reject (focus lost, permission); see Copy under Success.
+- `src/tools/tarpack/pathParts.ts` (U3, U4) holds the display-path helpers:
+  `pathParts(path)`, and `assignedFolder(path): string | undefined`, which
+  returns `undefined` for a lossy path (one containing U+FFFD) because its
+  result is passed back to `lib`. This task adds two more there (see Files):
+  `fileName(path)` (moved from `reportText.ts`) and `displayFolder(path)`.
 - From the session:
   - `session.manifest`: `null` or the loaded manifest, with:
     - `entries[]`: passed entries only, carrying `{ id, source, ... }` for
@@ -248,13 +265,13 @@ were errors."* So:
 
 | Component | Path | Props | States |
 | --- | --- | --- | --- |
-| `BuildBar` | `src/tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild, onShowErrors` | disabled-with-reason / no entries (three cases) / ready / ready with files left out / ready with manifest errors only / building |
+| `BuildBar` | `src/tools/tarpack/BuildBar.tsx` | `session, building, progress, progressUnavailable, onChooseOutput, onFormatChange, onBuild, onShowErrors, onError(e: unknown)`, plus `formatNotice?` | disabled-with-reason / no entries (three cases) / ready / ready with files left out / ready with manifest errors only / building |
 | `FormatPicker` | `src/tools/tarpack/FormatPicker.tsx` | `formats, value, disabled, onChange(format)` | enabled / disabled |
 | `BuildProgress` | `src/tools/tarpack/BuildProgress.tsx` | `progress, entries` | writing / verifying / finishing |
 | `BuildResult` | `src/tools/tarpack/BuildResult.tsx` | `result: { ok: BuildSummary } \| { err: TarpackError }, entries, onReveal, onDismiss` | success / success with files left out / success with manifest errors only / error |
 | `BuildReport` | `src/tools/tarpack/BuildReport.tsx` | `leftOut, manifestErrors, warnings` | errors / warnings only / nothing (renders nothing) |
 | `reportText` | `src/tools/tarpack/reportText.ts` (module) | `reportText(summary): string` | — |
-| `ConfirmDialog` | `src/app/ConfirmDialog.tsx` (shared) | `open, title, body, confirmLabel, onConfirm, onCancel` | open |
+| `ConfirmDialog` | `src/app/ConfirmDialog.tsx` (shared) | `open, title, body, confirmLabel, onConfirm, onCancel` | open (title as `aria-labelledby`, body as `aria-describedby`, both `useId()` ids) |
 
 ### Behaviour
 
@@ -307,14 +324,39 @@ were errors."* So:
     above the bottom edge with rows showing beneath it. Never hard-code the
     16 px; use the variable;
   - set `.tarpack { scroll-padding-bottom: … }` in rem, at least the bar's
-    two-line height at 200% text (measure it in the rendered check), so a
-    focused table row or control never scrolls in under the bar;
+    two-line height at 200% text, so a focused table row or control never
+    scrolls in under the bar. **How to measure** (in the rendered check
+    below): at a 800×560 viewport with the root font size set to 32 px,
+    with a manifest loaded and errors present so the bar shows its note and
+    Show errors and takes two lines, read
+    `document.querySelector('.tarpack .build-bar').getBoundingClientRect().height`
+    (use the bar's actual root class), divide by 32, round **up** to the
+    next 0.25 rem, and add 0.5 rem of breathing room. Then verify: from the
+    top of the view, Tab through every table control and check each focused
+    element's `getBoundingClientRect().bottom` is at or above the bar's
+    `top`. Record the measured height and the chosen value in your report.
+    **Measured and decided (2026-09-30).** A root font of 32 px does not
+    trigger media queries, so the 200%-text check is done at a **400×280**
+    viewport at the default root size (the same layout in CSS pixels as
+    800×560 at 200% zoom). There the sidebar leaves the view about 480 px
+    of device width, the bar wraps to its full height of **448 px =
+    14 rem**, so `.tarpack { scroll-padding-bottom: 14.5rem; }`;
+  - **Short-window fallback (the human's decision, 2026-09-30).** At
+    `@media (max-height: 30rem)` the bar is `position: static` (it sits at
+    the end of the scroll, still the last child of `.tarpack`) and
+    `.tarpack { scroll-padding-bottom: 0; }`, because a sticky bar of
+    14 rem would cover most of a view that short. Accepted limitation: the
+    threshold is height-only while the bar's height depends on width, so,
+    for example, a window of about 480×520 CSS pixels at 200% zoom stays
+    sticky with the bar covering about 40% of the view. Keep this rule as
+    is; do not add a width condition;
   - `BuildResult` sits in the page flow above the bar, with no `overflow`,
     no `max-height`, and no sticky position; only `BuildReport` inside it
     scrolls, capped at `40vh`, like U2's error report;
   - add no other scroll container. At the default window, at 800×560, and at
     200% text the table is in its stacked layout with no sticky header; at
-    800×560 with 200% text the bar takes two lines;
+    800×560 with 200% text the bar wraps to its full height (14 rem, more
+    than two lines) and, under the short-window fallback, is static;
     the view scrolls past the error report, the table, and the result to the
     bar, and every control stays reachable by Tab.
   **Choose…** is a secondary `Button` with the `folder` icon. The disabled
@@ -338,6 +380,12 @@ were errors."* So:
 
   A chosen path goes to `setOutput(path)`; a cancelled dialog does nothing.
   Choose… is disabled when no manifest is loaded and while building.
+  **`BuildBar` calls `saveFileDialog` itself (accepted at review)**, but it
+  never swallows or displays an error: a rejection from `saveFileDialog` goes
+  to its `onError(e)` prop, which `TarpackView` wires to the same handler
+  `onOpen`, `onCreate`, and `onBrowse` use (`toTarpackError`, then the
+  view's error `Banner` with Details). `setOutput` and `setFormat` errors go
+  the same way.
 - **Manifest errors disable nothing.** Choose… and the Format picker are
   disabled only with no manifest and while building; Create archive follows
   `canBuild`.
@@ -382,7 +430,16 @@ were errors."* So:
   2. On an `OutputExists` error, open `ConfirmDialog` with the title
      "Replace {file name}?", the body "A file with this name already exists in
      {folder}. Replacing it can't be undone.", the confirm label "Replace",
-     and initial focus on **Cancel**.
+     and initial focus on **Cancel**. `{file name}` is
+     `fileName(session.outputPath)` and `{folder}` is
+     `displayFolder(session.outputPath)`, both from `pathParts.ts`.
+     `{folder}` is for display only, so it **shows a lossy path as is**,
+     U+FFFD included; it never falls back to "that folder" or other
+     invented copy. Do not use `assignedFolder` here (it returns `undefined`
+     for lossy paths because its result goes back to `lib`). Only if
+     `displayFolder` finds no separator (not expected: `outputPath` is
+     absolute) is the body "A file with this name already exists.
+     Replacing it can't be undone."
   3. On confirm, call `build(true)`.
 - **Building: `BuildProgress`**, in place of the disabled reason.
   - A visible step label: "Step 1 of 2 · Writing" then "Step 2 of 2 ·
@@ -398,11 +455,18 @@ were errors."* So:
     archive"). It fills from `bytesDone / bytesTotal` up to 100% in each
     phase, and starts over when the phase changes to `verifying`, showing
     that phase's first event (which may already be a little past 0).
-  - `aria-valuetext` names the phase and the entry: "Writing gateway.conf,
-    40%" or "Verifying gateway.conf, 40%", mapping `entryId` to the entry's
-    `source`; with a `null` `entryId` (directories, long-name records, the
-    phase's final event), "Writing, 40%". Keep the visible label on the last
-    named file rather than flickering to no name on directory records.
+  - `aria-valuetext` describes the **current event only**: "Writing
+    gateway.conf, 40%" or "Verifying gateway.conf, 40%", mapping `entryId` to
+    the entry's `source`. For an event whose `entryId` is `null`
+    (directories, long-name records, the phase's final event) it is exactly
+    "{Phase}, {n}%", for example "Writing, 40%" or "Verifying, 100%", with
+    **no file name**; it never reuses a remembered name.
+  - The **visible** label alone keeps the last named file, so it does not
+    flicker to no name on directory records. That remembered file belongs to
+    its phase: it is **cleared when the phase changes** (writing →
+    verifying), so the verifying label never shows a file from the writing
+    phase. Until the first named verifying event, the visible label shows
+    the phase with no file.
   - Announce the phase change once in a polite live region ("Verifying the
     archive"); do not announce every percentage.
   - When the final verifying event arrives (`phase: "verifying"`,
@@ -411,8 +475,33 @@ were errors."* So:
     not wait for any further event.
   - If `build` rejects, stop showing progress wherever it stopped and show the
     error; no further events arrive.
+  - **Subscription failure.** Subscribe with `onBuildProgress` before calling
+    `build`. If the subscription itself rejects, still run the build, but do
+    not show a progressbar stuck at 0%: `TarpackView` sets
+    `progressUnavailable`, and `BuildBar` shows, in place of the bar, the
+    text "Creating the archive… (progress is unavailable)" in
+    `--text-muted` at `--font-size-sm`, with Create archive `aria-busy`.
+    The build's own result or error then replaces it as usual. Unsubscribe
+    whenever the build settles, and ignore a late subscription that
+    resolves after the build settled (unlisten it at once).
   - All tarpack controls (bar, format picker, table actions, header actions)
-    are disabled, and drops are ignored.
+    are disabled, and drops are ignored. **Mechanism (accepted at review):**
+    the header and the table sit inside one
+    `<fieldset className="tarpack__controls" disabled={building}>` with
+    `display: contents` (and no border, padding, or legend), so a single
+    attribute disables every native control in them without changing layout.
+  - **While building, the bar's `aria-describedby` points only at rendered
+    elements.** The reason and note are not rendered while the progress
+    replaces them, so drop their ids from Create archive's
+    `aria-describedby` (omit the attribute when nothing is left); never
+    reference an id that is not in the DOM.
+  - **Focus after the build ends.** When a build settles (success, error,
+    cancelled confirmation) or its result is dismissed, move focus to
+    **Create archive** only if focus was lost, that is when
+    `document.activeElement` is `document.body` or `null` (the focused
+    control was disabled or unmounted). If focus is anywhere else, leave it
+    there. The one exception is `ConfirmDialog`, which always returns focus
+    to Create archive (below).
 - **Success: `BuildResult`**, an inline panel above the bar: `--surface`
   with a 1 px `--border` and `--radius`, with no shadow and no tinted fill. Its
   heading is an `h2` at `--font-size-lg` (the report's sections are `h3`, its
@@ -457,7 +546,10 @@ were errors."* So:
     visible label).
 
   Copy uses `navigator.clipboard.writeText` and confirms with "Copied" in a
-  polite live region next to the button for about 2 s.
+  polite live region next to the button for about 2 s. If `writeText`
+  rejects, the same live region says "Couldn't copy" for about 2 s instead;
+  never "Copied" for a failed write, and never an unhandled rejection. This
+  applies to both Copy buttons and to Copy report.
 - **`BuildReport`**, the part of the result that lists what the build left
   out. A `role="region"` labelled "Build report" (visually hidden label),
   `tabIndex={0}`, max height `40vh`, scrolling inside itself, set off from the
@@ -487,6 +579,13 @@ were errors."* So:
     errors." / "… {n} files were left out because of errors.";
   - manifest-level errors only: "Created {file name} with 1 manifest error."
     / "… with {n} manifest errors."
+  - **a failed build** (P0, added after review): when `build` rejects with
+    any kind other than `OutputExists` (which opens the dialog) and
+    `ManifestChangedOnDisk` (whose warn banner is already announced), call
+    `announce()` once with `errorMessage(error, entries)`, the same string
+    the error `BuildResult` shows. The copy source is `errorMessage`; add no
+    wording of your own. The error `BuildResult` is not itself a live region
+    (no `role="alert"`), so the message is announced exactly once.
 - **No "log" or "saved report" wording.** The report lives in this panel
   only; it is gone when dismissed or replaced by the next build. Do not
   write "log", "saved", "report file", or anything that suggests a file was
@@ -498,7 +597,9 @@ were errors."* So:
   `min(28rem, calc(100% - 2 * var(--space-5)))`, and its padding
   `--space-5`. The title is at
   `--font-size-lg`. Buttons are right-aligned: **Cancel** (secondary), then
-  **Replace** (primary).
+  **Replace** (primary). The `<dialog>` has `aria-labelledby` pointing at the
+  title and `aria-describedby` pointing at the body; both ids come from
+  `useId()` (never hard-coded, so two dialogs cannot collide).
 - **Errors.** Every error comes from `build`, `setOutput`, `setFormat`, or
   `revealOutput`:
   - `OutputExists` from `build(false)`: open the replace confirmation above.
@@ -511,7 +612,8 @@ were errors."* So:
     copy.
   - Every other kind from `build`: an error `BuildResult` whose message is
     `errorMessage(error, entries)`, with the backend `message` below it in a
-    collapsed "Details" disclosure.
+    collapsed "Details" disclosure, and that same `errorMessage` announced
+    once through `announce()` (see Announce the result).
   - Errors from `setOutput`, `setFormat`, or `revealOutput` (for example
     `OpenerFailed` from Show in folder): an error `Banner` with the same
     message and Details.
@@ -554,7 +656,8 @@ were errors."* So:
   the Details disclosure, the Warnings disclosure, the report region, and
   Dismiss are real, focusable controls with visible focus.
 - `ConfirmDialog` traps focus, closes on Escape (which counts as Cancel), and
-  returns focus to **Create archive**.
+  returns focus to **Create archive**. Elsewhere, focus moves to Create
+  archive after a build or Dismiss only when it was lost (see Building).
 - **Create archive** is the only `primary` button in the view, outside the
   dialog.
 - No confirmation dialog for building with errors, and no copy that says
@@ -568,6 +671,15 @@ were errors."* So:
 
 - `src/tools/tarpack/BuildBar.tsx`, `FormatPicker.tsx`, `BuildProgress.tsx`,
   `BuildResult.tsx`, `BuildReport.tsx`, `reportText.ts`
+- `src/tools/tarpack/pathParts.ts` (edit): add `fileName(path): string` (the
+  last path segment, code-point safe, moved here from `reportText.ts`; update
+  every import) and `displayFolder(path): string | undefined` (the same
+  folder split as `assignedFolder` but without the lossy check, for display
+  only; `assignedFolder` may delegate to it), with tests in
+  `pathParts.test.ts`
+- `DESIGN.md` (root), Elevation & Depth (~line 185): change "the confirmation
+  dialog (planned, U5)" to "the confirmation dialog (landed, U5,
+  `ConfirmDialog`)". This is a status update only, not a rewrite.
 - `src/app/ConfirmDialog.tsx`
 - Wiring in `TarpackView.tsx`
 - Styles: `src/styles/controls.css` (`ConfirmDialog`), `src/styles/tarpack.css`
@@ -578,8 +690,10 @@ were errors."* So:
 
 `/impeccable layout` and `/impeccable clarify` (including every left-out,
 report, and announcement string), then `/impeccable animate` for the progress
-bar only. Finish with `/impeccable audit` on the bar, dialog, result, and
-report, and fix every P0 and P1 finding.
+bar only. **`/impeccable audit` is waived for U5 (decided 2026-09-30,
+after re-review)**: the axe checks in the tests and the rendered check below
+stand in for it, and U6 runs the audit, with the detector, over U5's bar,
+dialog, result, and report.
 
 How to run it:
 
@@ -589,6 +703,30 @@ How to run it:
   concept round and do not rewrite `DESIGN.md`.
 - Read the skill's `reference/craft-floor.md` before the first edit.
 - Motion here conveys state only: the progress fill.
+- **Rendered check (required, not optional).** Chromium is pre-installed at
+  `/opt/pw-browsers/chromium` and Playwright is configured globally
+  (`PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`, the `playwright` package is
+  installed globally). **Do not run `playwright install`.** Run the Vite dev
+  server (`npm run dev` in `apps/desktop`) and drive it with a Playwright
+  script kept in your scratch directory (not committed). Mock the Tauri API
+  with `page.addInitScript` before navigation: define
+  `window.__TAURI_INTERNALS__` with an `invoke(cmd, args)` that returns
+  fixture sessions and summaries per `tarpack_*` command (the shapes in
+  `src/tools/tarpack/fixtures.ts`), and a `transformCallback` so
+  `listen`/`onBuildProgress` can be fed scripted events. Check at 1400×800,
+  1000×700, and 800×560, in light and dark (`colorScheme`), and at 200% text
+  (root font size 32 px, via `page.addStyleTag({ content: 'html{font-size:32px}' })`,
+  for text reflow; **for anything involving media queries, use a 400×280
+  viewport instead**, since the root-font hack does not trigger them):
+  the bar flush at the bottom edge while scrolling and at the end; at
+  400×280 the bar static (short-window fallback) and `scroll-padding-bottom`
+  0; no horizontal scroll
+  (`scrollWidth <= clientWidth` on `.tarpack` and `document.documentElement`);
+  every control reachable by Tab; the `scroll-padding-bottom` measurement
+  above; the result and dialog in both themes. Take screenshots of each and
+  look at them. (`/impeccable audit` is waived to U6; see above.)
+  Known and deferred to U6: U2's manifest header overflows by about 3 px at
+  400×280; do not fix it in U5.
 - If the skill is not installed, install it with `npx impeccable install`, or
   follow the named commands' reference docs from
   `github.com/pbakaus/impeccable` by hand. Say which in your report.
@@ -597,7 +735,8 @@ How to run it:
 
 - The bar is `position: sticky; bottom: calc(var(--view-pad-block) * -1)`
   inside `.tarpack`, flush with the bottom edge both while scrolling and at
-  the end of the scroll, `.tarpack` sets a rem `scroll-padding-bottom`, and neither the bar, the result, nor
+  the end of the scroll, `.tarpack` sets a rem `scroll-padding-bottom`
+  (14.5rem; 0 and a static bar at `max-height: 30rem`), and neither the bar, the result, nor
   the table adds a scroll container (only `BuildReport`, capped at `40vh`).
   At 800×560 with 200% text the view scrolls to every control, and nothing
   scrolls horizontally.
@@ -654,6 +793,21 @@ How to run it:
 - The result is announced once, including the left-out count.
 - Copy report writes `reportText(summary)` to the clipboard. No
   string in the result mentions a log or a saved report.
+- A failed build (any kind except `OutputExists` and
+  `ManifestChangedOnDisk`) announces `errorMessage(error, entries)` once
+  through the view's announcer.
+- `aria-valuetext` for a `null`-`entryId` event is exactly "{Phase}, {n}%";
+  the visible label resets its remembered file at the phase change.
+- A failed `onBuildProgress` subscription shows "Creating the archive…
+  (progress is unavailable)", not a 0% progressbar.
+- A rejected clipboard write announces "Couldn't copy".
+- During a real build (via `TarpackView`), Reload, Edit in editor, Browse…,
+  and Clear are `disabled`; after it ends, focus goes to Create archive only
+  if it was on `body`.
+- The confirm dialog has `aria-labelledby` and `aria-describedby` from
+  `useId()`, and its body names the folder of a lossy output path as is.
+- While building, every id in Create archive's `aria-describedby` exists in
+  the DOM.
 - `ManifestChangedOnDisk` shows the banner, not a generic error.
   `SourceChanged` and `VerifyFailed` show their messages from the table above,
   via `errorMessage`; no component contains its own error copy or an
@@ -661,7 +815,10 @@ How to run it:
 
 ## Tests proving completion
 
-`npm run test`, with `lib` mocked:
+`npm run test`, with `lib` mocked. Tests select the view's announcer by a
+stable hook, never by position (`getAllByRole("status")[0]` breaks as soon as
+another live region renders first): give the announcer
+`data-testid="tarpack-announcer"` and query it with `getByTestId`.
 
 - `BuildBar.test.tsx`: each disabled reason, including the three `noEntries`
   sentences; a `canBuild: true` session with failed entries (button
@@ -686,10 +843,21 @@ How to run it:
   - `SourceChanged` and `VerifyFailed`, with their messages and details;
   - progress rendering from a scripted event sequence that follows the
     contract (file ids, `null`-id directory events, a final `null`-id 100%
-    event per phase): the reset at the phase change, "Finishing…" on the final
+    event per phase): the reset at the phase change, `aria-valuetext` with
+    no file name on `null`-id events, the visible label not showing a
+    writing-phase file during verifying, "Finishing…" on the final
     verifying event, and a rejection mid-verify stopping the progress;
   - `OpenerFailed` from Show in folder, as a banner;
   - **Show errors** in the bar moving focus to the error report;
+  - a failed build (`SourceMissing`, `VerifyFailed`) announcing its
+    `errorMessage` once in the view's announcer; `OutputExists` and
+    `ManifestChangedOnDisk` announcing no error message;
+  - `onBuildProgress` rejecting: the build still runs, the "progress is
+    unavailable" text shows, and no progressbar renders;
+  - during a real build (a pending `build` promise), Reload, Edit in editor,
+    Browse…, and Clear are `disabled`, and re-enabled when it settles;
+  - a `saveFileDialog` rejection from Choose… showing the error banner;
+  - the lossy output path in the replace dialog body;
   - a build with `errorCount > 0`: no dialog, `build(false)` called once, the
     result with the left-out heading and report, and the announcement text.
 - `BuildResult.test.tsx`: all summary fields, one size for `"tar"`, the
@@ -704,8 +872,13 @@ How to run it:
   and the region bounded and focusable.
 - `reportText.test.ts`: the text for a summary with left-out entries,
   manifest errors, and warnings; empty sections omitted.
-- `ConfirmDialog.test.tsx`: focus starts on Cancel, Escape cancels, and focus
-  returns afterwards.
+- `ConfirmDialog.test.tsx`: focus starts on Cancel, Escape cancels, focus
+  returns afterwards, and `aria-labelledby` / `aria-describedby` resolve to
+  the title and body.
+- `BuildResult.test.tsx` also covers a rejected `writeText` ("Couldn't
+  copy").
+- `pathParts.test.ts`: `fileName` and `displayFolder`, including a lossy
+  path.
 - Axe checks on the bar in each state (including both progress phases and
   ready with files left out), on the dialog, and on the success (with and
   without a report) and error results.
@@ -719,6 +892,69 @@ changed, format switched by file name, confirming, building (writing,
 verifying, finishing), success (with and without normalised entries), success
 with files left out, success with manifest errors only, success with warnings
 only, and error (each kind above).
+
+## Fixes required after review (2026-09-30)
+
+The first implementation (commits 716297b, 2357f69) was reviewed. Everything
+above is the target; this list is what the review found missing, so fix each
+one:
+
+1. **P0.** Announce a failed build: `errorMessage(error, entries)`, once,
+   through `announce()` (not for `OutputExists` or `ManifestChangedOnDisk`).
+2. Picker labels are the short names tar, gzip, zstd, xz (option text
+   "tar (.tar)" etc.); keep them.
+3. `aria-valuetext` for a `null`-`entryId` event is "{Phase}, {n}%" with no
+   file; the visible label's remembered file resets at the phase change.
+4. Keep the accepted decisions, and add the missing test: `BuildBar` routes
+   `saveFileDialog`, `setOutput`, and `setFormat` errors to the view's
+   banner through `onError`; the `<fieldset disabled>` with
+   `display: contents`, plus a `TarpackView` test that Reload, Edit in
+   editor, Browse…, and Clear are disabled during a real build; focus to
+   Create archive after a build or Dismiss only when focus was lost;
+   `ConfirmDialog` `aria-describedby` and `useId()` ids; no dangling
+   `aria-describedby` ids while building.
+5. Replace the "that folder" fallback: the dialog body uses
+   `displayFolder(outputPath)`, which shows a lossy folder as is.
+6. Measure `scroll-padding-bottom` as described under Scroll model, and do
+   the rendered check in Chromium (Skill section).
+7. A clipboard failure announces "Couldn't copy".
+8. Handle a failed `onBuildProgress` subscription ("progress is
+   unavailable"; no progressbar stuck at 0%).
+9. Move `fileName` from `reportText.ts` to `pathParts.ts`.
+10. Tests select the view's announcer by `data-testid="tarpack-announcer"`,
+    not `getAllByRole("status")[0]`.
+11. Update `DESIGN.md` (~line 185): the confirmation dialog is landed
+    (`ConfirmDialog`, U5), no longer planned.
+
+### Fixes required after re-review (2026-09-30)
+
+The fixes above landed in 49ed82a and the product code was accepted. The
+re-review left test fixes only:
+
+- **F1.** In `TarpackView.build.test.tsx` (~lines 382-395), the "focus
+  elsewhere stays there" part proves nothing: it focuses the Format picker,
+  which is disabled during the build, and asserts only
+  `document.activeElement !== document.body`. Rewrite it: mount a session
+  with manifest errors, so U2's error report region (a `div` with
+  `tabIndex={0}`, not a form control, so the `<fieldset>` does not disable
+  it) is rendered; start a build
+  with a pending `build` promise; focus that report region; settle the
+  build; assert the report region has focus and Create archive does not.
+  Delete the comment about simulating a user who moved on.
+- **F3.** The disabled-controls test (~lines 320-338) uses an unassigned
+  entry, so Clear is disabled anyway, and never proves Edit in editor
+  exists. Use an entry with an assigned file. For each of Reload, Edit in
+  editor, Browse…, and Clear, assert the button exists (`getByRole`, not
+  `queryAllByRole` over a possibly empty list), is `disabled` while the
+  build is pending, and is enabled after it settles.
+- **F6.** Give the test in `EntryTable.scale.test.tsx` (~line 16, "2,000
+  rows render…") an explicit timeout of 15000 ms (third argument to
+  `test`); it flakes under full-suite load. Optional: in the "announces no
+  error message" test, replace the 50 ms sleep and regex with an assertion
+  that the announcer (`getByTestId("tarpack-announcer")`) never contains the
+  exact `errorMessage(...)` string for that error.
+
+These are tests only; change no product code for them.
 
 ## Out of scope
 

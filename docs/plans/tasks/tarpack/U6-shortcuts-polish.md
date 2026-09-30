@@ -3,7 +3,8 @@
 Status: awaiting approval (amended 2026-09-30: path reveal on the focused row,
 row-action names and hints, layout and scroll model from U3; stacked layout
 at the default window, 64rem switch, sticky offsets; WebView2 check of
-middle truncation; focus after dismissing the drop result, from U4)
+middle truncation; focus after dismissing the drop result, from U4;
+amended 2026-09-30: U5's waived audit and the short-window bar fallback)
 Project: tarpack   Depends on: U2, U3, U4, U5 (all landed)
 
 ## Goal
@@ -64,7 +65,11 @@ That loop must take a few keystrokes, not a mouse trip.
     no scroll box around the table; the sticky bar at the bottom; only the
     error report and the build report scroll inside themselves (`40vh`).
     `.tarpack` sets `scrollbar-gutter: stable`, `scroll-padding-top: 3.5rem`
-    (the sticky header), and a `scroll-padding-bottom` for the bar (U5).
+    (the sticky header), and a `scroll-padding-bottom` for the bar (U5,
+    14.5rem: the bar is 14 rem tall at 800×560 with 200% text). At
+    `@media (max-height: 30rem)` the bar is `position: static` and
+    `scroll-padding-bottom` is 0 (the human's decision, 2026-09-30; keep
+    it, height-only threshold accepted).
     Its block padding is `--view-pad-block`, and the sticky header and bar
     use `top`/`bottom: calc(var(--view-pad-block) * -1)` because Chromium
     sticks to the content box; if you change the view's padding, change the
@@ -254,6 +259,18 @@ How to run it:
 - This is an Operate surface extending an established world, so run no
   concept round.
 - Read the skill's `reference/craft-floor.md` before the first edit.
+- **The audit covers U5's surfaces too.** U5's `/impeccable audit` was
+  waived to this task (2026-09-30): include the build bar (every state,
+  including building and the short-window static bar), the replace
+  confirmation dialog, the build result, and the build report.
+- **Known finding to fix (from U5's rendered check).** U2's manifest header
+  overflows horizontally by about 3 px at a 400×280 viewport (200% text at
+  the minimum window). Fix it in `tarpack.css`, scoped under `.tarpack`.
+- **200% text and media queries.** Setting the root font size to 32 px
+  does not trigger media queries; check anything that depends on one (the
+  bar's short-window fallback) at a 400×280 viewport instead. Chromium is
+  pre-installed at `/opt/pw-browsers/chromium` with Playwright installed
+  globally; do not run `playwright install`.
 - The audit includes the deterministic detector. Run
   `impeccable detect --json` over `apps/desktop/src/` and verify each finding
   in context.

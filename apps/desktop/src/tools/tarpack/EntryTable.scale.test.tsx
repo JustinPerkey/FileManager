@@ -24,4 +24,4 @@ test("2,000 rows render; one status change re-renders one row", () => {
   const next = entries.map((x, i) => (i === 1000 ? { ...x, status: "ready" as const, assigned: "C:\\x" } : { ...x }));
   rerender(<EntryTable entries={next} {...props} />);
   expect(renders.n).toBe(1);
-});
+}, 15000);

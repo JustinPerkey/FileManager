@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { assignedFolder, pathParts } from "./pathParts";
+import { assignedFolder, displayFolder, fileName, pathParts } from "./pathParts";
 
 test("splits at the last separator", () => {
   expect(pathParts("C:\\Users\\me\\build\\out\\gateway.exe")).toEqual({
@@ -69,4 +69,18 @@ test("assignedFolder: undefined without a separator or with U+FFFD", () => {
   expect(assignedFolder("a.txt")).toBeUndefined();
   expect(assignedFolder("C:a.txt")).toBeUndefined();
   expect(assignedFolder("C:\\bad\uFFFD\\a.txt")).toBeUndefined();
+});
+
+test("fileName is what follows the last separator", () => {
+  expect(fileName("C:\\out\\gateway.tar.zst")).toBe("gateway.tar.zst");
+  expect(fileName("C:/out/😀.tar")).toBe("😀.tar");
+  expect(fileName("plain")).toBe("plain");
+});
+
+test("displayFolder shows a lossy folder as is; assignedFolder refuses it", () => {
+  expect(displayFolder("C:\\out\\a.tar")).toBe("C:\\out");
+  expect(displayFolder("C:\\a.tar")).toBe("C:\\");
+  expect(displayFolder("C:\\o\uFFFDt\\a.tar")).toBe("C:\\o\uFFFDt");
+  expect(assignedFolder("C:\\o\uFFFDt\\a.tar")).toBeUndefined();
+  expect(displayFolder("a.tar")).toBeUndefined();
 });
