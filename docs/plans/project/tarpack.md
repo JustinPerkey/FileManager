@@ -591,6 +591,15 @@ landed, so it changes plans only: M3's follow-up (wording in P4, P6, P7), M4,
 and M6. M5 is unaffected. The UI changes it causes are listed in §5 for the
 ui-designer.
 
+M5 was implemented (WIP commit 662099b plus an uncommitted working tree) and
+the review requested changes. Its task plan now ends with a **"Review
+follow-up"** (R1–R8, decisions 44–47), run as its own implementer run on the
+same task plan. It lands **before M6 starts**: it changes the boundary type
+`DropOutcome` (typed `UnmatchedReason`, display-only paths) that M6 returns
+from `tarpack_assign_dropped` and U4 renders, and it regenerates
+`lib/generated/`. U4 is updated to match. The follow-up landed in 88273bd,
+the second-review fixes in de7ae19, and the reviewer approved M5 at de7ae19.
+
 ## 5. Handoff to ui-designer
 
 The UI is written in [`tarpack-ui.md`](tarpack-ui.md). Its constraints are:
@@ -601,7 +610,8 @@ The UI is written in [`tarpack-ui.md`](tarpack-ui.md). Its constraints are:
   validation, every passed entry is `Ready`, and an output path is set.
   Manifest errors alone do not disable it (decision 37).
 - Overwriting an existing output needs an explicit confirmation.
-- A drop shows its matched, unmatched, and ambiguous results.
+- A drop shows its matched, unmatched, and ambiguous results. Each unmatched
+  item has a typed reason, and each reason has its own copy (decision 44).
 - **New from the §6 answers:**
   - The user picks the output format (four options) before building. The UI
     takes the options and extensions from the session and does no extension
@@ -878,6 +888,51 @@ Added after the M4 review (2026-09-29):
     keeps the "paths are the platform's path type" invariant for names that
     are not valid Unicode.
 
+Added after the M5 review (2026-09-30):
+
+44. **Unmatched reasons are a closed enum, not English text.**
+    `DropOutcome.unmatched: Vec<Unmatched { path, reason: UnmatchedReason }>`
+    with `UnmatchedReason { AlreadyAssigned, NoEntry, NotFound,
+    LinkNotFollowed, FolderNoMatch, Unreadable, NotUnicode }`, camelCase
+    serde, exported through ts-rs. Copy belongs to the UI, which maps every
+    reason in an exhaustive `Record`, so a new reason fails the typecheck
+    instead of leaking a Rust string to the user. The same pattern as
+    `TarpackErrorKind` (decision 8).
+45. **Paths that are not valid Unicode are an accepted limit: rejected at
+    the drop boundary, reported, never stored or sent as paths.** serde
+    serializes a `PathBuf` only when it is Unicode, so one such path would
+    make every later `Store::save` fail, or fail a whole `DropOutcome` over
+    IPC, and a lossy state key could merge two manifests. Every path the UI
+    sends (drops, Browse, Save) arrives as a JSON string and is already
+    Unicode, so the only source is a folder walk. There, a file that would
+    be assigned but whose path is not Unicode goes to `unmatched` with
+    `NotUnicode`, and `matched` holds only Unicode paths. `Unmatched.path`
+    and `Ambiguity.candidates` are display-only and serialize lossily (one
+    way, as in decision 43); the outcome types derive `Serialize` only.
+    `RememberedState`'s key uses `to_str()` (no memory for a non-Unicode
+    manifest path), and `remember` / `touch_recent` skip non-Unicode paths
+    as defence in depth. `Assignments` still accepts any path, since the
+    writer can read any file. Rejected: a lossless encoding (for example
+    WTF-16 units as a number array in the state file and over IPC). It adds
+    a second path representation to the store, the contract, and the UI for
+    names Windows tools rarely produce and that the user can fix by
+    renaming, and the drop result tells them to.
+46. **Drops report every item that did not apply.** A walked file that fits
+    only `Ready` entries is `AlreadyAssigned` (a folder is `FolderNoMatch`
+    only if no file in it fits any entry); unreadable directories and
+    children met in the walk are `Unreadable`, while other matches still
+    apply; a path dropped directly keeps its direct report even when a
+    dropped folder also contains it. Reason: a silent skip could hide a
+    second candidate and turn an ambiguity into a guess, or leave the user
+    with an empty result and no explanation.
+47. **Implementer choices accepted in the M5 review.** The depth cap counts
+    the dropped folder's direct children as level 1 (level 8 found, level 9
+    not); `remember` replaces the stored sources, which is how pruning
+    happens; the state key falls back to the path as given when
+    `canonicalize` fails; `is_symlink` also detects junctions on Windows, so
+    the walk needs no separate junction check. The Windows key strips
+    `\\?\UNC\` to `\\` and `\\?\` to nothing, then lowercases.
+
 ### 6.3 UI-facing contract changes (for the ui-designer)
 
 All of these are owned by M6 (with types from M3–M5) and generated into
@@ -982,6 +1037,13 @@ All of these are owned by M6 (with types from M3–M5) and generated into
   - `SourceChanged`: a source's size changed during the build.
   - `VerifyFailed`: the archive failed its post-write check. Nothing was saved,
     and any existing file is unchanged (decision 13).
+- **Drop outcome (decisions 44–46).** `DropOutcome` is
+  `{ matched: [string, string][], unmatched: Unmatched[], ambiguous: Ambiguity[] }`
+  with `Unmatched = { path: string, reason: UnmatchedReason }`,
+  `UnmatchedReason = "alreadyAssigned" | "noEntry" | "notFound" | "linkNotFollowed" | "folderNoMatch" | "unreadable" | "notUnicode"`,
+  and `Ambiguity = { id: string, candidates: string[] }`. The paths in
+  `unmatched` and `candidates` are display strings (U+FFFD where a path was
+  not Unicode) and are never passed back. U4 maps each reason to copy.
 - Clipboard: no `lib/` wrapper. The UI uses `navigator.clipboard.writeText`
   (decision 14).
 - `lib/tauri.ts`: `saveFileDialog({ defaultPath, filters? })` gains `filters`.

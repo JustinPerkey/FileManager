@@ -1,8 +1,8 @@
 # M6 — Tauri commands, events, watcher, and the typed client
 
 Status: awaiting approval
-Project: tarpack   Depends on: M4 (landed), M5 (landed); M3's partial-results
-follow-up (landed before M4 and M5)
+Project: tarpack   Depends on: M4 (landed), M5 (landed, including its review
+follow-up); M3's partial-results follow-up (landed before M4 and M5)
 
 ## Goal
 
@@ -127,7 +127,13 @@ What exists:
     error, nothing is saved at the output path, and a pre-existing file there
     is left unchanged. M4's u64 fields are already annotated to generate as TS
     `number`.
-- **M5:** `fm_tarpack::sources::{Assignments, EntryStatus, match_dropped, apply, DropOutcome, RememberedState}`.
+- **M5:** `fm_tarpack::sources::{Assignments, EntryStatus, match_dropped, apply, DropOutcome, Unmatched, UnmatchedReason, Ambiguity, RememberedState}`.
+  `DropOutcome` is already exported to `lib/generated/` (with `Unmatched`,
+  the closed `UnmatchedReason` union, and `Ambiguity`); return it from
+  `tarpack_assign_dropped` as is. It derives `Serialize` only: the paths in
+  `unmatched` and `Ambiguity.candidates` are display strings, serialized
+  lossily, and `matched` holds only Unicode paths, so it always serializes.
+  `RememberedState` never stores a path that is not valid Unicode.
   `RememberedState` has
   `remember(manifest_path, &Assignments, output, format)`, `restore`,
   `restore_output`, `restore_format` (remembered, else the manifest default),

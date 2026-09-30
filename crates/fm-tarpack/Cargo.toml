@@ -16,3 +16,6 @@ tempfile = { workspace = true }
 toml = { version = "1.1.6", features = ["parse", "serde"] }
 ts-rs = { workspace = true }
 zstd = "0.14.0"
+
+[dev-dependencies]
+serde_json = "1"

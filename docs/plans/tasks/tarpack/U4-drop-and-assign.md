@@ -2,7 +2,8 @@
 
 Status: awaiting approval
 Project: tarpack   Depends on: U3 (landed), M6 (landed; this task reads its
-partial-results fields `entriesWithheld`, `failedEntries`, and `errorCount`).
+partial-results fields `entriesWithheld`, `failedEntries`, and `errorCount`),
+and M5's review follow-up (landed before M6; it generates `UnmatchedReason`).
 May run alongside U5.
 
 ## Goal
@@ -19,7 +20,9 @@ window, or by picking a file for one row, and show clearly what a drop did.
 - Rust never guesses. A name that could fit more than one entry is reported as
   **ambiguous**, and a file the manifest does not list is reported as
   **unmatched**. A drop never replaces a file that is already assigned and
-  present; that comes back as unmatched with the reason "already assigned".
+  present; that comes back as unmatched with the reason `alreadyAssigned`.
+- Every unmatched item carries a typed **reason** (below). You map each
+  reason to copy; you never infer a reason yourself.
 
 **Working while the manifest has errors (decided by the human).** A manifest
 with errors still opens. Entries with no error of their own **pass** and are
@@ -54,8 +57,28 @@ match.
   - `assign(id, path)`, which returns a session
   - `clear(id)`, which returns a session
 - The outcome's type is `DropOutcome` in `src/lib/generated/`:
-  `matched: [id, path][]`, `unmatched: path[]` (with a reason where given), and
-  `ambiguous: { id, candidates: path[] }[]`.
+  - `matched: [id, path][]`;
+  - `unmatched: Unmatched[]`, where
+    `Unmatched = { path: string, reason: UnmatchedReason }` and
+    `UnmatchedReason = "alreadyAssigned" | "noEntry" | "notFound" | "linkNotFollowed" | "folderNoMatch" | "unreadable" | "notUnicode"`
+    (both generated; import them, never redeclare them);
+  - `ambiguous: { id, candidates: path[] }[]`.
+
+  The reasons mean:
+
+  | Reason | What happened |
+  | --- | --- |
+  | `alreadyAssigned` | The file's name fits only entries that already have a present file; nothing was replaced. |
+  | `noEntry` | A file dropped directly whose name fits no entry in the table. |
+  | `notFound` | A dropped path that no longer exists. |
+  | `linkNotFollowed` | A dropped path that is a link or junction; links are never followed. |
+  | `folderNoMatch` | A dropped folder in which no file's name fits any entry. |
+  | `unreadable` | A dropped path, or a folder or file inside a dropped folder, that could not be read. Other matches from the same drop still applied. |
+  | `notUnicode` | A file that would have been assigned, but its path has characters the app cannot store or send. It was not assigned. |
+
+  The paths in `unmatched` and `ambiguous` are display strings: show them,
+  never pass them back to `lib`. A path that was not valid Unicode arrives
+  with U+FFFD in it; render it as U3 does such names.
 - `src/lib/tauri.ts` provides:
   - `onDragDrop(handler)`, which yields
     `{ type: "enter"|"over"|"leave"|"drop", paths }`;
@@ -97,7 +120,7 @@ match.
 | Component | Path | Props | States |
 | --- | --- | --- | --- |
 | `DropZone` | `src/app/DropZone.tsx` (shared) | `enabled, disabledReason, label, onDrop(paths)` | idle / hover / disabled |
-| `DropResult` | `src/tools/tarpack/DropResult.tsx` | `outcome, hasFailedEntries, onDismiss` | matched / unmatched / unmatched with failed entries / ambiguous |
+| `DropResult` | `src/tools/tarpack/DropResult.tsx` | `outcome, hasFailedEntries, onDismiss` | matched / unmatched, one line per reason / unmatched with failed entries / ambiguous |
 
 `TarpackView` passes `hasFailedEntries = manifest.failedEntries.length > 0`.
 `DropZone` is shared and knows nothing about manifests: `TarpackView` computes
@@ -125,15 +148,35 @@ match.
   - `entries` empty otherwise: "This manifest lists no files";
   - building (wired in U5; accept the flag now): "A build is running".
 - **After a drop**, `DropResult` appears above the table. It is a
-  `role="status"` region with `aria-live="polite"` and one line per non-empty
-  bucket, for example:
+  `role="status"` region with `aria-live="polite"`. It has one line for
+  matched, one line per **unmatched reason** that occurs (grouped by
+  `reason`, in the table's order below), and one line for ambiguous, each
+  only when non-empty. For example:
   - "3 matched"
   - "1 not in the manifest: notes.txt"
+  - "2 already assigned, left unchanged: app.dll, core.dll"
   - "1 ambiguous: app.dll could be 2 files — use Browse"
 
-  Paths show as file names, with the full path in `title`. Each line starts
-  with an `Icon`: `check-circle` in `--ok` for matched, `info` in
-  `--text-muted` for not in the manifest, and `alert-triangle` in `--warn`
+  The unmatched copy, as `{n} {phrase}: {names}`:
+
+  | Reason | Phrase | Icon |
+  | --- | --- | --- |
+  | `noEntry` | "not in the manifest" ("not matched" with failed entries, below) | `info`, `--text-muted` |
+  | `alreadyAssigned` | "already assigned, left unchanged" | `info`, `--text-muted` |
+  | `folderNoMatch` | "folder(s) with nothing to match" (singular "folder with nothing to match") | `info`, `--text-muted` |
+  | `linkNotFollowed` | "link(s) not followed" (singular "link not followed") | `info`, `--text-muted` |
+  | `notFound` | "no longer found" | `alert-triangle`, `--warn` |
+  | `unreadable` | "could not be read" | `alert-triangle`, `--warn` |
+  | `notUnicode` | "can't be assigned: the path has unsupported characters. Rename it" | `alert-triangle`, `--warn` |
+
+  Hold the mapping in one exhaustive `Record<UnmatchedReason, …>` in
+  `DropResult.tsx`, so a reason added in Rust fails `npm run typecheck`
+  until it has copy. Never render `reason` itself. `/impeccable clarify`
+  may tighten the wording; the meaning and the grouping stay.
+
+  Paths show as file (or folder) names, with the full path in `title`. Each
+  line starts with an `Icon`: `check-circle` in `--ok` for matched, the
+  table's icon for each unmatched reason, and `alert-triangle` in `--warn`
   for ambiguous. Counts use `.num`. It sits on `--surface` with a 1 px
   `--border` (no tinted fill and no side stripe). It is dismissed with a quiet
   `Button` using the `x` icon and the name "Dismiss drop result", and it is
@@ -141,15 +184,16 @@ match.
 - **Unmatched files while entries have errors.** When `hasFailedEntries` is
   true, an unmatched file may belong to a failed entry, so "not in the
   manifest" would be wrong. Then:
-  - the unmatched line reads "1 not matched: notes.txt" (or "N not
+  - the `noEntry` line reads "1 not matched: notes.txt" (or "N not
     matched: …") instead of "… not in the manifest: …";
-  - one more line follows it, in `--text-muted` with the `info` icon:
+  - one more line follows the unmatched lines, in `--text-muted` with the
+    `info` icon, when a `noEntry` or `folderNoMatch` line is shown:
     "Files for entries with errors can't be matched until those errors are
     fixed."
 
   Do not try to work out which unmatched file belongs to which failed entry;
-  that is matching logic, and it stays in Rust. The "already assigned"
-  reason, when present, is shown as before.
+  that is matching logic, and it stays in Rust. The other reasons' lines
+  are the same with or without failed entries.
 - **Browse…** on a row opens `openFileDialog`, starting in the folder of the
   row's current or last assignment when there is one. The chosen path goes to
   `assign(id, path)`. A cancelled dialog does nothing.
@@ -200,15 +244,17 @@ How to run it:
 - A drag shows the overlay, and a leave or drop hides it.
 - A drop calls `assignDropped` with exactly the dropped paths, and renders the
   returned session and outcome.
-- Every bucket renders correctly, including the "already assigned" reason. The
-  live-region text matches the outcome.
+- Every bucket renders correctly, and every `UnmatchedReason` has its own
+  line with its copy and icon; items with the same reason share one line.
+  The live-region text matches the outcome. The mapping is an exhaustive
+  `Record<UnmatchedReason, …>`.
 - Disabled drops show the reason for each case (no manifest, entries
   withheld or every entry failed, no files) and make no `lib` call.
 - With `errorCount > 0` and non-empty `entries`, drops, Browse…, and Clear
   are enabled and call `lib` exactly as with a clean manifest.
-- With failed entries, the unmatched line reads "not matched" and the hint
-  line appears; without failed entries it reads "not in the manifest" and
-  there is no hint.
+- With failed entries, the `noEntry` line reads "not matched" and the hint
+  line appears (also after a `folderNoMatch` line alone); without failed
+  entries it reads "not in the manifest" and there is no hint.
 - The overlay label is on a `--surface` plate, and each result line has its
   icon, so meaning never depends on color or the dashed border alone.
 - Browse and Clear call the right functions with the right id, and a cancelled
@@ -221,8 +267,10 @@ How to run it:
 `npm run test`, with `onDragDrop` and `openFileDialog` mocked:
 
 - `DropZone.test.tsx`: hover, leave, drop, and disabled.
-- `DropResult.test.tsx`: each bucket, combined buckets, dismiss, and the
-  unmatched wording and hint with and without failed entries.
+- `DropResult.test.tsx`: each bucket; each of the seven unmatched reasons
+  (copy and icon); two items with one reason on one line; combined buckets
+  and reasons; a U+FFFD path renders; dismiss; and the `noEntry` wording and
+  hint with and without failed entries.
 - `TarpackView.assign.test.tsx`: the Browse flow, cancelled Browse, Clear,
   a `NotAFile` rejection, a drop plus Browse on a session with
   `errorCount > 0` and passed entries (enabled, `lib` called), and the
@@ -234,8 +282,8 @@ How to run it:
 
 Idle, drag hover, disabled (no manifest, entries withheld or every entry
 failed, no files, building), enabled with manifest errors, result (each
-bucket, with and without failed entries), dialog cancelled, and command
-error.
+bucket and each unmatched reason, with and without failed entries), dialog
+cancelled, and command error.
 
 ## Out of scope
 

@@ -290,7 +290,7 @@ All components live under `apps/desktop/src/`.
 | `EntryTable` | `tools/tarpack/EntryTable.tsx` | `entries, failedCount, entriesWithheld, onBrowse, onClear` | populated / populated with files left out / no files / every file failed / withheld | tool |
 | `EntryStatus` | `tools/tarpack/EntryStatus.tsx` | `status` | Ready / Missing / Not assigned | tool |
 | `EolMarker` | `tools/tarpack/EolMarker.tsx` | — | shown only when `normalizeEol` | tool |
-| `DropResult` | `tools/tarpack/DropResult.tsx` | `outcome, hasFailedEntries, onDismiss` | matched / unmatched / unmatched with failed entries / ambiguous | tool |
+| `DropResult` | `tools/tarpack/DropResult.tsx` | `outcome, hasFailedEntries, onDismiss` | matched / unmatched, one line per `UnmatchedReason` / unmatched with failed entries / ambiguous | tool |
 | `BuildBar` | `tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild, onShowErrors` | disabled-with-reason / no entries (three cases) / ready / ready with files left out / ready with manifest errors only / building | tool |
 | `FormatPicker` | `tools/tarpack/FormatPicker.tsx` | `formats, value, disabled, onChange` | enabled / disabled | tool |
 | `BuildProgress` | `tools/tarpack/BuildProgress.tsx` | `progress, entries` | writing / verifying / finishing | tool |
@@ -565,3 +565,15 @@ Open P3s, left for the builders to report rather than fixed here:
 - "Created {file name}" takes the file name from `summary.path` in TS, as
   main's plan already did. A backend display field would remove that path
   handling; that would be a contract change and is not requested here.
+
+## Contract change from M5's review (planner, 2026-09-30)
+
+`DropOutcome.unmatched` is now `Unmatched[]` with a typed
+`reason: UnmatchedReason` (`alreadyAssigned`, `noEntry`, `notFound`,
+`linkNotFollowed`, `folderNoMatch`, `unreadable`, `notUnicode`) instead of
+free English text; the paths in `unmatched` and `ambiguous` are display
+strings. The planner updated U4 to match: one result line per reason, an
+exhaustive `Record<UnmatchedReason, …>` of copy and icons, and the
+failed-entries hint also after a `folderNoMatch` line. The copy in U4 is the
+planner's first draft; the ui-designer may revise the wording in U4 before
+it runs, keeping one line per reason and the exhaustive mapping.

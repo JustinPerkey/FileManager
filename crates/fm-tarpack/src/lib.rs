@@ -14,4 +14,7 @@ pub use manifest::{
     load, parse, Diagnostic, Entry, EntryFailure, LoadError, LoadedManifest, Manifest,
     ManifestView, Owner, ParseReport, Severity,
 };
-pub use sources::Assignments;
+pub use sources::{
+    apply, match_dropped, Ambiguity, Assignments, DropOutcome, EntryStatus, ManifestMemory,
+    RememberedState, Unmatched,
+};
