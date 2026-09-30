@@ -28,6 +28,7 @@
   --font-size-lg: 1rem;
   --font-size-xl: 1.25rem;
   --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.18);
+  --scrim: rgb(0 0 0 / 0.4);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -47,6 +48,7 @@
     --focus-ring: #7aa2ff;
     --drop-overlay: rgb(122 162 255 / 0.12);
     --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.5);
+    --scrim: rgb(0 0 0 / 0.6);
   }
 }
 
@@ -66,4 +68,5 @@
   --focus-ring: #7aa2ff;
   --drop-overlay: rgb(122 162 255 / 0.12);
   --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.5);
+  --scrim: rgb(0 0 0 / 0.6);
 }

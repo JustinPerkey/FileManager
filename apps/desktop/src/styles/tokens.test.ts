@@ -55,6 +55,10 @@ test.each(themes)("%s defines the overlay shadow", (_name, t) => {
   expect(t["--shadow-overlay"]).toMatch(/^0 8px 24px rgb\(0 0 0 \/ 0\.(18|5)\)$/);
 });
 
+test.each(themes)("%s defines --scrim", (name, t) => {
+  expect(t["--scrim"]).toBe(name === "light" ? "rgb(0 0 0 / 0.4)" : "rgb(0 0 0 / 0.6)");
+});
+
 test("type-size tokens exist on :root", () => {
   const t = themes[0][1];
   expect(t["--font-size-sm"]).toBe("0.8125rem");
@@ -80,7 +84,7 @@ function topLevelSplit(list: string): string[] {
   return out;
 }
 
-test("every tarpack.css selector is scoped under .tarpack, and only the Recent menu has a shadow", () => {
+test("every tarpack.css selector is scoped under .tarpack, and only the overlays have a shadow", () => {
   const rules = [...tarpackCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@container[^{]*\{/g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)];
   expect(rules.length).toBeGreaterThan(0);
   const shadowed: string[] = [];
@@ -88,5 +92,5 @@ test("every tarpack.css selector is scoped under .tarpack, and only the Recent m
     for (const one of topLevelSplit(sel)) expect(one.trim().startsWith(".tarpack")).toBe(true);
     if (/box-shadow/.test(body)) shadowed.push(sel.trim());
   }
-  expect(shadowed).toEqual([".tarpack .menu__list"]);
+  expect(shadowed).toEqual([".tarpack .shortcuts__popover", ".tarpack .menu__list"]);
 });

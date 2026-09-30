@@ -1,6 +1,8 @@
 # M7 — Portable Windows exe and end-to-end check
 
 Status: awaiting approval
+(amended 2026-09-30: step 10, the WebView2 middle-truncation check, moved
+here from U6's review; the Linux steps are now 11 and 12)
 Project: tarpack   Depends on: M6 (landed), U6 (landed)
 
 ## Goal
@@ -55,6 +57,24 @@ from Windows to extraction on the Linux target.
   `docs/tarpack-manifest.md`. Every one uses `-P`, which is required, and
   `--no-overwrite-dir`. The app shows the exact command in the build result.
 - The example manifest is `examples/tarpack/example.toml`.
+- **Middle-truncated paths (from U6).** The Tar Packager view shows long
+  Windows paths on one line, truncated in the middle by CSS, in the component
+  `apps/desktop/src/tools/tarpack/MiddlePath.tsx`. It is used in the entry
+  table's Windows location column (`EntryTable.tsx`) and for the build bar's
+  output path. The rendered result is "C:\Users\…\name.ext": the start of
+  the path, "…", then the whole file name with its leading `\`. The line
+  snaps to whole characters with `width: calc(round(down, 100% - 1px, 1ch) +
+  0.5px)`, and the tail is `flex: 0 0 auto; max-width: calc(100% - 4ch)`.
+  This was verified only in Chromium on Linux with a fallback monospace font.
+  WebView2 on Windows renders with Cascadia Mono or Consolas, so the check in
+  step 10 is its first test with the real fonts. The full path is shown by
+  design on hover (`title`) and on the keyboard-focused table row, so those
+  are not truncation failures.
+- **The table's two layouts.** Below a table width of 64rem each row is
+  stacked (the default 1000×700 window shows this); at 64rem or wider the
+  table shows columns, which at 100% text needs a window about 1282 px wide
+  or wider. A maximised window on a 1920 px wide screen shows the column
+  layout.
 
 **Rules that bind this task.**
 
@@ -121,7 +141,35 @@ Record each step with pass/fail and notes in `docs/tarpack-e2e.md`.
 9. Edit the manifest in an external editor (change a mode). The banner
    appears. Building before reload is refused. After reload, the new mode is
    shown.
-10. **On a disposable Linux target**, for each of the four files:
+10. **WebView2 middle truncation** (the user runs this on the Windows
+    machine, in the packaged exe; it moved here from U6 because it needs
+    Windows). Set up long paths first: assign the sources from a scratch
+    folder nested deep enough that the Windows location column truncates,
+    and choose an output path in a similarly deep folder, so the build bar's
+    output path truncates too. Record the Windows version and, if you
+    can tell, which monospace font rendered (Cascadia Mono or Consolas). Then, for every
+    truncated path, in the table and in the build bar's output path:
+    - "…" sits directly against the file name's leading `\`, with no gap;
+    - the file name is never split mid-word.
+
+    Check this at several window widths, resizing a pixel or two at a time
+    over a range of at least 20 px each time, in **both table layouts**
+    (stacked at the default window, columns when maximised), and again at
+    **200% text**: set Windows Settings > Accessibility > Text size to 200%,
+    and restart the app. If the app's text
+    does not grow with that setting, record "200% text: not applied by
+    WebView2" in the notes instead of passing or failing it, and report it;
+    do not change the app's zoom settings to force it. Do not keyboard-focus
+    a table row or hover a path while checking, since both show the full path
+    by design. Restore the text size afterwards.
+
+    **If it fails:** record the failure in the results table with the window
+    width (and text size and layout) where it shows, and a screenshot. Keep
+    the screenshot outside the repository and give its path, or attach it to
+    the report. Do not change `MiddlePath` or any other UI file in this task.
+    A failure becomes a follow-up UI task for the ui-implementer, reported to
+    the orchestrator; it does not block the rest of the checklist.
+11. **On a disposable Linux target**, for each of the four files:
     - Run the listing command, `tar -tvPf` plus the format flag. Every name
       begins with `/`, and the modes and owners match the manifest.
     - Run the exact extraction command shown by the app, as root. Check that:
@@ -132,7 +180,7 @@ Record each step with pass/fail and notes in `docs/tarpack-e2e.md`.
         and owner;
       - the normalised script has no CR bytes (`grep -c $'\r'` gives `0`) and
         runs.
-11. **Decompression cost on armv7.** On the armv7 target, or failing that an
+12. **Decompression cost on armv7.** On the armv7 target, or failing that an
     armv7 container under qemu (note which), run
     `/usr/bin/time -v tar --zstd -xpPf …` and the `.tar.xz` equivalent. Record
     the peak resident set size of each. Expect roughly 8 MiB (zstd) and 9 MiB
@@ -143,8 +191,11 @@ Record each step with pass/fail and notes in `docs/tarpack-e2e.md`.
 - CI uploads the portable exe as an artifact on every push to the branch.
 - The CI dependency check proves that the exe imports no C runtime, zstd, or
   liblzma DLL.
-- `docs/tarpack-e2e.md` records all 11 steps passing, with the commit SHA
-  tested.
+- `docs/tarpack-e2e.md` records all 12 steps, with the commit SHA tested.
+  Steps 1–9, 11, and 12 pass. Step 10 has been run on Windows and is
+  recorded: pass, or fail with the window width, the layout, the text size,
+  and a screenshot path, and a follow-up UI task reported. M7 is not signed
+  off until step 10 has been run.
 - The README documents running the portable exe, WebView2, the SmartScreen
   prompt, the state location, and extraction with `-P` for each format.
 
@@ -160,6 +211,8 @@ Record each step with pass/fail and notes in `docs/tarpack-e2e.md`.
 - Auto-update.
 - An installer, or bundling a fixed-version WebView2 runtime.
 - New features found missing during the check. Report those; do not build them.
+- Fixing a step 10 (middle truncation) failure. It is a UI change, owned by
+  the ui-implementer through a follow-up UI task.
 
 ## Risks
 

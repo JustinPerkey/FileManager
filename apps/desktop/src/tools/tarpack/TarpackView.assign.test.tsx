@@ -90,7 +90,8 @@ test("drop calls assignDropped with the dropped paths, renders session and outco
   expect(screen.queryByRole("region", { name: "Drop result" })!.closest("[aria-live]")).toBeNull();
   await user().click(screen.getByRole("button", { name: "Dismiss drop result" }));
   expect(screen.queryByRole("region", { name: "Drop result" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Browse… for /opt/app" })).toHaveFocus();
+  // Roving focus: the tab-stop row is the first tabbable element after the result.
+  expect(document.activeElement).toBe(document.querySelector("tr[data-entry-id=app]"));
   expect(container.querySelector(".tarpack")).not.toHaveAttribute("tabindex");
   expect((await axe(container)).violations).toEqual([]);
 });
@@ -129,7 +130,7 @@ test("Clear calls clear with the id and keeps its title", async () => {
   const btn = screen.getByRole("button", {
     name: "Clear assigned file for /opt/core",
   });
-  expect(btn).toHaveAttribute("title", "Forget this file (nothing is deleted)");
+  expect(btn).toHaveAttribute("title", "Forget this file (nothing is deleted). Shortcut: Delete");
   await user().click(btn);
   expect(tp.clear).toHaveBeenCalledWith("core");
 });

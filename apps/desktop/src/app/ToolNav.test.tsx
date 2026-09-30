@@ -37,3 +37,11 @@ test("Enter and Space select the focused item", async () => {
   await user.keyboard("{ArrowDown} ");
   expect(onSelect).toHaveBeenLastCalledWith("c");
 });
+
+test("the current item keeps aria-current and has no thick side border", () => {
+  render(<ToolNav tools={tools} activeId="c" onSelect={() => {}} />);
+  const current = screen.getByRole("button", { name: "Gamma" });
+  expect(current).toHaveAttribute("aria-current", "page");
+  expect(current.style.borderLeft).toBe("");
+  expect(screen.getAllByRole("button").filter((b) => b.hasAttribute("aria-current"))).toHaveLength(1);
+});

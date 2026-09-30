@@ -238,6 +238,12 @@ first implementation's `"targets": ["nsis"]` named an installer and is removed
   Windows 10/11. It cannot bootstrap it. The README states the requirement.
 - State stays in `%APPDATA%\FileManager\` (Q5), not beside the exe. "Portable"
   means no installer, not a self-contained data folder.
+- The WebView2 rendering of `MiddlePath`'s middle truncation is checked in
+  M7's Windows end-to-end check (step 10 of `docs/tarpack-e2e.md`), run by
+  the user before M7 is signed off. It moved there from U6 after U6's review
+  (`tarpack-ui.md` §13), because the implementers' container is Linux. A
+  failure becomes a follow-up UI task; it neither reopens U6 nor is fixed in
+  M7.
 
 ### 2.6 Webview security *(decided by the planner, M1 review P3-7)*
 
@@ -565,7 +571,7 @@ also here when it changes the index below.
 | M4 | [`M4-archive-writer.md`](../tasks/tarpack/M4-archive-writer.md) | Atomic, verified writer: absolute names, four formats, EOL normalisation | M2, M3 |
 | M5 | [`M5-source-matching.md`](../tasks/tarpack/M5-source-matching.md) | Drop/pick matching, remembered locations and format | M2, M3 |
 | M6 | [`M6-tauri-contract.md`](../tasks/tarpack/M6-tauri-contract.md) | Tauri commands, events, watcher, typed `lib/` client | M4, M5 |
-| M7 | [`M7-windows-packaging.md`](../tasks/tarpack/M7-windows-packaging.md) | Portable exe, static CRT, CI artifact, end-to-end check | M6, U6 |
+| M7 | [`M7-windows-packaging.md`](../tasks/tarpack/M7-windows-packaging.md) | Portable exe, static CRT, CI artifact, end-to-end check (incl. the WebView2 middle-truncation check moved from U6) | M6, U6 |
 
 M2 and M3 can run in parallel, and so can M4 and M5.
 

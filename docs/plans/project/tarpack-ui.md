@@ -1,6 +1,7 @@
 # UI project plan: app shell and the Tar Packager view
 
-Status: **awaiting approval** (U1 landed). Backend project plan:
+Status: **U1–U6 done** (U1 landed 2026-09-29; U2–U6 landed and
+reviewer-approved 2026-09-30; U6 closed out in §13). Backend project plan:
 [`tarpack.md`](tarpack.md). Updated 2026-09-29 for the human's answers to the
 backend open questions (`tarpack.md` §6) and to this plan's own §5.
 
@@ -265,6 +266,7 @@ fixed rem scale with a ratio of about 1.125–1.25):
 | `--font-size-lg` | `1rem` | region headings ("3 errors in this manifest", "Created …") |
 | `--font-size-xl` | `1.25rem` | the view heading (current `.tool-view h1`) |
 | `--shadow-overlay` | `0 8px 24px rgb(0 0 0 / 0.18)` light, `0 8px 24px rgb(0 0 0 / 0.5)` dark | surfaces that float over content, only: the Recent menu (U2), the confirmation dialog (U5), and the shortcuts popover (U6) |
+| `--scrim` | `rgb(0 0 0 / 0.4)` light, `rgb(0 0 0 / 0.6)` dark | the backdrop behind a modal dialog, only (the confirmation dialog). Added by U6's review fixes (R4), replacing a literal color in `controls.css` |
 
 U2 also themes the browser surfaces in `base.css`, with no new color values:
 
@@ -410,7 +412,11 @@ No size or modified-time columns (decided, §5).
   `bottom: calc(var(--view-pad-block) * -1)` with a matching negative
   `margin-bottom`. `.tarpack` also sets `scrollbar-gutter: stable`,
   `scroll-padding-top: 3.5rem`, and (U5) a `scroll-padding-bottom` for the
-  bar. Rejected: a table scroll box
+  bar. (U6) Moving the roving focus with Up/Down scrolls the row into view
+  with `block: "nearest"`, except a row taller than half the window
+  (`offsetHeight > innerHeight / 2`, as at 200% text with its path
+  revealed), which uses `block: "start"` so its top aligns under the sticky
+  header (`EntryTable.tsx` lines 238-241). Rejected: a table scroll box
   (`max-height: 70vh`), which nests a third scroll area beside the 40vh
   report and the bar at 800×560 and 200% text.
 
@@ -525,14 +531,14 @@ fits, and **Reload** then reports `ManifestUnreadable`.
 Each UI task is specified in full in its task plan. The task plan is the only
 plan its `ui-implementer` reads.
 
-| # | Task plan | Goal | Depends on | `/impeccable` commands |
-| --- | --- | --- | --- | --- |
-| U1 | [`U1-app-shell.md`](../tasks/tarpack/U1-app-shell.md) | Window layout, tokens, tool navigation | M1 | landed (ran under the old names) |
-| U2 | [`U2-manifest-header.md`](../tasks/tarpack/U2-manifest-header.md) | Manifest header; no-manifest and changed-on-disk states; error region (notice, report, announcer), warnings; `FailureList`, `DiagnosticList`; shared `Button`, `Icon`, type tokens | U1, M6 | `layout`, `clarify`, `audit` |
-| U3 | [`U3-entry-table.md`](../tasks/tarpack/U3-entry-table.md) | Entry table (passed entries only) with per-row status, the CRLF → LF marker, the left-out summary clause, and the withheld / every-file-failed / no-files sentences | U2, M6 | `typeset`, `layout`, `harden` |
-| U4 | [`U4-drop-and-assign.md`](../tasks/tarpack/U4-drop-and-assign.md) | Drag-and-drop and per-row Browse/Clear, enabled while errors exist; disabled with a reason when no entry passed | U3, M6 | new work in the established world, `clarify` |
-| U5 | [`U5-build-bar.md`](../tasks/tarpack/U5-build-bar.md) | Output, format picker, build (enabled with errors, with the left-out note), overwrite confirmation, two-phase progress, result with extraction command and the final report | U2, U3, M6 | `layout`, `clarify`, `animate`, `audit` |
-| U6 | [`U6-shortcuts-polish.md`](../tasks/tarpack/U6-shortcuts-polish.md) | Keyboard shortcuts (including F8 Show errors), polish, audit | U2–U5 | `polish`, `audit` (with the detector) |
+| # | Task plan | Goal | Depends on | `/impeccable` commands | Status |
+| --- | --- | --- | --- | --- | --- |
+| U1 | [`U1-app-shell.md`](../tasks/tarpack/U1-app-shell.md) | Window layout, tokens, tool navigation | M1 | landed (ran under the old names) | done (2026-09-29) |
+| U2 | [`U2-manifest-header.md`](../tasks/tarpack/U2-manifest-header.md) | Manifest header; no-manifest and changed-on-disk states; error region (notice, report, announcer), warnings; `FailureList`, `DiagnosticList`; shared `Button`, `Icon`, type tokens | U1, M6 | `layout`, `clarify`, `audit` | done, reviewer-approved |
+| U3 | [`U3-entry-table.md`](../tasks/tarpack/U3-entry-table.md) | Entry table (passed entries only) with per-row status, the CRLF → LF marker, the left-out summary clause, and the withheld / every-file-failed / no-files sentences | U2, M6 | `typeset`, `layout`, `harden` | done, reviewer-approved |
+| U4 | [`U4-drop-and-assign.md`](../tasks/tarpack/U4-drop-and-assign.md) | Drag-and-drop and per-row Browse/Clear, enabled while errors exist; disabled with a reason when no entry passed | U3, M6 | new work in the established world, `clarify` | done at cbce88a, reviewer-approved |
+| U5 | [`U5-build-bar.md`](../tasks/tarpack/U5-build-bar.md) | Output, format picker, build (enabled with errors, with the left-out note), overwrite confirmation, two-phase progress, result with extraction command and the final report | U2, U3, M6 | `layout`, `clarify`, `animate`, `audit` | done at ec3d0c5, reviewer-approved |
+| U6 | [`U6-shortcuts-polish.md`](../tasks/tarpack/U6-shortcuts-polish.md) | Keyboard shortcuts (including F8 Show errors), polish, audit | U2–U5 | `polish`, `audit` (with the detector) | done at ee3da63, 01d6a0c, 0fe3fe1; reviewer-approved |
 
 U4 and U5 can run in parallel. Every UI task that reads the partial-results
 or build-report fields (U2–U5) runs after M6, which also depends on M3 and
@@ -853,3 +859,98 @@ is recorded here and in the U5 task plan:
   400×280 (200% text at the minimum window). Added to the U6 task plan.
 - **`DESIGN.md`.** The confirmation dialog moves from planned to landed
   (U5 updates the status line only).
+
+## 13. Amendments from U6's review (ui-designer, 2026-09-30)
+
+U6 landed at ee3da63; the reviewer returned "changes required". The fixes
+are in the U6 task plan under "Fixes required after review" (R1–R8):
+
+- **R1 (P1).** Row keys acted during a build: `<fieldset disabled>` does not
+  disable a tabindexed `<tr>`. `EntryTable` gets `disabled` (the view passes
+  `building`); while set, every row and row action is `tabIndex={-1}` and
+  the row key handler ignores every key. No `inert`, no blur, so a focused
+  row keeps focus and the tab stop is restored after the build.
+- **R2 (P2).** Every reload chord is prevented in every state (F5 with any
+  modifier, Ctrl+R, Ctrl+Shift+R); only bare F5 and Ctrl+R reload the
+  manifest.
+- **R3 (P2).** `DESIGN.md`: the shortcuts popover is landed; a new
+  "Shortcuts help and keys" entry records the popover, `<kbd>`, and the
+  shortcut hints; the data table is marked landed with the focused-row rule.
+- **R4 (P2, decided now rather than deferred).** New token `--scrim` (§2)
+  for the dialog backdrop, in all three theme blocks, asserted by
+  `tokens.test.ts`. The dark value is darker (0.6) so the dialog stands clear
+  of a dark view.
+- **R5 (P2).** Clearing from a row's Clear button (any activation, not only
+  Delete) moves focus to the row first, so focus never falls to `<body>`.
+- **R6 (P3).** While the shortcuts popover is open, the view's Escape
+  shortcut stands aside (no dismiss, no `preventDefault`), so the popover's
+  light dismiss wins; `ShortcutsHelp` reports its state via `onOpenChange`.
+- **R7 (P3, accepted).** The anchored popover's `max-height` is measured
+  from the viewport; nine rows, left as is.
+- **R8. Audit deliverables.** The re-run must report the numeric health
+  score table (five dimensions, total /20), every finding with its status,
+  the detector command, exit status, and output with a verdict per finding,
+  and a fixed set of screenshots (kept outside the repository, listed by
+  path and looked at). A written rendered check does not replace them.
+
+**Gap decisions confirmed.** Non-tab-stop rows' Browse… and Clear are
+`tabIndex={-1}`; the help button sits beside the `h1` when no manifest is
+open; "200% text" is checked at a 400×280 viewport (not a 32 px root at
+800×560); the popover is anchored only in windows at least 40rem tall with
+anchor positioning (Chromium 125+), and top-pinned otherwise.
+
+**Tall focused rows (recorded at close-out).** As landed, moving the
+roving focus scrolls a row into view with `block: "nearest"`, but a row
+taller than half the window (`offsetHeight > innerHeight / 2`: 200% text
+with its path revealed) uses `block: "start"`, so its top aligns under the
+sticky header and its name stays readable (`EntryTable.tsx` lines 238-241).
+The U6 task plan, §3's scroll model, and `DESIGN.md`'s Data table section
+now say so; they had said only "nearest".
+
+**WebView2 middle-truncation check.** It needs Windows and cannot run in the
+implementers' Linux container, so it leaves U6's acceptance criteria. The
+user runs it on Windows as part of M7's Windows end-to-end check, before M7
+is signed off; a failure becomes a follow-up UI task and does not reopen U6.
+**Follow-up for the planner (done, e87fc58):** add it as a step in M7's end-to-end
+checklist (`docs/tarpack-e2e.md`), with the procedure stated in the U6 task
+plan (several widths, a pixel or two at a time, both table layouts, 200%
+zoom; "…" directly against the file name's leading `\`, no mid-word
+break; report a failure with a screenshot and the window width). It is
+step 10 of the checklist in `M7-windows-packaging.md`. **Open, for the
+user:** WebView2 may not apply Windows' Text size setting, so the 200%
+case may not be reproducible that way. If it is not, step 10 records
+"200% text: not applied by WebView2" rather than changing the app's zoom.
+Whether to do anything more about it is the user's decision.
+
+**Reviewer approval and follow-ups (2026-09-30).** The reviewer approved
+U6 after re-reviewing 01d6a0c (fixes R1–R6) and 0fe3fe1 (audit fixes). The
+U6 task plan is marked done. At close-out, R8 item 3 and the Skill section
+of the U6 task plan now say to run `impeccable detect --json src/` from
+`apps/desktop` (they said "over `apps/desktop/src/`", which read as a run
+from the repo root). Deferred P3 follow-ups, none blocking U6; each becomes
+a small UI task if taken up:
+
+- **Stacked-layout gap above a focused row.** `.tarpack`'s
+  `scroll-padding-top: 3.5rem` (`tarpack.css` line 9) is sized for the
+  sticky table header, but the stacked layout has no sticky header, so a
+  focused row scrolled into view there sits 56 px below the top edge.
+  Suggested fix: a negative `scroll-margin-top` on `.entry-table tbody tr`
+  inside `@container entries (width < 64rem)` (`tarpack.css` line 496)
+  that cancels the padding.
+- **No test for the tall-row branch.** The `offsetHeight > innerHeight / 2`
+  branch in `EntryTable.tsx` (lines 238-241) is untested. jsdom returns 0
+  for `offsetHeight`, so a test has to stub it (and `innerHeight`) and
+  assert `scrollIntoView` receives `block: "start"`.
+- **Clicking a row mid-build (decided: reworded, no code change).**
+  `EntryTable.tsx` lines 220-223: `onFocus` is not gated on `disabled`, so
+  clicking a row during a build moves the tab stop to it. That is harmless
+  (the pointer put focus there), so R1's rule in the U6 task plan now reads
+  "no row key changes `stopId` while disabled", and the acceptance
+  criterion allows for a row clicked during the build. Gating `onFocus` is
+  not planned.
+- **Tall stacked row at 400×280.** At 400×280 (200% text), a stacked row
+  with its path revealed is taller than the window, so it cannot be seen
+  whole; the `block: "start"` rule keeps its name visible.
+- **Build bar at 1280 with the left-out note.** At 1280 px wide, when the
+  left-out note shows, the Choose… button drops below the output path
+  instead of staying beside it.

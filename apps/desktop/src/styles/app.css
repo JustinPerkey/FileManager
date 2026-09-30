@@ -46,7 +46,6 @@
   color: var(--text);
   background: transparent;
   border: 1px solid transparent;
-  border-left: 3px solid transparent;
   border-radius: var(--radius);
   padding: var(--space-2) var(--space-3);
   cursor: pointer;
@@ -60,8 +59,18 @@
 .tool-nav__item[aria-current="page"] {
   background: var(--surface);
   border-color: var(--border);
-  border-left-color: var(--accent);
   font-weight: 600;
+}
+
+.tool-nav__item[aria-current="page"]::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-inline-end: var(--space-2);
+  vertical-align: middle;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .tool-view {

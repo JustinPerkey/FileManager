@@ -37,6 +37,8 @@ import { BuildBar } from "./BuildBar";
 import { BuildResult, type BuildOutcome } from "./BuildResult";
 import { FORMAT_NAME } from "./FormatPicker";
 import { resultAnnouncement } from "./reportText";
+import { ShortcutsHelp } from "./ShortcutsHelp";
+import { useTarpackShortcuts } from "./useTarpackShortcuts";
 
 /** Functions later tasks call on the view. */
 export interface TarpackActions {
@@ -355,7 +357,24 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
     setResult(null);
   }, []);
 
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const pending = drop?.kind === "pending";
+  useTarpackShortcuts({
+    active: !building && !confirming,
+    hasManifest: !!session?.manifest,
+    canBuild: !!session?.canBuild,
+    errorCount: session?.manifest?.errorCount ?? 0,
+    dropResultVisible: !!session?.manifest && drop?.kind === "result",
+    buildResultVisible: result !== null,
+    shortcutsOpen,
+    onOpen: () => void onOpen(),
+    onReload: () => void onReload(),
+    onEdit: () => void onEdit(),
+    onBuild: () => void runBuild(false),
+    onShowErrors: showErrors,
+    onDismissDropResult: removeResult,
+    onDismissBuildResult: dismissResult,
+  });
   useEffect(() => {
     if (!pending) return;
     const show = setTimeout(() => setPendingShown(true), 150);
@@ -400,9 +419,13 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
             onOpenRecent={onOpenRecent}
             onReload={onReload}
             onEdit={onEdit}
+            onShortcutsOpenChange={setShortcutsOpen}
           />
         ) : (
-          <h1>Tar Packager</h1>
+          <div className="tarpack__titlebar">
+            <h1>Tar Packager</h1>
+            {!loading && <ShortcutsHelp onOpenChange={setShortcutsOpen} />}
+          </div>
         )}
         {!loading && (
           <div className="banners">
@@ -437,7 +460,12 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
           <div className="empty">
             <p>Open a manifest to list the files this package needs.</p>
             <div className="empty__actions">
-              <Button variant="primary" onClick={onOpen}>
+              <Button
+                variant="primary"
+                title="Shortcut: Ctrl+O"
+                aria-keyshortcuts="Control+O"
+                onClick={onOpen}
+              >
                 Open manifest…
               </Button>
               <Button onClick={onCreate}>Create from example…</Button>
@@ -472,6 +500,7 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
             entriesWithheld={manifest.entriesWithheld}
             onBrowse={onBrowse}
             onClear={onClear}
+            disabled={building}
           />
         )}
       </fieldset>

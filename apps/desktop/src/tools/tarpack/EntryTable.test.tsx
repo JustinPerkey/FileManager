@@ -102,8 +102,8 @@ test("action names use the target, so repeated sources stay distinct; Clear has 
   expect(screen.getByRole("button", { name: "Browse… for /opt/one/run.sh" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Browse… for /opt/two/run.sh" })).toBeInTheDocument();
   const clear = screen.getByRole("button", { name: "Clear assigned file for /opt/one/run.sh" });
-  expect(clear).toHaveAttribute("title", "Forget this file (nothing is deleted)");
-  expect(clear).toHaveAccessibleDescription("Forget this file (nothing is deleted)");
+  expect(clear).toHaveAttribute("title", "Forget this file (nothing is deleted). Shortcut: Delete");
+  expect(clear).toHaveAccessibleDescription("Forget this file (nothing is deleted). Shortcut: Delete");
   expect(screen.getByRole("button", { name: "Clear assigned file for /opt/two/run.sh" })).toBeInTheDocument();
 });
 

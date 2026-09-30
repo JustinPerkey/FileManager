@@ -183,10 +183,12 @@ inside groups, with a wider gap between them. The view is padded
 Flat. Depth is tonal: `--surface-sunken` is below and `--surface` is above,
 separated by 1 px `--border`. No component has a shadow at rest. Only
 surfaces that float over content have one: the **Recent** menu (landed, U2),
-the confirmation dialog (landed, U5, `ConfirmDialog`), and the shortcuts popover (planned,
-U6). They share one soft, offset shadow, `--shadow-overlay` (landed, U2):
+the confirmation dialog (landed, U5, `ConfirmDialog`), and the shortcuts popover (landed,
+U6, `ShortcutsHelp`). They share one soft, offset shadow, `--shadow-overlay` (landed, U2):
 `0 8px 24px rgb(0 0 0 / 0.18)` in light and `rgb(0 0 0 / 0.5)` in dark. The
-dialog also sits over a dimmed backdrop.
+dialog also sits over a dimmed backdrop,
+`--scrim` (`rgb(0 0 0 / 0.4)` light, `rgb(0 0 0 / 0.6)` dark), used for
+nothing else.
 
 ## Shapes
 
@@ -202,10 +204,9 @@ overlay border, and the 2 px focus outline with a 2 px offset.
   padding.
 - **Current:** a `--surface` fill, a 1 px `--border` outline, and weight 600,
   with `aria-current="page"`.
-- **Known drift:** the current item also has a 3 px `--accent` left border.
-  This is the thick colored side stripe the craft floor refuses. U6 replaces
-  it with a 1 px outline, and optionally a small accent dot or icon. Weight
-  and fill already carry the state.
+- **Current marker:** a 6 px `--accent` dot before the label (a `::before`
+  pseudo-element), so the state is not carried by weight and fill alone.
+  There is no thick side border.
 
 ### Buttons (Landed, U2)
 
@@ -239,7 +240,25 @@ banner is a live region (`role="alert"`); the view announces info and warn
 banners through its always-mounted polite announcer, because a region that
 mounts with its text is not reliably read.
 
-### Data table (Planned, U3)
+### Shortcuts help and keys (Landed, U6)
+
+- **Help button.** A quiet `Button` with the `keyboard` icon and the visible
+  label "Keyboard shortcuts". It is the last header action, or sits beside
+  the `h1` when no manifest is open.
+- **Popover.** Native `popover="auto"`, `role="dialog"`, not modal;
+  `--surface`, 1 px `--border`, `--radius`, `--shadow-overlay`, padding
+  `--space-3 --space-4`. Anchored under the button in windows at least 40rem
+  tall where anchor positioning is supported, else pinned to the top right.
+  It scrolls inside itself. Escape closes it and returns focus to the button.
+- **Keys.** `<kbd>` is inline-block, `--font-mono` at `--font-size-sm`, on
+  `--surface-sunken` with a 1 px `--border` and `--radius`, padding
+  `0 --space-1`. A chord joins keys with an `aria-hidden` "+"; alternatives
+  are joined by "or" in `--text-muted`. The "active when" column is
+  `--text-muted` at `--font-size-sm`.
+- **Hints on controls.** Every button with a shortcut has `aria-keyshortcuts`
+  and a `title` "Shortcut: …" (Clear appends it to its own `title`).
+
+### Data table (Landed, U3; focused row U6)
 
 The table is the product's signature component. It uses the body size, sticky
 headers on `--surface`, 1 px row rules, and mono for path, target, and mode.
@@ -261,6 +280,14 @@ status color.
   negative, because the browser sticks to the scroll container's content
   box. Exception: under `max-height: 30rem` the build bar is static and the
   view's `scroll-padding-bottom` is 0.
+- **Focused row.** Roving focus: one row in the tab order, Up/Down move,
+  Enter browses, Delete clears. The focused row gets the global ring inset
+  (`outline-offset: -2px`) and the `--surface-sunken` fill, and shows its
+  full Windows path. No side stripe. Up/Down scrolls the new row into view
+  with `block: "nearest"` (instant under reduced motion), clear of the
+  sticky header and bar; a row taller than half the window (200% text with
+  its path revealed) uses `block: "start"` instead, so its top aligns under
+  the header and its name stays readable.
 - **Middle truncation by CSS**, keeping the drive and the file name; a
   keyboard-focused row shows the full path.
 

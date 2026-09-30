@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "../../app/Button";
 import type { TarpackSession } from "../../lib/generated/TarpackSession";
 import { recentManifests } from "../../lib/tarpack";
+import { ShortcutsHelp } from "./ShortcutsHelp";
 
 interface ManifestHeaderProps {
   session: TarpackSession;
@@ -9,6 +10,7 @@ interface ManifestHeaderProps {
   onOpenRecent: (path: string) => void;
   onReload: () => void;
   onEdit: () => void;
+  onShortcutsOpenChange?: (open: boolean) => void;
 }
 
 /** Splits a path so the tail stays visible when the head is truncated. */
@@ -19,7 +21,14 @@ function splitPath(path: string): [string, string] {
   return [chars.slice(0, chars.length - tail).join(""), chars.slice(-tail).join("")];
 }
 
-export function ManifestHeader({ session, onOpen, onOpenRecent, onReload, onEdit }: ManifestHeaderProps) {
+export function ManifestHeader({
+  session,
+  onOpen,
+  onOpenRecent,
+  onReload,
+  onEdit,
+  onShortcutsOpenChange,
+}: ManifestHeaderProps) {
   const manifest = session.manifest;
   const [recent, setRecent] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -106,7 +115,9 @@ export function ManifestHeader({ session, onOpen, onOpenRecent, onReload, onEdit
         </p>
       </div>
       <div className="manifest-header__actions">
-        <Button onClick={onOpen}>Open…</Button>
+        <Button title="Shortcut: Ctrl+O" aria-keyshortcuts="Control+O" onClick={onOpen}>
+          Open…
+        </Button>
         {recent.length > 0 && (
           <div className="menu">
             <Button
@@ -141,8 +152,13 @@ export function ManifestHeader({ session, onOpen, onOpenRecent, onReload, onEdit
             )}
           </div>
         )}
-        <Button onClick={onReload}>Reload</Button>
-        <Button onClick={onEdit}>Edit in editor</Button>
+        <Button title="Shortcut: F5 or Ctrl+R" aria-keyshortcuts="F5 Control+R" onClick={onReload}>
+          Reload
+        </Button>
+        <Button title="Shortcut: Ctrl+E" aria-keyshortcuts="Control+E" onClick={onEdit}>
+          Edit in editor
+        </Button>
+        <ShortcutsHelp onOpenChange={onShortcutsOpenChange} />
       </div>
     </header>
   );
