@@ -136,6 +136,11 @@ impl RememberedState {
     /// A path that is not valid Unicode is ignored (defence in depth: the
     /// app's inputs are already Unicode, and the list must stay serializable).
     pub fn touch_recent(&mut self, path: &Path) {
+        // Check the path as given: `key` looks at the canonical path, which
+        // can be Unicode when a symlink to it is not.
+        if path.to_str().is_none() {
+            return;
+        }
         let Some(k) = key(path) else { return };
         self.recent_manifests
             .retain(|p| key(p).as_deref() != Some(k.as_str()));

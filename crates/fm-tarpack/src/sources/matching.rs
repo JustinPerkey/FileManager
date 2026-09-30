@@ -8,7 +8,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 
 use super::assignments::{Assignments, EntryStatus};
 use crate::manifest::Manifest;
@@ -17,12 +17,26 @@ use crate::manifest::Manifest;
 /// level 1, so a file at level 8 is found and one at level 9 is not.
 pub const MAX_DEPTH: usize = 8;
 
-fn lossy<S: Serializer>(path: &Path, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&path.to_string_lossy())
+/// `#[serde(with = "lossy")]`: serialize a path as a lossy string.
+mod lossy {
+    use std::path::Path;
+
+    use serde::Serializer;
+
+    pub fn serialize<S: Serializer>(path: &Path, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&path.to_string_lossy())
+    }
 }
 
-fn lossy_vec<S: Serializer>(paths: &[PathBuf], s: S) -> Result<S::Ok, S::Error> {
-    s.collect_seq(paths.iter().map(|p| p.to_string_lossy()))
+/// `#[serde(with = "lossy_vec")]`: serialize paths as lossy strings.
+mod lossy_vec {
+    use std::path::PathBuf;
+
+    use serde::Serializer;
+
+    pub fn serialize<S: Serializer>(paths: &[PathBuf], s: S) -> Result<S::Ok, S::Error> {
+        s.collect_seq(paths.iter().map(|p| p.to_string_lossy()))
+    }
 }
 
 /// An entry that more than one file could fill, or a file that more than one
@@ -34,7 +48,8 @@ fn lossy_vec<S: Serializer>(paths: &[PathBuf], s: S) -> Result<S::Ok, S::Error> 
 #[serde(rename_all = "camelCase")]
 pub struct Ambiguity {
     pub id: String,
-    #[serde(serialize_with = "lossy_vec")]
+    #[serde(with = "lossy_vec")]
+    #[ts(type = "Array<string>")]
     pub candidates: Vec<PathBuf>,
 }
 
@@ -66,7 +81,8 @@ pub enum UnmatchedReason {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Unmatched {
-    #[serde(serialize_with = "lossy")]
+    #[serde(with = "lossy")]
+    #[ts(type = "string")]
     pub path: PathBuf,
     pub reason: UnmatchedReason,
 }
@@ -168,7 +184,12 @@ pub fn match_dropped(
             files.push((path, direct));
         }
     };
+    let mut seen_dropped: BTreeSet<&Path> = BTreeSet::new();
+    let mut seen_unreadable: BTreeSet<PathBuf> = BTreeSet::new();
     for path in dropped {
+        if !seen_dropped.insert(path.as_path()) {
+            continue;
+        }
         let reason = |r| Unmatched {
             path: path.clone(),
             reason: r,
@@ -183,7 +204,15 @@ pub fn match_dropped(
             }
             Ok(md) if md.is_dir() => {
                 let mut found = Vec::new();
-                let readable = walk(path, 1, &mut found, &mut out.unmatched);
+                let mut problems = Vec::new();
+                let readable = walk(path, 1, &mut found, &mut problems);
+                // A folder and its subfolder may both be dropped: report each
+                // unreadable path once.
+                for p in problems {
+                    if seen_unreadable.insert(p.path.clone()) {
+                        out.unmatched.push(p);
+                    }
+                }
                 if readable && !found.iter().any(fits_any) {
                     out.unmatched.push(reason(UnmatchedReason::FolderNoMatch));
                 }

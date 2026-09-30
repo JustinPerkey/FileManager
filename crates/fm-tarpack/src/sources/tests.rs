@@ -372,6 +372,64 @@ fn symlinks_not_followed() {
 }
 
 #[test]
+fn duplicate_dropped_paths_are_handled_once() {
+    let tmp = TempDir::new().unwrap();
+    let m = manifest(&[("a", "a.bin")]);
+    let missing = tmp.path().join("missing");
+    let out = match_dropped(&m, &Assignments::new(), &[missing.clone(), missing.clone()]);
+    assert_eq!(
+        out.unmatched,
+        vec![Unmatched {
+            path: missing,
+            reason: UnmatchedReason::NotFound
+        }]
+    );
+
+    let f = tmp.path().join("F");
+    fs::create_dir(&f).unwrap();
+    touch(tmp.path(), "F/other.txt");
+    let out = match_dropped(&m, &Assignments::new(), &[f.clone(), f.clone()]);
+    assert_eq!(
+        out.unmatched,
+        vec![Unmatched {
+            path: f,
+            reason: UnmatchedReason::FolderNoMatch
+        }]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn folder_and_subfolder_report_unreadable_once() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let m = manifest(&[("a", "a.bin")]);
+    let a = touch(tmp.path(), "F/sub/a.bin");
+    let locked = tmp.path().join("F/sub/locked");
+    fs::create_dir(&locked).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let restore = || fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    if fs::read_dir(&locked).is_ok() {
+        restore();
+        return;
+    }
+    let out = match_dropped(
+        &m,
+        &Assignments::new(),
+        &[tmp.path().join("F"), tmp.path().join("F/sub")],
+    );
+    restore();
+    assert_eq!(out.matched, vec![("a".to_string(), a)]);
+    assert_eq!(
+        out.unmatched,
+        vec![Unmatched {
+            path: locked,
+            reason: UnmatchedReason::Unreadable
+        }]
+    );
+}
+
+#[test]
 fn shared_candidate_is_ambiguous() {
     let tmp = TempDir::new().unwrap();
     let m = manifest(&[("a", "x.bin"), ("b", "x.bin")]);
@@ -503,15 +561,15 @@ fn bad_name() -> std::ffi::OsString {
     }
 }
 
-/// Creates a file at `dir/<bad>/a.bin`, or returns `None` if the filesystem
-/// refuses such a name.
+/// Creates a file at `dir/<bad>/<name>`. Linux and Windows both accept such
+/// names, so a refusal is a test failure.
 #[cfg(any(target_os = "linux", windows))]
-fn bad_file(dir: &Path, name: &str) -> Option<PathBuf> {
+fn bad_file(dir: &Path, name: &str) -> PathBuf {
     let d = dir.join(bad_name());
-    fs::create_dir_all(&d).ok()?;
+    fs::create_dir_all(&d).expect("filesystem rejected a non-Unicode directory name");
     let f = d.join(name);
-    fs::write(&f, b"x").ok()?;
-    Some(f)
+    fs::write(&f, b"x").expect("write into non-Unicode directory");
+    f
 }
 
 #[cfg(any(target_os = "linux", windows))]
@@ -519,9 +577,7 @@ fn bad_file(dir: &Path, name: &str) -> Option<PathBuf> {
 fn non_unicode_match_is_reported() {
     let tmp = TempDir::new().unwrap();
     let m = manifest(&[("a", "a.bin")]);
-    let Some(f) = bad_file(&tmp.path().join("root"), "a.bin") else {
-        return;
-    };
+    let f = bad_file(&tmp.path().join("root"), "a.bin");
     let out = match_dropped(&m, &Assignments::new(), &[tmp.path().join("root")]);
     assert!(out.matched.is_empty());
     assert_eq!(
@@ -582,6 +638,20 @@ fn non_unicode_paths_are_not_remembered() {
     assert_eq!(s.get().restore_output(&mpath), None);
     assert!(!s.get().recent_manifests.contains(&bad));
     assert!(s.get().recent_manifests.is_empty());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn non_unicode_symlink_to_unicode_manifest_is_not_remembered() {
+    let tmp = TempDir::new().unwrap();
+    let mpath = touch(tmp.path(), "m.toml");
+    let link = tmp.path().join(bad_name());
+    std::os::unix::fs::symlink(&mpath, &link).unwrap();
+    let root = tmp.path().join("state");
+    let mut s = store(&root);
+    s.update(|st| st.touch_recent(&link));
+    s.save().unwrap();
+    assert!(store(&root).get().recent_manifests.is_empty());
 }
 
 #[cfg(windows)]
