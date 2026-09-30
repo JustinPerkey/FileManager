@@ -294,7 +294,7 @@ All components live under `apps/desktop/src/`.
 | `EolMarker` | `tools/tarpack/EolMarker.tsx` | — | shown only when `normalizeEol` | tool |
 | `MiddlePath` | `tools/tarpack/MiddlePath.tsx` | `path` | fits / truncated (CSS) / revealed (keyboard-focused row) | tool (U3; reused by U5) |
 | `pathParts` | `tools/tarpack/pathParts.ts` | `pathParts(path): { head, tail }` (module) | — | tool (U3) |
-| `DropResult` | `tools/tarpack/DropResult.tsx` | `outcome, entries, hasFailedEntries, onDismiss` (module also exports `dropResultText(outcome, entries, hasFailedEntries)`) | matched / unmatched, one line per `UnmatchedReason` / unmatched with failed entries / ambiguous (both directions) / nothing matched | tool |
+| `DropResult` | `tools/tarpack/DropResult.tsx` | `outcome, entries, hasFailedEntries, onDismiss` (module also exports `dropResultText(outcome, entries, hasFailedEntries)` and `DropPending`) | matched / unmatched, one line per `UnmatchedReason` / unmatched with failed entries / ambiguous (both directions) / nothing matched; "Full paths" collapsed / expanded; pending ("Matching dropped files…", via `DropPending`) | tool |
 | `BuildBar` | `tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild, onShowErrors` | disabled-with-reason / no entries (three cases) / ready / ready with files left out / ready with manifest errors only / building | tool |
 | `FormatPicker` | `tools/tarpack/FormatPicker.tsx` | `formats, value, disabled, onChange` | enabled / disabled | tool |
 | `BuildProgress` | `tools/tarpack/BuildProgress.tsx` | `progress, entries` | writing / verifying / finishing | tool |
@@ -729,3 +729,35 @@ Gaps the ui-implementer reported in U4 were resolved in the U4 task plan:
   implementer's wording tightened).
 - **`notUnicode` copy.** "not assigned, unsupported characters in its path —
   rename it or its folder" (plural form in U4).
+
+## 11. Amendments from U4's review (ui-designer, 2026-09-30)
+
+The reviewer's findings against the U4 plan were resolved in the U4 task
+plan:
+
+- **Focus after Dismiss.** To the first tabbable element after the result
+  (row 1's Browse…; U6's roving tab stop once it lands), else the last
+  tabbable element before it. The view root is never made focusable. U6
+  keeps this when it adds the roving row.
+- **Full paths.** `title` stays for the mouse; a collapsed native
+  "Full paths" disclosure (the banner "Details" pattern) lists every
+  unmatched path and every ambiguous candidate, uncapped, so keyboard and
+  screen-reader users reach them and the 8-name cap hides nothing for good.
+- **One drop at a time.** Drops are disabled while one is being matched
+  ("Still matching the last drop"); a "Matching dropped files…" line shows
+  after 150 ms and is announced after 1 s. A rejected drop clears the old
+  result. The result stores `entries` and `hasFailedEntries` from its own
+  drop.
+- **"Nothing was matched"** is muted as text and icon, like the hint line.
+
+**Follow-up for the planner (backend, not planned here).**
+`tarpack_assign_dropped` retries matching three times when the session
+changes meanwhile, then rejects with `Io` ("the session changed while the
+dropped files were being matched; drop them again"). The UI shows the
+generic `Io` copy, "A file could not be read or written.", with that text
+in Details. Since drops are now serialised in the UI, only Browse… or Clear
+during a long folder walk can cause it. A distinct `TarpackErrorKind` (for
+example `SessionChanged`, copy "The files changed while your drop was being
+matched. Drop them again.") would give accurate copy; it is a contract
+change to `TarpackErrorKind` and `errorMessages.ts`, so it is the planner's
+call. U4 accepts the `Io` copy until then.
