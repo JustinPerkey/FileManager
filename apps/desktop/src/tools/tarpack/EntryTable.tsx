@@ -235,7 +235,10 @@ export function EntryTable({
       next.focus({ preventScroll: true });
       const reduce =
         typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      next.scrollIntoView?.({ block: "nearest", behavior: reduce ? "instant" : "auto" });
+      // A row taller than half the window (200% text, path revealed) cannot sit clear of both
+      // sticky edges: align its top, under the header, so its name stays readable.
+      const tall = next.offsetHeight > window.innerHeight / 2;
+      next.scrollIntoView?.({ block: tall ? "start" : "nearest", behavior: reduce ? "instant" : "auto" });
       return;
     }
     const id = row.dataset.entryId;

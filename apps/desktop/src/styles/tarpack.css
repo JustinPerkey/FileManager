@@ -1,6 +1,9 @@
 .tarpack {
   /* .tool-view pads its block edges by --space-4; sticky offsets derive from this. */
   --view-pad-block: var(--space-4);
+  /* Containing block for the visually hidden (absolute) text inside: without it, hidden text deep in a
+     long table widens the document's scroll range, and the document scrolls under the shell. */
+  position: relative;
   padding-block: var(--view-pad-block);
   scrollbar-gutter: stable;
   scroll-padding-top: 3.5rem;
@@ -230,6 +233,8 @@
   gap: var(--space-2);
 }
 .tarpack .error-region__report {
+  /* Contains the visually hidden (absolute) text inside, so it cannot extend the view's scroll range. */
+  position: relative;
   margin-top: var(--space-2);
   padding-top: var(--space-2);
   border-top: 1px solid var(--border);
@@ -690,7 +695,7 @@
   font-size: var(--font-size-sm);
 }
 .tarpack .build-bar__path {
-  flex: 1 1 12ch;
+  flex: 1 1 22ch;
   min-width: 0;
   font-size: var(--font-size-sm);
 }
@@ -888,6 +893,8 @@
 }
 
 .tarpack .build-report {
+  /* Contains the visually hidden (absolute) text inside, so it cannot extend the view's scroll range. */
+  position: relative;
   margin-top: var(--space-1);
   padding-top: var(--space-2);
   border-top: 1px solid var(--border);
