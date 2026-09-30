@@ -283,7 +283,11 @@ status color.
 - **Focused row.** Roving focus: one row in the tab order, Up/Down move,
   Enter browses, Delete clears. The focused row gets the global ring inset
   (`outline-offset: -2px`) and the `--surface-sunken` fill, and shows its
-  full Windows path. No side stripe.
+  full Windows path. No side stripe. Up/Down scrolls the new row into view
+  with `block: "nearest"` (instant under reduced motion), clear of the
+  sticky header and bar; a row taller than half the window (200% text with
+  its path revealed) uses `block: "start"` instead, so its top aligns under
+  the header and its name stays readable.
 - **Middle truncation by CSS**, keeping the drive and the file name; a
   keyboard-focused row shows the full path.
 

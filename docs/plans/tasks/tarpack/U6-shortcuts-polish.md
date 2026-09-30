@@ -1,7 +1,12 @@
 # U6 — Keyboard shortcuts, final polish, and audit
 
-Status: changes required (implemented at ee3da63; the reviewer returned
-"changes required"; this run applies "Fixes required after review" below)
+Status: done (landed 2026-09-30 at ee3da63, with the review fixes at
+01d6a0c and the audit fixes at 0fe3fe1; reviewer-approved after re-review;
+not yet run in real Tauri or on Windows, which moves to M7's Windows check,
+including the WebView2 middle-truncation check, step 10 of its checklist;
+amended 2026-09-30 at close-out: the detector command runs from
+`apps/desktop`, the tall-row scroll rule as landed, and the `stopId` rule
+reworded for pointer focus during a build)
 (amended 2026-09-30: path reveal on the focused row,
 row-action names and hints, layout and scroll model from U3; stacked layout
 at the default window, 64rem switch, sticky offsets; WebView2 check of
@@ -201,7 +206,11 @@ access to them; it adds no new behaviour.
   global ring, inset (`outline-offset: -2px`), plus the `--surface-sunken`
   hover fill, and U3's rule shows its full Windows path. Do not add a colored
   side stripe. Moving focus with Up/Down scrolls the row into view
-  (`scrollIntoView({ block: "nearest" })`, instant under reduced motion), and
+  (`scrollIntoView({ block: "nearest" })`, instant under reduced motion; as
+  landed, a row taller than half the window, `offsetHeight >
+  innerHeight / 2`, which happens at 200% text with its path revealed,
+  uses `block: "start"` instead, so its top aligns under the sticky header
+  and its name stays readable: `EntryTable.tsx` lines 238-241), and
   the focused row is never hidden under the sticky header or the bar (WCAG
   2.4.11); check it at the top and bottom of a 200-row table in both
   layouts.
@@ -320,8 +329,8 @@ How to run it:
   pre-installed at `/opt/pw-browsers/chromium` with Playwright installed
   globally; do not run `playwright install`.
 - The audit includes the deterministic detector. Run
-  `impeccable detect --json` over `apps/desktop/src/` and verify each finding
-  in context.
+  `impeccable detect --json src/` from `apps/desktop` and verify each
+  finding in context.
 - Capture screenshots of the running frontend (`npm run dev` in
   `apps/desktop`, with `lib/` mocked or in the Tauri dev shell) at 1280×800
   and at 800×560, in light and dark, and at 200% text (400×280, see Polish
@@ -348,7 +357,7 @@ How to run it:
   its full Windows path and is never obscured by the sticky header or bar.
 - During a build no row is in the tab order and no row key (Up, Down,
   Enter, Delete) does anything; after the build the tab stop is back on the
-  row that had it.
+  row that had it, unless the user clicked another row during the build.
 - Clearing a row from its Clear button (click, Enter, Space, or Delete)
   leaves focus on that row, never on `<body>`.
 - The shortcuts help is reachable by keyboard and lists every shortcut,
@@ -439,8 +448,11 @@ mid-build opened the file dialog, and Delete would call `onClear`.
     build starts keeps it (a `tabIndex={-1}` element can still hold focus),
     so U5's "return focus to Create archive only when it was lost" rule
     leaves it there after the build.
-- Keep `stopId` untouched while disabled, so after the build the tab stop
-  is back on the same row.
+- No row key changes `stopId` while disabled, so after a build driven from
+  the keyboard the tab stop is back on the same row. (Reworded at
+  close-out: `onFocus` is not gated on `disabled`, so clicking a row during
+  a build focuses it and moves the tab stop to it. That is accepted; the
+  pointer put focus there, and after the build Tab returns to that row.)
 - Tests:
   - `EntryTable.keyboard.test.tsx`: render with `disabled`; assert every
     `tbody tr` and every row button has `tabindex="-1"`; focus a row
@@ -601,8 +613,8 @@ fix every P0 and P1, and put all of the following in your report:
 2. **Findings.** Every finding with its severity (P0–P3), where it is, and
    its status: fixed (in which file), or deferred with the reason. P2s you
    defer are listed by name.
-3. **Detector.** The exact command you ran (`impeccable detect --json`
-   over `apps/desktop/src/`), its exit status, and its JSON output, in full
+3. **Detector.** The exact command you ran (`impeccable detect --json
+   src/`, run from `apps/desktop`), its exit status, and its JSON output, in full
    if it is under about 100 lines, otherwise a count per rule plus every
    finding; for each finding, file:line and your verdict (fixed, or false
    positive and why). If it cannot run, say so and why; that does not
