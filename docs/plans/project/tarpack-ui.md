@@ -289,9 +289,11 @@ All components live under `apps/desktop/src/`.
 | `ManifestErrors` | `tools/tarpack/ManifestErrors.tsx` | `manifest, expanded, onExpandedChange, onEdit, reportRef` | hidden / warnings only / errors expanded / errors collapsed / errors with entries withheld | tool (U2) |
 | `FailureList` | `tools/tarpack/FailureList.tsx` | `failures: EntryFailure[], headingLevel: 3 \| 4` | — (nothing for `[]`) | tool (U2; reused by U5) |
 | `DiagnosticList` | `tools/tarpack/DiagnosticList.tsx` | `diagnostics: Diagnostic[], label` | — (nothing for `[]`) | tool (U2; reused by U5) |
-| `EntryTable` | `tools/tarpack/EntryTable.tsx` | `entries, failedCount, entriesWithheld, onBrowse, onClear` | populated / populated with files left out / no files / every file failed / withheld | tool |
+| `EntryTable` | `tools/tarpack/EntryTable.tsx` | `entries, failedCount, entriesWithheld, onBrowse, onClear` | populated / populated with files left out / no files / every file failed / withheld; table / stacked layout | tool |
 | `EntryStatus` | `tools/tarpack/EntryStatus.tsx` | `status` | Ready / Missing / Not assigned | tool |
 | `EolMarker` | `tools/tarpack/EolMarker.tsx` | — | shown only when `normalizeEol` | tool |
+| `MiddlePath` | `tools/tarpack/MiddlePath.tsx` | `path` | fits / truncated (CSS) / revealed (keyboard-focused row) | tool (U3; reused by U5) |
+| `pathParts` | `tools/tarpack/pathParts.ts` | `pathParts(path): { head, tail }` (module) | — | tool (U3) |
 | `DropResult` | `tools/tarpack/DropResult.tsx` | `outcome, hasFailedEntries, onDismiss` | matched / unmatched, one line per `UnmatchedReason` / unmatched with failed entries / ambiguous | tool |
 | `BuildBar` | `tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild, onShowErrors` | disabled-with-reason / no entries (three cases) / ready / ready with files left out / ready with manifest errors only / building | tool |
 | `FormatPicker` | `tools/tarpack/FormatPicker.tsx` | `formats, value, disabled, onChange` | enabled / disabled | tool |
@@ -350,15 +352,65 @@ All components live under `apps/desktop/src/`.
 1. **Status**: icon and word.
 2. **File**: the expected `source` name, followed by the **CRLF → LF** marker
    when `normalizeEol` is true.
-3. **Windows location**: monospace, truncated in the middle, with the full path
-   on hover and focus.
+3. **Windows location**: monospace, one line, truncated in the middle by CSS
+   (`MiddlePath`), with the full path on hover (`title`), on keyboard focus
+   (a row holding keyboard focus shows the full path, wrapped: a focused
+   Browse…/Clear in U3, the roving-focus row in U6), and always as
+   accessible text.
 4. **Linux target**: monospace, the absolute stored name, for example
-   `/opt/gateway/bin/gateway`.
+   `/opt/gateway/bin/gateway`, wrapping after `/`.
 5. **Mode**: `rwxr-xr-x` followed by the octal `0755`, muted.
 6. **Owner**: `root:root`.
-7. **Actions**: *Browse…* and *Clear*.
+7. **Actions**: *Browse…* and *Clear*, with the accessible names "Browse… for
+   {targetPath}" and "Clear assigned file for {targetPath}" (`targetPath` is
+   unique among listed entries; `source` is not), and Clear's `title` "Forget
+   this file (nothing is deleted)". Set by U3; U4 wires them; U6 adds
+   shortcut hints.
 
 No size or modified-time columns (decided, §5).
+
+### Entry table layout and the view's scroll model (U3, 2026-09-30)
+
+- **Surface.** A ruled sheet, not a card: the table on `--surface`, a 1 px
+  rule above and below the header and under every row, no side borders, no
+  radius, no wrapper.
+- **Reflow is the default.** Below a table width of **64rem**, a container
+  query stacks each row: status and file, then the Windows location, then
+  the target, then mode, owner, and actions, with visible `aria-hidden` cell
+  labels (UI font) and a visually hidden header row. It stays a `<table>`.
+  This covers the default 1000 px window (about 742 px, 46.4rem, of table),
+  the 800 px minimum, and 200% text. Rendered evidence from U3's second
+  review showed seven columns at 742 px unreadable (Windows location reduced
+  to `C:…`, names broken mid-word, a target 10 lines tall), and the switch
+  point then (46rem) within about 6 px of the default window's width.
+- **Widths (table layout, 64rem and wider).** `table-layout: fixed` with a
+  `<colgroup>`: Status `7.25rem`, File / Windows location / Linux target
+  auto (equal shares), Mode `8.25rem` (one line), Owner `5rem`, Actions
+  `11rem` (buttons measured at 91 px and 63 px). Fixed columns take 31.5rem,
+  so each auto column gets at least 10.83rem. Windows about 1282 px and
+  wider get this layout. Content never sets a width, so assigning a file
+  moves nothing. No horizontal scroll at any size.
+- **Mono on data only.** Mono sits on inner data spans (path, target, mode),
+  never on cells, so stacked cell labels stay in the UI font.
+- **Truncation.** No fixed code-point budget: CSS truncates the directory
+  part first, keeping the drive (at least `4ch`) and the file name; the name
+  wraps only when it alone is wider than the cell. The only code-point cap
+  is on a file name over 32 code points (kept as "…" plus its last 32). U5
+  reuses `MiddlePath` for the output path.
+- **Scroll model.** `.tarpack` (the view root, `.tool-view`) is the one
+  scroll container. The table has no scroll box or max height; only the
+  error report and the build report scroll inside themselves (`40vh`).
+  Chromium sticks elements to the scroll container's content box, so the
+  view's padding offsets sticky edges: `tarpack.css` sets
+  `.tarpack { --view-pad-block: var(--space-4); padding-block:
+  var(--view-pad-block); }`, the table header (table layout only) sticks at
+  `top: calc(var(--view-pad-block) * -1)`, and the build bar (U5) at
+  `bottom: calc(var(--view-pad-block) * -1)` with a matching negative
+  `margin-bottom`. `.tarpack` also sets `scrollbar-gutter: stable`,
+  `scroll-padding-top: 3.5rem`, and (U5) a `scroll-padding-bottom` for the
+  bar. Rejected: a table scroll box
+  (`max-height: 70vh`), which nests a third scroll area beside the 40vh
+  report and the bar at 800×560 and 200% text.
 
 ### Error region (U2)
 
@@ -627,3 +679,32 @@ test. Until that lands, U2's `toTarpackError` in `errorMessages.ts` is the
 only guard, keyed off the exhaustive `messages` Record; U4 and U5 import it
 and write none of their own. When it lands, the planner should tell the
 ui-designer so the guard and its mentions in U2, U4, and U5 are removed.
+
+## 9. Amendments from U3's review (ui-designer, 2026-09-30)
+
+The reviewer's findings on the first U3 implementation were resolved in the
+U3 task plan, with the reach noted here (details in §3, "Entry table
+layout and the view's scroll model"):
+
+- **Full path on focus.** This plan promised it; U3 only had `title` and
+  hidden text. Now a row holding keyboard focus shows the full Windows path
+  (U3's CSS rule, which also covers U6's roving-focus row). U6 keeps it and
+  checks the focused row is not obscured.
+- **Row-action names.** "Browse… for {targetPath}" and "Clear assigned file
+  for {targetPath}", set by U3, since `source` can repeat. U4 no longer
+  defines Clear's name (it said "<source>"); it keeps U3's. U6 appends the
+  shortcut hint to Clear's `title`.
+- **Scroll model.** Page scroll in `.tarpack` with a sticky table header and
+  sticky bar; no table scroll box. U4, U5, and U6 restate it.
+- **Widths and reflow.** Fixed layout with `<colgroup>` widths, a stacked
+  layout below 64rem (the default window stacks), CSS middle truncation
+  replacing the 48-code-point budget, and a 32-code-point file-name cap. U5
+  reuses `MiddlePath`.
+- **Second review (rendered).** The first switch point (45rem, landed as
+  46rem) put seven 94 px-wide columns at the default window. The switch
+  moved to 64rem; Actions is 11rem (measured); Mode is one line at 8.25rem;
+  sticky offsets come from `--view-pad-block` (U3 header, U5 bar); mono
+  moved from cells to inner data spans so stacked labels are not mono. U3,
+  U5, U6, §3, and `DESIGN.md` carry the final values.
+- **No container.** The table's bordered, rounded scroll wrapper is removed
+  (DESIGN.md's no-cards rule); the table is a ruled sheet.

@@ -1,4 +1,9 @@
 .tarpack {
+  /* .tool-view pads its block edges by --space-4; sticky offsets derive from this. */
+  --view-pad-block: var(--space-4);
+  padding-block: var(--view-pad-block);
+  scrollbar-gutter: stable;
+  scroll-padding-top: 3.5rem;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -212,3 +217,259 @@
   margin-top: var(--space-2);
 }
 
+
+.tarpack .entry-list {
+  container-type: inline-size;
+  container-name: entries;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.tarpack .entry-summary,
+.tarpack .entry-empty p {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+.tarpack .entry-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: 65ch;
+}
+.tarpack .entry-empty .entry-empty__next {
+  color: var(--text-muted);
+}
+
+/* The ruled sheet: no wrapper, border, radius, shadow, or overflow. */
+.tarpack .entry-table {
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  font-size: var(--font-size-md);
+  text-align: left;
+}
+.tarpack .entry-table__col--status {
+  width: 7.25rem;
+}
+.tarpack .entry-table__col--mode {
+  width: 8.25rem;
+}
+.tarpack .entry-table__col--owner {
+  width: 5rem;
+}
+.tarpack .entry-table__col--actions {
+  width: 11rem;
+}
+.tarpack .entry-table th {
+  position: sticky;
+  top: calc(var(--view-pad-block) * -1);
+  z-index: 1;
+  padding: var(--space-2);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: left;
+  vertical-align: bottom;
+}
+.tarpack .entry-table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.tarpack .entry-table tbody tr:hover {
+  background: var(--surface-sunken);
+}
+.tarpack .entry-table__status {
+  white-space: nowrap;
+}
+.tarpack .entry-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.tarpack .entry-status--ready {
+  color: var(--ok);
+}
+.tarpack .entry-status--missing {
+  color: var(--danger);
+}
+.tarpack .entry-status--unassigned {
+  color: var(--text-muted);
+}
+.tarpack .entry-table__file,
+.tarpack .entry-table__owner {
+  overflow-wrap: anywhere;
+}
+.tarpack .entry-table__target-path {
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-md);
+}
+.tarpack .entry-table__nowrap {
+  white-space: nowrap;
+}
+.tarpack .entry-table__mode .mono {
+  font-size: var(--font-size-md);
+}
+.tarpack .entry-table__none,
+.tarpack .entry-table__octal {
+  color: var(--text-muted);
+}
+.tarpack .entry-table__note {
+  display: block;
+  white-space: nowrap;
+  color: var(--danger);
+}
+.tarpack .entry-table__actions {
+  white-space: nowrap;
+}
+.tarpack .entry-table__actions .btn + .btn {
+  margin-left: var(--space-1);
+}
+.tarpack .entry-table__cell-label {
+  display: none;
+  margin-right: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+.tarpack .eol-marker {
+  display: inline-block;
+  padding: 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+
+/* MiddlePath */
+.tarpack .middle-path {
+  display: block;
+  font-size: var(--font-size-md);
+}
+.tarpack .middle-path__line {
+  display: flex;
+  min-width: 0;
+  /* Whole characters only: the head's ellipsis then meets the tail with no partial-glyph gap. */
+  width: calc(round(down, 100% - 1px, 1ch) + 0.5px);
+}
+.tarpack .middle-path__head {
+  flex: 0 1000 auto;
+  min-width: 4ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tarpack .middle-path__tail {
+  flex: 0 0 auto;
+  max-width: calc(100% - 4ch);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tarpack .middle-path__full {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.tarpack .entry-table tr:is(:focus-visible, :has(:focus-visible)) .middle-path__line {
+  display: none;
+}
+.tarpack .entry-table tr:is(:focus-visible, :has(:focus-visible)) .middle-path__full {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Stacked layout: same table semantics, reflowed. */
+@container entries (width < 64rem) {
+  .tarpack .entry-table,
+  .tarpack .entry-table tbody {
+    display: block;
+  }
+  .tarpack .entry-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .tarpack .entry-table tbody tr:first-child {
+    border-top: 1px solid var(--border);
+  }
+  .tarpack .entry-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-2);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .tarpack .entry-table tbody tr:hover {
+    background: var(--surface-sunken);
+  }
+  .tarpack .entry-table td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .tarpack .entry-table__status {
+    flex: 0 0 auto;
+  }
+  .tarpack .entry-table__file {
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
+  .tarpack .entry-table__windows,
+  .tarpack .entry-table__target {
+    flex: 1 0 100%;
+    min-width: 0;
+  }
+  .tarpack .entry-table__mode,
+  .tarpack .entry-table__owner {
+    flex: 0 1 auto;
+  }
+  .tarpack .entry-table td.entry-table__actions {
+    display: flex;
+    flex: 1 0 auto;
+    justify-content: flex-end;
+  }
+  .tarpack .entry-table__cell-label {
+    display: inline;
+  }
+  .tarpack .entry-table td.entry-table__windows {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+  .tarpack .entry-table__windows .middle-path {
+    flex: 1 1 8rem;
+    min-width: 0;
+  }
+  .tarpack .entry-table__windows .entry-table__note {
+    flex: 0 0 100%;
+  }
+}

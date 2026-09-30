@@ -1,6 +1,7 @@
 # U5 — Output, format, build, overwrite confirmation, progress, and result
 
-Status: awaiting approval
+Status: awaiting approval (amended 2026-09-30: scroll model and `MiddlePath`
+from U3; sticky offsets from `--view-pad-block`; `MiddlePath` slot width)
 Project: tarpack   Depends on: U2 (landed; `FailureList`, `DiagnosticList`,
 `showErrors()`, `announce()`), U3 (landed), M6 (landed; this task reads its
 partial-results and build-report fields). May run alongside U4.
@@ -259,8 +260,19 @@ were errors."* So:
 
 - **`BuildBar`**, sticky at the bottom of the view. Left to right, wrapping to
   two lines when narrow or at 200% text:
-  - "Output:", the path in `--font-mono` (middle-truncated, full path in
-    `title`) or "not chosen", and **Choose…**;
+  - "Output:", the path rendered by U3's `MiddlePath`
+    (`src/tools/tarpack/MiddlePath.tsx`, prop `path: string`: one mono line
+    that CSS truncates in the middle, keeping the drive and the file name,
+    with the full path in `title` and as its accessible text; its styles are
+    already in `tarpack.css`), or "not chosen", and **Choose…**. Give the
+    path a `min-width: 0` flex slot so it truncates instead of pushing
+    Choose… to a new line; do not write a second truncation helper;
+    do not restyle `.middle-path__*` (its line snaps to whole characters with
+    `width: calc(round(down, 100% - 1px, 1ch) + 0.5px)` and its tail is
+    `flex: 0 0 auto; max-width: calc(100% - 4ch)`, so "…" sits flush
+    against the file name). Because the line's width is a percentage of its
+    container, the slot must have a definite width: make it a flex item with
+    `flex: 1 1 auto; min-width: 0`, not a shrink-to-fit inline box;
   - the **Format** picker;
   - the status text: the disabled reason, and the left-out note (below),
     when there is one;
@@ -275,6 +287,36 @@ were errors."* So:
 
   The bar is `--surface`, with a 1 px `--border` top rule and padding
   `--space-3 --space-5`. It has no shadow; stickiness alone separates it.
+- **Scroll model (decided in U3; build on it).** The view root,
+  `<section className="tool-view tarpack">`, is the one vertical scroll
+  container. The table has no scroll box of its own and no `max-height`; in
+  its wide (table) layout its header cells are sticky in the same scroll
+  container (offset below), and `.tarpack` already sets `scrollbar-gutter: stable` and
+  `scroll-padding-top: 3.5rem`. Chromium sticks elements to the scroll
+  container's **content box**, so the view's padding offsets every sticky
+  edge. U3 made that padding one variable in `tarpack.css`:
+  `.tarpack { --view-pad-block: var(--space-4); padding-block:
+  var(--view-pad-block); }`, and the table header sticks at
+  `top: calc(var(--view-pad-block) * -1)` (on wide windows only; at the
+  default window the table is stacked and its header is hidden). So:
+  - the bar is the last child of `.tarpack`, `position: sticky;
+    bottom: calc(var(--view-pad-block) * -1)`, with
+    `margin-bottom: calc(var(--view-pad-block) * -1)` so it also sits flush
+    at the end of the scroll, and `margin-inline: calc(var(--space-5) * -1)`
+    to span the view's full width. A plain `bottom: 0` would float 16 px
+    above the bottom edge with rows showing beneath it. Never hard-code the
+    16 px; use the variable;
+  - set `.tarpack { scroll-padding-bottom: … }` in rem, at least the bar's
+    two-line height at 200% text (measure it in the rendered check), so a
+    focused table row or control never scrolls in under the bar;
+  - `BuildResult` sits in the page flow above the bar, with no `overflow`,
+    no `max-height`, and no sticky position; only `BuildReport` inside it
+    scrolls, capped at `40vh`, like U2's error report;
+  - add no other scroll container. At the default window, at 800×560, and at
+    200% text the table is in its stacked layout with no sticky header; at
+    800×560 with 200% text the bar takes two lines;
+    the view scrolls past the error report, the table, and the result to the
+    bar, and every control stays reachable by Tab.
   **Choose…** is a secondary `Button` with the `folder` icon. The disabled
   reason is `--font-size-sm` in `--text-muted`.
 - **`FormatPicker`** is a native `<select>` with a visible `<label>` "Format"
@@ -553,6 +595,14 @@ How to run it:
 
 ## Acceptance criteria
 
+- The bar is `position: sticky; bottom: calc(var(--view-pad-block) * -1)`
+  inside `.tarpack`, flush with the bottom edge both while scrolling and at
+  the end of the scroll, `.tarpack` sets a rem `scroll-padding-bottom`, and neither the bar, the result, nor
+  the table adds a scroll container (only `BuildReport`, capped at `40vh`).
+  At 800×560 with 200% text the view scrolls to every control, and nothing
+  scrolls horizontally.
+- The output path uses `MiddlePath`: the drive and file name stay visible,
+  and the full path is in `title` and is the accessible text.
 - Each disabled reason shows its exact visible text, and the button is
   `disabled`. The button reads "Create archive" in every state.
 - With `buildBlockedReason: "noEntries"`, the bar shows the withheld, the

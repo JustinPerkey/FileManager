@@ -63,12 +63,29 @@ test("type-size tokens exist on :root", () => {
   expect(t["--font-size-xl"]).toBe("1.25rem");
 });
 
+/** Split a selector list on commas that are not inside parentheses. */
+function topLevelSplit(list: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of list) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
 test("every tarpack.css selector is scoped under .tarpack, and only the Recent menu has a shadow", () => {
-  const rules = [...tarpackCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  const rules = [...tarpackCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@container[^{]*\{/g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)];
   expect(rules.length).toBeGreaterThan(0);
   const shadowed: string[] = [];
   for (const [, sel, body] of rules) {
-    for (const one of sel.split(",")) expect(one.trim().startsWith(".tarpack")).toBe(true);
+    for (const one of topLevelSplit(sel)) expect(one.trim().startsWith(".tarpack")).toBe(true);
     if (/box-shadow/.test(body)) shadowed.push(sel.trim());
   }
   expect(shadowed).toEqual([".tarpack .menu__list"]);
