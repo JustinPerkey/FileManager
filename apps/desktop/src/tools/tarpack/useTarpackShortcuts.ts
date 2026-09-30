@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 export interface TarpackShortcutOptions {
   /** False while the confirmation dialog is open or a build is running. */
@@ -22,11 +22,12 @@ export interface TarpackShortcutOptions {
 /**
  * The tool's global shortcuts, on `window`. Row keys (Up, Down, Enter, Delete)
  * belong to `EntryTable`. The handler reads the latest options from a ref, so
- * the listener is bound once.
+ * the listener is bound once. The ref is updated in a layout effect, so a key
+ * pressed right after a render never sees the previous render's options.
  */
 export function useTarpackShortcuts(options: TarpackShortcutOptions) {
   const ref = useRef(options);
-  useEffect(() => {
+  useLayoutEffect(() => {
     ref.current = options;
   });
 
