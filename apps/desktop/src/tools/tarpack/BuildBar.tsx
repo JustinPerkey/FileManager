@@ -161,7 +161,13 @@ export function BuildBar({
           </div>
         )}
         {errorCount > 0 && (
-          <Button aria-controls="manifest-error-report" disabled={building} onClick={onShowErrors}>
+          <Button
+            aria-controls="manifest-error-report"
+            aria-keyshortcuts="F8"
+            title="Shortcut: F8"
+            disabled={building}
+            onClick={onShowErrors}
+          >
             Show errors
           </Button>
         )}
@@ -170,6 +176,8 @@ export function BuildBar({
           className="build-bar__create"
           disabled={!session.canBuild || building}
           busy={building}
+          title="Shortcut: Ctrl+Enter"
+          aria-keyshortcuts="Control+Enter"
           aria-describedby={describedBy || undefined}
           onClick={onBuild}
         >

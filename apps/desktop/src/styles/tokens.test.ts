@@ -80,7 +80,7 @@ function topLevelSplit(list: string): string[] {
   return out;
 }
 
-test("every tarpack.css selector is scoped under .tarpack, and only the Recent menu has a shadow", () => {
+test("every tarpack.css selector is scoped under .tarpack, and only the overlays have a shadow", () => {
   const rules = [...tarpackCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@container[^{]*\{/g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)];
   expect(rules.length).toBeGreaterThan(0);
   const shadowed: string[] = [];
@@ -88,5 +88,5 @@ test("every tarpack.css selector is scoped under .tarpack, and only the Recent m
     for (const one of topLevelSplit(sel)) expect(one.trim().startsWith(".tarpack")).toBe(true);
     if (/box-shadow/.test(body)) shadowed.push(sel.trim());
   }
-  expect(shadowed).toEqual([".tarpack .menu__list"]);
+  expect(shadowed).toEqual([".tarpack .shortcuts__popover", ".tarpack .menu__list"]);
 });

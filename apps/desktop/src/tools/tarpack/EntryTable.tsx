@@ -1,4 +1,4 @@
-import { Fragment, memo } from "react";
+import { Fragment, memo, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { Button } from "../../app/Button";
 import type { SessionEntry } from "../../lib/generated/SessionEntry";
 import { EntryStatus } from "./EntryStatus";
@@ -85,6 +85,8 @@ interface RowProps {
   entry: SessionEntry;
   onBrowse: (id: string) => void;
   onClear: (id: string) => void;
+  /** The one row in the tab order (roving tabindex). */
+  tabStop: boolean;
 }
 
 function sameEntry(a: SessionEntry, b: SessionEntry) {
@@ -103,9 +105,10 @@ function sameEntry(a: SessionEntry, b: SessionEntry) {
 }
 
 const EntryRow = memo(
-  function EntryRow({ entry, onBrowse, onClear }: RowProps) {
+  function EntryRow({ entry, onBrowse, onClear, tabStop }: RowProps) {
     return (
-      <tr>
+      // A row is a keyboard stop of its own: Up and Down move between rows, Enter browses, Delete clears.
+      <tr data-entry-id={entry.id} tabIndex={tabStop ? 0 : -1}>
         <td className="entry-table__status">
           <EntryStatus status={entry.status} />
         </td>
@@ -138,14 +141,22 @@ const EntryRow = memo(
           {entry.owner}
         </td>
         <td className="entry-table__actions">
-          <Button variant="quiet" onClick={() => onBrowse(entry.id)}>
+          <Button
+            variant="quiet"
+            title="Shortcut: Enter"
+            tabIndex={tabStop ? 0 : -1}
+            aria-keyshortcuts="Enter"
+            onClick={() => onBrowse(entry.id)}
+          >
             Browse…{" "}
             <span className="visually-hidden">for {entry.targetPath}</span>
           </Button>
           <Button
             variant="quiet"
             disabled={entry.status === "unassigned"}
-            title="Forget this file (nothing is deleted)"
+            title="Forget this file (nothing is deleted). Shortcut: Delete"
+            aria-keyshortcuts="Delete"
+            tabIndex={tabStop ? 0 : -1}
             onClick={() => onClear(entry.id)}
           >
             Clear{" "}
@@ -155,7 +166,7 @@ const EntryRow = memo(
       </tr>
     );
   },
-  (a, b) => sameEntry(a.entry, b.entry) && a.onBrowse === b.onBrowse && a.onClear === b.onClear,
+  (a, b) => sameEntry(a.entry, b.entry) && a.tabStop === b.tabStop && a.onBrowse === b.onBrowse && a.onClear === b.onClear,
 );
 
 function Empty({ failedCount, entriesWithheld }: Pick<EntryTableProps, "failedCount" | "entriesWithheld">) {
@@ -182,7 +193,44 @@ function Empty({ failedCount, entriesWithheld }: Pick<EntryTableProps, "failedCo
 }
 
 export function EntryTable({ entries, failedCount, entriesWithheld, onBrowse, onClear }: EntryTableProps) {
+  const [stopId, setStopId] = useState<string | null>(null);
   if (entries.length === 0) return <Empty failedCount={failedCount} entriesWithheld={entriesWithheld} />;
+  const tabId = entries.some((e) => e.id === stopId) ? stopId : entries[0].id;
+
+  const rowOf = (target: EventTarget) => (target as HTMLElement).closest<HTMLTableRowElement>("tbody > tr");
+
+  const onFocus = (e: FocusEvent) => {
+    const id = rowOf(e.target)?.dataset.entryId;
+    if (id) setStopId(id);
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    const row = rowOf(e.target);
+    if (!row) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const next = (e.key === "ArrowDown" ? row.nextElementSibling : row.previousElementSibling) as HTMLElement | null;
+      e.preventDefault();
+      if (!next) return;
+      next.focus({ preventScroll: true });
+      const reduce =
+        typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      next.scrollIntoView?.({ block: "nearest", behavior: reduce ? "instant" : "auto" });
+      return;
+    }
+    const id = row.dataset.entryId;
+    const entry = id ? entries.find((x) => x.id === id) : undefined;
+    if (!entry) return;
+    // Enter on a button inside the row is that button's own click.
+    if (e.key === "Enter" && e.target === row) {
+      e.preventDefault();
+      onBrowse(entry.id);
+    } else if (e.key === "Delete" && entry.status !== "unassigned") {
+      e.preventDefault();
+      onClear(entry.id);
+    }
+  };
+
   return (
     <div className="entry-list">
       <Summary entries={entries} failedCount={failedCount} />
@@ -204,9 +252,11 @@ export function EntryTable({ entries, failedCount, entriesWithheld, onBrowse, on
             <th scope="col">Actions</th>
           </tr>
         </thead>
-        <tbody>
+        {/* Key events bubble here from the rows, which are the focusable elements. */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+        <tbody onFocus={onFocus} onKeyDown={onKeyDown}>
           {entries.map((e) => (
-            <EntryRow key={e.id} entry={e} onBrowse={onBrowse} onClear={onClear} />
+            <EntryRow key={e.id} entry={e} onBrowse={onBrowse} onClear={onClear} tabStop={e.id === tabId} />
           ))}
         </tbody>
       </table>

@@ -202,10 +202,9 @@ overlay border, and the 2 px focus outline with a 2 px offset.
   padding.
 - **Current:** a `--surface` fill, a 1 px `--border` outline, and weight 600,
   with `aria-current="page"`.
-- **Known drift:** the current item also has a 3 px `--accent` left border.
-  This is the thick colored side stripe the craft floor refuses. U6 replaces
-  it with a 1 px outline, and optionally a small accent dot or icon. Weight
-  and fill already carry the state.
+- **Current marker:** a 6 px `--accent` dot before the label (a `::before`
+  pseudo-element), so the state is not carried by weight and fill alone.
+  There is no thick side border.
 
 ### Buttons (Landed, U2)
 

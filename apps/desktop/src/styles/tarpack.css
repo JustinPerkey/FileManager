@@ -71,12 +71,93 @@
   text-overflow: ellipsis;
 }
 .tarpack .manifest-header__tail {
-  flex: none;
+  /* The tail stays whole while it fits, and wraps rather than overflow when it cannot. */
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .tarpack .manifest-header__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+.tarpack .tarpack__titlebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.tarpack .tarpack__titlebar h1 {
+  margin: 0;
+}
+
+.tarpack .shortcuts__button {
+  /* At the narrowest width the label wraps instead of pushing the header wider. */
+  max-width: 100%;
+  text-align: start;
+  anchor-name: --shortcuts-button;
+}
+.tarpack .shortcuts__popover {
+  /* Top-layer, so it is placed against the viewport: under the button, at the content's right edge. */
+  position: fixed;
+  inset: auto;
+  top: var(--space-4);
+  right: var(--space-5);
+  margin: 0;
+  width: max-content;
+  max-width: min(36rem, calc(100vw - 2 * var(--space-5)));
+  max-height: calc(100vh - 2 * var(--space-4));
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay);
+}
+/* Tall windows only: anchored under the button. A short window pins the popover to the top instead,
+   because an anchored popover follows the button when the view scrolls and could leave the window. */
+@media (min-height: 40rem) {
+  @supports (top: anchor(bottom)) {
+    .tarpack .shortcuts__popover {
+      position-anchor: --shortcuts-button;
+      top: calc(anchor(bottom) + var(--space-1));
+      position-try-fallbacks: flip-block;
+    }
+  }
+}
+.tarpack .shortcuts__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-lg);
+}
+.tarpack .shortcuts__table {
+  border-collapse: collapse;
+}
+.tarpack .shortcuts__table td {
+  padding: var(--space-1) var(--space-3) var(--space-1) 0;
+  vertical-align: baseline;
+}
+.tarpack .shortcuts__keys {
+  white-space: nowrap;
+}
+.tarpack .shortcuts__or,
+.tarpack .shortcuts__when {
+  color: var(--text-muted);
+}
+.tarpack .shortcuts__when {
+  font-size: var(--font-size-sm);
+}
+.tarpack kbd {
+  display: inline-block;
+  padding: 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .tarpack .menu {
@@ -284,8 +365,12 @@
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
-.tarpack .entry-table tbody tr:hover {
+.tarpack .entry-table tbody tr:hover,
+.tarpack .entry-table tbody tr:focus-visible {
   background: var(--surface-sunken);
+}
+.tarpack .entry-table tbody tr:focus-visible {
+  outline-offset: -2px;
 }
 .tarpack .entry-table__status {
   white-space: nowrap;
@@ -430,7 +515,8 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
   }
-  .tarpack .entry-table tbody tr:hover {
+  .tarpack .entry-table tbody tr:hover,
+  .tarpack .entry-table tbody tr:focus-visible {
     background: var(--surface-sunken);
   }
   .tarpack .entry-table td {
