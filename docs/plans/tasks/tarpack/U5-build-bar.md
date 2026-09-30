@@ -1,6 +1,9 @@
 # U5 — Output, format, build, overwrite confirmation, progress, and result
 
-Status: awaiting approval (amended 2026-09-30: scroll model and `MiddlePath`
+Status: done (landed 2026-09-30 at ec3d0c5, reviewer-approved; not yet
+run in real Tauri or on Windows, which moves to M7's Windows check;
+`/impeccable audit` of the bar, dialog, result and report moves to U6;
+amended 2026-09-30: scroll model and `MiddlePath`
 from U3; sticky offsets from `--view-pad-block`; `MiddlePath` slot width;
 amended 2026-09-30 after review: failed-build announcement, short format
 labels, progress text rules, accepted decisions, overwrite-dialog folder copy,
@@ -932,8 +935,9 @@ re-review left test fixes only:
   elsewhere stays there" part proves nothing: it focuses the Format picker,
   which is disabled during the build, and asserts only
   `document.activeElement !== document.body`. Rewrite it: mount a session
-  with manifest errors, so U2's error report region (`tabIndex={0}`,
-  outside the `<fieldset>`, so not disabled) is rendered; start a build
+  with manifest errors, so U2's error report region (a `div` with
+  `tabIndex={0}`, not a form control, so the `<fieldset>` does not disable
+  it) is rendered; start a build
   with a pending `build` promise; focus that report region; settle the
   build; assert the report region has focus and Create archive does not.
   Delete the comment about simulating a user who moved on.
