@@ -18,6 +18,7 @@ function setup(s: TarpackSession, over: { building?: boolean; progress?: Progres
     onFormatChange: vi.fn(),
     onBuild: vi.fn(),
     onShowErrors: vi.fn(),
+    onError: vi.fn(),
   };
   const utils = render(
     <>
@@ -191,4 +192,29 @@ test.each([
   expect(screen.getByRole("button", { name: "Choose…" })).toBeDisabled();
   expect(screen.getByRole("progressbar", { name: "Building archive" })).toBeInTheDocument();
   expect((await axe(container)).violations).toEqual([]);
+});
+
+test("saveFileDialog, onChooseOutput, and onFormatChange rejections go to onError", async () => {
+  const user = userEvent.setup();
+  const s = buildable(manifest({ entries: [entry("a")] }));
+  const { onError, onChooseOutput, onFormatChange } = setup(s);
+  const e1 = new Error("dialog");
+  vi.mocked(saveFileDialog).mockRejectedValueOnce(e1);
+  await user.click(screen.getByRole("button", { name: "Choose…" }));
+  expect(onError).toHaveBeenCalledWith(e1);
+  const e2 = new Error("setOutput");
+  vi.mocked(saveFileDialog).mockResolvedValueOnce("C:\\o\\x.tar.zst");
+  onChooseOutput.mockRejectedValueOnce(e2);
+  await user.click(screen.getByRole("button", { name: "Choose…" }));
+  expect(onError).toHaveBeenCalledWith(e2);
+  const e3 = new Error("setFormat");
+  onFormatChange.mockRejectedValueOnce(e3);
+  await user.selectOptions(screen.getByRole("combobox", { name: "Format" }), "tarXz");
+  await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(e3));
+});
+
+test("while building, Create archive's aria-describedby is omitted", () => {
+  const s = buildable(manifest({ entries: [entry("a")], failedEntries: [failure(1)] }));
+  setup(s, { building: true });
+  expect(create()).not.toHaveAttribute("aria-describedby");
 });

@@ -120,3 +120,12 @@ test("error result uses errorMessage and collapsed details", async () => {
   expect(screen.getByText("Details")).toBeInTheDocument();
   expect((await axe(container)).violations).toEqual([]);
 });
+
+test("a rejected clipboard write says Couldn't copy, never Copied", async () => {
+  const user = userWithClipboard();
+  user.writeText.mockRejectedValue(new Error("denied"));
+  show();
+  await user.click(screen.getByRole("button", { name: "Copy SHA-256" }));
+  expect(await screen.findByText("Couldn't copy")).toBeInTheDocument();
+  expect(screen.queryByText("Copied")).toBeNull();
+});

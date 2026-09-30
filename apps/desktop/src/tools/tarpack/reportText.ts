@@ -1,12 +1,8 @@
 import type { BuildSummary } from "../../lib/generated/BuildSummary";
 import type { Diagnostic } from "../../lib/generated/Diagnostic";
+import { fileName } from "./pathParts";
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
-
-/** The file name of a display path: what follows the last separator. */
-export function fileName(path: string): string {
-  return path.slice(Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/")) + 1);
-}
 
 /** The result panel's heading, also the first line of the copied report. */
 export function resultHeading(s: BuildSummary): string {

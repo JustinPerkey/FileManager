@@ -27,18 +27,19 @@ function size(n: number): string {
 }
 
 function CopyButton({ label, text, visible }: { label: string; text: string; visible?: string }) {
-  const [copied, setCopied] = useState(false);
+  const [note, setNote] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   async function copy() {
+    let outcome = "Copied";
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      return;
+      outcome = "Couldn't copy";
     }
-    setCopied(true);
+    setNote(outcome);
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), 2000);
+    timer.current = setTimeout(() => setNote(""), 2000);
   }
   return (
     <span className="build-result__copy">
@@ -51,7 +52,7 @@ function CopyButton({ label, text, visible }: { label: string; text: string; vis
         {visible ?? "Copy"}
       </Button>
       <span className="build-result__copied" role="status" aria-live="polite">
-        {copied ? "Copied" : ""}
+        {note}
       </span>
     </span>
   );

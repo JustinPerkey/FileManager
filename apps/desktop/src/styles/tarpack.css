@@ -4,8 +4,8 @@
   padding-block: var(--view-pad-block);
   scrollbar-gutter: stable;
   scroll-padding-top: 3.5rem;
-  /* Clears the build bar at two lines and 200% text. */
-  scroll-padding-bottom: 12rem;
+  /* Clears the build bar at 200% text with the note and Show errors: measured 448px = 14rem at 800x560, plus 0.5rem. */
+  scroll-padding-bottom: 14.5rem;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -572,6 +572,16 @@
   background: var(--surface);
   border-top: 1px solid var(--border);
 }
+/* At 200% browser zoom on a short window the bar would fill most of the view:
+   let it scroll with the content instead, and drop the padding that reserved it. */
+@media (max-height: 30rem) {
+  .tarpack {
+    scroll-padding-bottom: 0;
+  }
+  .tarpack .build-bar {
+    position: static;
+  }
+}
 .tarpack .build-bar__settings {
   flex: 1 1 24rem;
   min-width: 0;
@@ -584,6 +594,7 @@
   flex: 1 1 16rem;
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
 }
@@ -593,7 +604,7 @@
   font-size: var(--font-size-sm);
 }
 .tarpack .build-bar__path {
-  flex: 1 1 auto;
+  flex: 1 1 12ch;
   min-width: 0;
   font-size: var(--font-size-sm);
 }

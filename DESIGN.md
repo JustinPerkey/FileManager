@@ -182,7 +182,7 @@ inside groups, with a wider gap between them. The view is padded
 Flat. Depth is tonal: `--surface-sunken` is below and `--surface` is above,
 separated by 1 px `--border`. No component has a shadow at rest. Only
 surfaces that float over content have one: the **Recent** menu (landed, U2),
-the confirmation dialog (planned, U5), and the shortcuts popover (planned,
+the confirmation dialog (landed, U5, `ConfirmDialog`), and the shortcuts popover (planned,
 U6). They share one soft, offset shadow, `--shadow-overlay` (landed, U2):
 `0 8px 24px rgb(0 0 0 / 0.18)` in light and `rgb(0 0 0 / 0.5)` in dark. The
 dialog also sits over a dimmed backdrop.

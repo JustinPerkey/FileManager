@@ -13,9 +13,14 @@ interface BuildBarProps {
   session: TarpackSession;
   building: boolean;
   progress: Progress | null;
-  /** Called with a path chosen in the Save dialog; a cancelled dialog calls nothing. */
-  onChooseOutput: (path: string) => void;
-  onFormatChange: (format: ArchiveFormat) => void;
+  /** The `onBuildProgress` subscription failed: say so instead of showing a bar stuck at 0%. */
+  progressUnavailable?: boolean;
+  /** Called with a path chosen in the Save dialog; a cancelled dialog calls nothing. May reject. */
+  onChooseOutput: (path: string) => void | Promise<void>;
+  /** May reject; the rejection goes to `onError`. */
+  onFormatChange: (format: ArchiveFormat) => void | Promise<void>;
+  /** Every rejection from the Save dialog, `setOutput`, or `setFormat`; the view shows it in its banner. */
+  onError: (e: unknown) => void;
   onBuild: () => void;
   onShowErrors: () => void;
   /** Set when the file name switched the format; read out in the bar's live region. */
@@ -59,10 +64,12 @@ export function BuildBar({
   session,
   building,
   progress,
+  progressUnavailable = false,
   onChooseOutput,
   onFormatChange,
   onBuild,
   onShowErrors,
+  onError,
   formatNotice,
 }: BuildBarProps) {
   const reasonId = useId();
@@ -71,9 +78,20 @@ export function BuildBar({
   const reason = reasonText(session);
   const note = leftOutNote(session);
   const errorCount = manifest?.errorCount ?? 0;
-  const describedBy = [reason ? reasonId : null, note ? noteId : null].filter(Boolean).join(" ");
+  // While building, the reason and note are not rendered, so no id may point at them.
+  const describedBy = building
+    ? ""
+    : [reason ? reasonId : null, note ? noteId : null].filter(Boolean).join(" ");
 
   async function choose() {
+    try {
+      await chooseUnsafe();
+    } catch (e) {
+      onError(e);
+    }
+  }
+
+  async function chooseUnsafe() {
     const current = session.formats.find((f) => f.format === session.format);
     const defaultPath = session.outputPath ?? session.suggestedOutputName;
     if (!current || defaultPath === null) return;
@@ -86,7 +104,7 @@ export function BuildBar({
         },
       ],
     });
-    if (path) onChooseOutput(path);
+    if (path) await onChooseOutput(path);
   }
 
   return (
@@ -109,11 +127,21 @@ export function BuildBar({
           formats={session.formats}
           value={session.format}
           disabled={!manifest || building}
-          onChange={onFormatChange}
+          onChange={(f) => {
+            void (async () => {
+              try {
+                await onFormatChange(f);
+              } catch (e) {
+                onError(e);
+              }
+            })();
+          }}
         />
       </div>
       <div className="build-bar__action">
-        {building ? (
+        {building && progressUnavailable ? (
+          <p className="build-bar__reason">Creating the archive… (progress is unavailable)</p>
+        ) : building ? (
           <BuildProgress progress={progress} entries={manifest?.entries ?? []} />
         ) : (
           <div className="build-bar__status">
@@ -141,6 +169,7 @@ export function BuildBar({
           variant="primary"
           className="build-bar__create"
           disabled={!session.canBuild || building}
+          busy={building}
           aria-describedby={describedBy || undefined}
           onClick={onBuild}
         >

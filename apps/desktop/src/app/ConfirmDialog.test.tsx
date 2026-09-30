@@ -53,3 +53,19 @@ test("no axe violations when open", async () => {
   await user.click(screen.getByRole("button", { name: "Open" }));
   expect((await axe(container)).violations).toEqual([]);
 });
+
+test("aria-labelledby and aria-describedby resolve to the title and body, with unique ids", () => {
+  const { container } = render(
+    <>
+      <ConfirmDialog open={false} title="One?" body="First body" confirmLabel="Go" onCancel={() => undefined} onConfirm={() => undefined} />
+      <ConfirmDialog open={false} title="Two?" body="Second body" confirmLabel="Go" onCancel={() => undefined} onConfirm={() => undefined} />
+    </>,
+  );
+  const dialogs = Array.from(container.querySelectorAll("dialog"));
+  const ids = dialogs.flatMap((d) => [d.getAttribute("aria-labelledby"), d.getAttribute("aria-describedby")]);
+  expect(new Set(ids).size).toBe(4);
+  const [d1, d2] = dialogs;
+  expect(document.getElementById(d1.getAttribute("aria-labelledby")!)).toHaveTextContent("One?");
+  expect(document.getElementById(d1.getAttribute("aria-describedby")!)).toHaveTextContent("First body");
+  expect(document.getElementById(d2.getAttribute("aria-describedby")!)).toHaveTextContent("Second body");
+});

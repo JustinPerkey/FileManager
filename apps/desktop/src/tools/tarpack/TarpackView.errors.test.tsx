@@ -42,7 +42,7 @@ async function mount(initial = clean) {
   await screen.findByRole("heading", { level: 1 });
   return { ...utils, actions };
 }
-const announcer = () => screen.getAllByRole("status")[0];
+const announcer = () => screen.getByTestId("tarpack-announcer");
 
 test.each([
   ["withheld", withheld, "gateway has 2 errors. No files can be built until the manifest errors are fixed."],

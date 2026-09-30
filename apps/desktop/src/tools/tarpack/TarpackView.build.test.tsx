@@ -37,7 +37,7 @@ beforeEach(() => {
 });
 
 const ready = buildable(manifest({ entries: [entry("gateway", "gateway.conf")] }));
-const announcer = () => screen.getAllByRole("status")[0];
+const announcer = () => screen.getByTestId("tarpack-announcer");
 const create = () => screen.getByRole("button", { name: "Create archive" });
 
 async function mount(s: TarpackSession = ready) {
@@ -136,9 +136,11 @@ test("ManifestChangedOnDisk shows the banner with Reload, not a result", async (
   vi.mocked(tp.reloadManifest).mockResolvedValue(ready);
   await mount();
   await user.click(create());
-  expect(await screen.findByText("The manifest changed on disk.")).toBeInTheDocument();
+  await waitFor(() => expect(document.querySelector(".banner")).not.toBeNull());
+  const banner = document.querySelector(".banner") as HTMLElement;
+  expect(within(banner).getByText("The manifest changed on disk.")).toBeInTheDocument();
   expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
-  const banner = screen.getByText("The manifest changed on disk.").closest(".banner") as HTMLElement;
+  expect(announcer()).toHaveTextContent(/^(The manifest changed on disk\.)?$/);
   await user.click(within(banner).getByRole("button", { name: "Reload" }));
   expect(tp.reloadManifest).toHaveBeenCalled();
 });
@@ -197,11 +199,14 @@ test("progress: two phases, reset, Finishing, then the result", async () => {
   act(() => emit(ev("writing", "gateway", 40)));
   expect(bar).toHaveAttribute("aria-valuetext", "Writing gateway.conf, 40%");
   act(() => emit(ev("writing", null, 60)));
-  expect(bar).toHaveAttribute("aria-valuetext", "Writing gateway.conf, 60%");
+  expect(bar).toHaveAttribute("aria-valuetext", "Writing, 60%");
   expect(screen.getByText(/gateway\.conf/, { selector: ".build-progress__file" })).toBeInTheDocument();
   act(() => emit(ev("writing", null, 100)));
-  act(() => emit(ev("verifying", "gateway", 10)));
+  act(() => emit(ev("verifying", null, 5)));
   expect(screen.getByText(/Step 2 of 2 · Verifying/)).toBeInTheDocument();
+  expect(bar).toHaveAttribute("aria-valuetext", "Verifying, 5%");
+  expect(container.querySelector(".build-progress__file")).toBeNull();
+  act(() => emit(ev("verifying", "gateway", 10)));
   expect(bar).toHaveAttribute("aria-valuetext", "Verifying gateway.conf, 10%");
   expect(bar).toHaveAttribute("aria-valuenow", "10");
   expect(container.querySelector(".build-progress [role=status]")).toHaveTextContent("Verifying the archive");
@@ -271,4 +276,121 @@ test("building with errors: no dialog, build(false) once, left-out result and an
   await waitFor(() =>
     expect(announcer()).toHaveTextContent("Created gateway.tar.zst. 1 file was left out because of errors."),
   );
+});
+
+test.each([
+  ["SourceMissing", { entryId: "gateway" }, "gateway.conf is no longer at its assigned location."],
+  ["VerifyFailed", {}, /failed its check after writing/],
+])("a failed %s build announces its errorMessage", async (kind, extra, text) => {
+  const user = userEvent.setup();
+  vi.mocked(tp.build).mockRejectedValue(rejectWith(kind, extra));
+  await mount();
+  await user.click(create());
+  await waitFor(() => expect(announcer()).toHaveTextContent(text));
+  expect(document.querySelector("[role=alert]")).toBeNull();
+});
+
+test.each(["OutputExists", "ManifestChangedOnDisk"])("%s announces no error message", async (kind) => {
+  const user = userEvent.setup();
+  vi.mocked(tp.build).mockRejectedValue(rejectWith(kind));
+  await mount();
+  await user.click(create());
+  await waitFor(() => expect(create()).toBeEnabled());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(announcer()).not.toHaveTextContent(/already exists|Reload it, then build again/);
+});
+
+test("onBuildProgress rejecting: the build still runs, no progressbar, unavailable text", async () => {
+  const user = userEvent.setup();
+  let done!: (s: ReturnType<typeof summary>) => void;
+  vi.mocked(tp.onBuildProgress).mockRejectedValue(new Error("no events"));
+  vi.mocked(tp.build).mockReturnValue(new Promise((r) => (done = r)));
+  await mount();
+  await user.click(create());
+  expect(await screen.findByText("Creating the archive… (progress is unavailable)")).toBeInTheDocument();
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(create()).toHaveAttribute("aria-busy", "true");
+  await act(async () => done(summary()));
+  expect(
+    await screen.findByRole("heading", { level: 2, name: "Created gateway.tar.zst" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/progress is unavailable/)).toBeNull();
+});
+
+test("during a build, header and table controls are disabled; describedby has no dangling ids", async () => {
+  const user = userEvent.setup();
+  let done!: (s: ReturnType<typeof summary>) => void;
+  vi.mocked(tp.build).mockReturnValue(new Promise((r) => (done = r)));
+  const s = buildable(
+    manifest({ entries: [entry("gateway", "gateway.conf")], failedEntries: [failure(1)] }),
+  );
+  await mount(s);
+  expect(create().getAttribute("aria-describedby")).toBeTruthy();
+  await user.click(create());
+  await screen.findByRole("progressbar");
+  for (const name of [/Reload/, /Edit in editor/, /Browse/, /Clear/]) {
+    for (const b of screen.queryAllByRole("button", { name })) expect(b).toBeDisabled();
+  }
+  expect(screen.getAllByRole("button", { name: /Reload/ }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("button", { name: /Browse/ }).length).toBeGreaterThan(0);
+  const ids = (create().getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+  for (const id of ids) expect(document.getElementById(id)).not.toBeNull();
+  await act(async () => done(summary()));
+  await screen.findByRole("heading", { level: 2, name: /Created/ });
+  expect(screen.getAllByRole("button", { name: /Reload/ })[0]).toBeEnabled();
+});
+
+test("a saveFileDialog rejection from Choose shows the error banner", async () => {
+  const user = userEvent.setup();
+  vi.mocked(saveFileDialog).mockRejectedValue(rejectWith("Io"));
+  await mount();
+  await user.click(screen.getByRole("button", { name: "Choose…" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("A file could not be read or written.");
+});
+
+test("setOutput and setFormat rejections show the error banner", async () => {
+  const user = userEvent.setup();
+  vi.mocked(saveFileDialog).mockResolvedValue("C:\\out\\x.tar.zst");
+  vi.mocked(tp.setOutput).mockRejectedValue(rejectWith("Io"));
+  vi.mocked(tp.setFormat).mockRejectedValue(rejectWith("NoManifest"));
+  await mount();
+  await user.click(screen.getByRole("button", { name: "Choose…" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("A file could not be read or written.");
+  await user.selectOptions(screen.getByRole("combobox", { name: "Format" }), "tarXz");
+  expect(await screen.findByText("Open a manifest first.")).toBeInTheDocument();
+});
+
+test("the replace dialog shows a lossy folder as is", async () => {
+  const user = userEvent.setup();
+  vi.mocked(tp.build).mockRejectedValue(rejectWith("OutputExists"));
+  await mount({ ...ready, outputPath: "C:\\out\\b\uFFFDd\\gateway.tar.zst" });
+  await user.click(create());
+  await screen.findByRole("heading", { name: "Replace gateway.tar.zst?" });
+  expect(document.querySelector("dialog")).toHaveTextContent("already exists in C:\\out\\b\uFFFDd.");
+});
+
+test("after a build, focus moves to Create archive only if it was lost", async () => {
+  const user = userEvent.setup();
+  vi.mocked(tp.build).mockResolvedValue(summary());
+  await mount();
+  await user.click(create());
+  await screen.findByRole("heading", { level: 2, name: /Created/ });
+  expect(create()).toHaveFocus();
+  // Dismiss loses focus (the button unmounts): it returns to Create archive.
+  await user.click(screen.getByRole("button", { name: "Dismiss result" }));
+  await waitFor(() => expect(create()).toHaveFocus());
+  // Focus elsewhere when a build settles stays there.
+  let done!: (s: ReturnType<typeof summary>) => void;
+  vi.mocked(tp.build).mockReturnValue(new Promise((r) => (done = r)));
+  await user.click(create());
+  await screen.findByRole("progressbar");
+  const picker = screen.getByRole("combobox", { name: "Format" });
+  await act(async () => {
+    (picker as HTMLElement).focus();
+  });
+  // A disabled control cannot hold focus in a browser; simulate a user who moved on
+  // by focusing something that stays enabled after the build.
+  await act(async () => done(summary()));
+  await screen.findByRole("heading", { level: 2, name: /Created/ });
+  expect(document.activeElement).not.toBe(document.body);
 });

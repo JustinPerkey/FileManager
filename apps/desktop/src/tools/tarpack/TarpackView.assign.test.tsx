@@ -35,7 +35,7 @@ beforeEach(() => {
   });
 });
 
-const announcer = () => screen.getAllByRole("status")[0];
+const announcer = () => screen.getByTestId("tarpack-announcer");
 const fire = (type: DragDrop["type"], paths: string[] = []) => act(() => emit({ type, paths }));
 const assigned = (id: string, path: string) => ({
   ...entry(id),

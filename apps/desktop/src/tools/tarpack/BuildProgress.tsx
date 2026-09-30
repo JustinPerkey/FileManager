@@ -11,11 +11,18 @@ interface BuildProgressProps {
 export function BuildProgress({ progress, entries }: BuildProgressProps) {
   const phase = progress?.phase ?? "writing";
   const entryId = progress?.entryId ?? null;
-  // Keep the last named file, so directory and long-name records do not blank the label.
-  const [lastId, setLastId] = useState<string | null>(null);
-  if (entryId !== null && entryId !== lastId) setLastId(entryId);
-  const shownId = entryId ?? lastId;
-  const source = shownId === null ? null : (entries.find((e) => e.id === shownId)?.source ?? null);
+  // The visible label keeps the last named file, so directory and long-name
+  // records do not blank it. The remembered file belongs to its phase and is
+  // cleared when the phase changes.
+  const [last, setLast] = useState<{ phase: string; id: string | null }>({ phase, id: null });
+  if (last.phase !== phase) setLast({ phase, id: entryId });
+  else if (entryId !== null && entryId !== last.id) setLast({ phase, id: entryId });
+  const shownId = entryId ?? (last.phase === phase ? last.id : null);
+  const sourceOf = (id: string | null) =>
+    id === null ? null : (entries.find((e) => e.id === id)?.source ?? null);
+  const source = sourceOf(shownId);
+  // The accessible value describes the current event only: no remembered name.
+  const currentSource = sourceOf(entryId);
 
   const done = progress !== null && progress.bytesDone >= progress.bytesTotal;
   const finishing = phase === "verifying" && done;
@@ -27,9 +34,7 @@ export function BuildProgress({ progress, entries }: BuildProgressProps) {
         : 1;
   const percent = Math.floor(fraction * 100);
   const word = phase === "writing" ? "Writing" : "Verifying";
-  const valueText = finishing
-    ? "Finishing, 100%"
-    : `${word}${source && !done ? ` ${source}` : ""}, ${percent}%`;
+  const valueText = `${word}${currentSource ? ` ${currentSource}` : ""}, ${percent}%`;
 
   return (
     <div className="build-progress">

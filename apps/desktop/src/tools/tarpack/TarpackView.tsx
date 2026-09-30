@@ -32,11 +32,11 @@ import { DropPending, DropResult, dropResultText } from "./DropResult";
 import { ManifestErrors } from "./ManifestErrors";
 import { EntryTable } from "./EntryTable";
 import { ManifestHeader } from "./ManifestHeader";
-import { assignedFolder } from "./pathParts";
+import { assignedFolder, displayFolder, fileName } from "./pathParts";
 import { BuildBar } from "./BuildBar";
 import { BuildResult, type BuildOutcome } from "./BuildResult";
 import { FORMAT_NAME } from "./FormatPicker";
-import { fileName, resultAnnouncement } from "./reportText";
+import { resultAnnouncement } from "./reportText";
 
 /** Functions later tasks call on the view. */
 export interface TarpackActions {
@@ -91,7 +91,10 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
   const [result, setResult] = useState<BuildOutcome | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [formatNotice, setFormatNotice] = useState("");
-  const refocusCreate = useRef(false);
+  const [progressUnavailable, setProgressUnavailable] = useState(false);
+  // "lost": move focus to Create archive only if focus fell to <body>;
+  // "always": after the confirm dialog, which returns focus there unconditionally.
+  const refocusCreate = useRef<"lost" | "always" | null>(null);
   const building = buildingProp || buildRunning;
   const reportRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLElement>(null);
@@ -272,23 +275,29 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
     rootRef.current?.querySelector<HTMLElement>(".build-bar__create")?.focus();
   }, []);
 
-  // Focus was on Create archive, which is disabled while building: put it back afterwards.
+  // A control that held focus may be disabled or unmounted (Create archive while
+  // building, the result's Dismiss button): put focus back only if it was lost.
   useEffect(() => {
-    if (!building && !confirming && refocusCreate.current) {
-      refocusCreate.current = false;
-      focusCreate();
-    }
-  }, [building, confirming, focusCreate]);
+    const mode = refocusCreate.current;
+    if (!mode || building || confirming) return;
+    refocusCreate.current = null;
+    const active = document.activeElement;
+    if (mode === "always" || active === null || active === document.body) focusCreate();
+  }, [building, confirming, result, focusCreate]);
 
   const runBuild = useCallback(
     async (overwrite: boolean) => {
-      refocusCreate.current = true;
+      refocusCreate.current = "lost";
       setBuildRunning(true);
       setProgress(null);
+      setProgressUnavailable(false);
       setResult(null);
       let unlisten: (() => void) | undefined;
       try {
-        unlisten = await onBuildProgress(setProgress).catch(() => undefined);
+        unlisten = await onBuildProgress(setProgress).catch(() => {
+          setProgressUnavailable(true);
+          return undefined;
+        });
         const summary = await build(overwrite);
         setResult({ ok: summary });
         announce(resultAnnouncement(summary));
@@ -299,10 +308,14 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
           if (!changedRef.current) announce("The manifest changed on disk.");
           changedRef.current = true;
           setChanged(true);
-        } else setResult({ err });
+        } else {
+          setResult({ err });
+          announce(errorMessage(err, sessionRef.current?.manifest?.entries ?? []));
+        }
       } finally {
         unlisten?.();
         setProgress(null);
+        setProgressUnavailable(false);
         setBuildRunning(false);
       }
     },
@@ -312,26 +325,23 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
   const onChooseOutput = useCallback(
     async (path: string) => {
       const before = sessionRef.current?.format;
-      try {
-        const next = await setOutput(path);
-        apply(next, "other");
-        setFormatNotice(
-          before !== undefined && next.format !== before
-            ? `Format changed to ${FORMAT_NAME[next.format]} to match the file name.`
-            : "",
-        );
-      } catch (e) {
-        fail(e);
-      }
+      // A rejection propagates to BuildBar, which hands it to onError.
+      const next = await setOutput(path);
+      apply(next, "other");
+      setFormatNotice(
+        before !== undefined && next.format !== before
+          ? `Format changed to ${FORMAT_NAME[next.format]} to match the file name.`
+          : "",
+      );
     },
-    [apply, fail],
+    [apply],
   );
   const onFormatChange = useCallback(
     async (format: ArchiveFormat) => {
       setFormatNotice("");
-      await run(() => setFormat(format), "other");
+      apply(await setFormat(format), "other");
     },
-    [run],
+    [apply],
   );
   const onReveal = useCallback(async () => {
     try {
@@ -341,9 +351,9 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
     }
   }, [fail]);
   const dismissResult = useCallback(() => {
+    refocusCreate.current = "lost";
     setResult(null);
-    focusCreate();
-  }, [focusCreate]);
+  }, []);
 
   const pending = drop?.kind === "pending";
   useEffect(() => {
@@ -468,9 +478,12 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
       <ConfirmDialog
         open={confirming}
         title={`Replace ${fileName(session?.outputPath ?? "")}?`}
-        body={`A file with this name already exists in ${assignedFolder(session?.outputPath ?? "") ?? "that folder"}. Replacing it can't be undone.`}
+        body={overwriteBody(session?.outputPath ?? "")}
         confirmLabel="Replace"
-        onCancel={() => setConfirming(false)}
+        onCancel={() => {
+          refocusCreate.current = "always";
+          setConfirming(false);
+        }}
         onConfirm={() => {
           setConfirming(false);
           void runBuild(true);
@@ -489,6 +502,8 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
           session={session}
           building={building}
           progress={progress}
+          progressUnavailable={progressUnavailable}
+          onError={fail}
           formatNotice={formatNotice}
           onChooseOutput={onChooseOutput}
           onFormatChange={onFormatChange}
@@ -554,9 +569,16 @@ function dropAvailability(
   return { enabled: true, reason: "" };
 }
 
+function overwriteBody(outputPath: string): string {
+  const folder = displayFolder(outputPath);
+  return folder
+    ? `A file with this name already exists in ${folder}. Replacing it can't be undone.`
+    : "A file with this name already exists. Replacing it can't be undone.";
+}
+
 function Announcer({ text }: { text: string }) {
   return (
-    <div className="visually-hidden" role="status" aria-live="polite">
+    <div className="visually-hidden" role="status" aria-live="polite" data-testid="tarpack-announcer">
       {text}
     </div>
   );

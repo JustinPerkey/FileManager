@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Button } from "./Button";
 
 interface ConfirmDialogProps {
@@ -18,6 +18,8 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({ open, title, body, confirmLabel, onConfirm, onCancel }: ConfirmDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const bodyId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -35,16 +37,17 @@ export function ConfirmDialog({ open, title, body, confirmLabel, onConfirm, onCa
     <dialog
       ref={ref}
       className="confirm-dialog"
-      aria-labelledby="confirm-dialog-title"
+      aria-labelledby={titleId}
+      aria-describedby={bodyId}
       onCancel={(e) => {
         e.preventDefault();
         onCancel();
       }}
     >
-      <h2 id="confirm-dialog-title" className="confirm-dialog__title">
+      <h2 id={titleId} className="confirm-dialog__title">
         {title}
       </h2>
-      <p className="confirm-dialog__body">{body}</p>
+      <p id={bodyId} className="confirm-dialog__body">{body}</p>
       <div className="confirm-dialog__actions">
         <Button ref={cancelRef} onClick={onCancel}>
           Cancel

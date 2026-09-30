@@ -34,15 +34,26 @@ export function pathParts(path: string): { head: string; tail: string } {
   return { head, tail: lead + shown };
 }
 
+/** The file name of a display path: what follows the last separator. Works on code points. */
+export function fileName(path: string): string {
+  const cps = Array.from(path);
+  let sep = -1;
+  for (let i = cps.length - 1; i >= 0; i--) {
+    if (isSep(cps[i])) {
+      sep = i;
+      break;
+    }
+  }
+  return cps.slice(sep + 1).join("");
+}
+
 /**
- * The folder of an assigned file's display path, for a dialog's start folder:
- * everything before the last separator, keeping the separator when only a
- * drive or UNC-share prefix remains. `undefined` when there is no separator or
- * the path is lossy (contains U+FFFD, so it must not be passed back to `lib`).
- * Works on code points.
+ * The folder of a display path: everything before the last separator, keeping
+ * the separator when only a drive or UNC-share prefix remains. `undefined`
+ * when there is no separator. For display only: a lossy path (U+FFFD) is
+ * returned as is. Works on code points.
  */
-export function assignedFolder(path: string): string | undefined {
-  if (path.includes("\uFFFD")) return undefined;
+export function displayFolder(path: string): string | undefined {
   const cps = Array.from(path);
   const pre = prefixLength(cps);
   const from = pre > 0 && isSep(cps[pre - 1]) ? pre - 1 : pre;
@@ -55,4 +66,13 @@ export function assignedFolder(path: string): string | undefined {
   }
   if (sep < 0) return undefined;
   return cps.slice(0, sep < Math.max(pre, 1) ? sep + 1 : sep).join("");
+}
+
+/**
+ * The folder of an assigned file's display path, for a dialog's start folder.
+ * `undefined` when there is no separator or the path is lossy (contains
+ * U+FFFD, so it must not be passed back to `lib`).
+ */
+export function assignedFolder(path: string): string | undefined {
+  return path.includes("\uFFFD") ? undefined : displayFolder(path);
 }
