@@ -265,6 +265,7 @@ fixed rem scale with a ratio of about 1.125–1.25):
 | `--font-size-lg` | `1rem` | region headings ("3 errors in this manifest", "Created …") |
 | `--font-size-xl` | `1.25rem` | the view heading (current `.tool-view h1`) |
 | `--shadow-overlay` | `0 8px 24px rgb(0 0 0 / 0.18)` light, `0 8px 24px rgb(0 0 0 / 0.5)` dark | surfaces that float over content, only: the Recent menu (U2), the confirmation dialog (U5), and the shortcuts popover (U6) |
+| `--scrim` | `rgb(0 0 0 / 0.4)` light, `rgb(0 0 0 / 0.6)` dark | the backdrop behind a modal dialog, only (the confirmation dialog). Added by U6's review fixes (R4), replacing a literal color in `controls.css` |
 
 U2 also themes the browser surfaces in `base.css`, with no new color values:
 
@@ -853,3 +854,52 @@ is recorded here and in the U5 task plan:
   400×280 (200% text at the minimum window). Added to the U6 task plan.
 - **`DESIGN.md`.** The confirmation dialog moves from planned to landed
   (U5 updates the status line only).
+
+## 13. Amendments from U6's review (ui-designer, 2026-09-30)
+
+U6 landed at ee3da63; the reviewer returned "changes required". The fixes
+are in the U6 task plan under "Fixes required after review" (R1–R8):
+
+- **R1 (P1).** Row keys acted during a build: `<fieldset disabled>` does not
+  disable a tabindexed `<tr>`. `EntryTable` gets `disabled` (the view passes
+  `building`); while set, every row and row action is `tabIndex={-1}` and
+  the row key handler ignores every key. No `inert`, no blur, so a focused
+  row keeps focus and the tab stop is restored after the build.
+- **R2 (P2).** Every reload chord is prevented in every state (F5 with any
+  modifier, Ctrl+R, Ctrl+Shift+R); only bare F5 and Ctrl+R reload the
+  manifest.
+- **R3 (P2).** `DESIGN.md`: the shortcuts popover is landed; a new
+  "Shortcuts help and keys" entry records the popover, `<kbd>`, and the
+  shortcut hints; the data table is marked landed with the focused-row rule.
+- **R4 (P2, decided now rather than deferred).** New token `--scrim` (§2)
+  for the dialog backdrop, in all three theme blocks, asserted by
+  `tokens.test.ts`. The dark value is darker (0.6) so the dialog stands clear
+  of a dark view.
+- **R5 (P2).** Clearing from a row's Clear button (any activation, not only
+  Delete) moves focus to the row first, so focus never falls to `<body>`.
+- **R6 (P3).** While the shortcuts popover is open, the view's Escape
+  shortcut stands aside (no dismiss, no `preventDefault`), so the popover's
+  light dismiss wins; `ShortcutsHelp` reports its state via `onOpenChange`.
+- **R7 (P3, accepted).** The anchored popover's `max-height` is measured
+  from the viewport; nine rows, left as is.
+- **R8. Audit deliverables.** The re-run must report the numeric health
+  score table (five dimensions, total /20), every finding with its status,
+  the detector command, exit status, and output with a verdict per finding,
+  and a fixed set of screenshots (kept outside the repository, listed by
+  path and looked at). A written rendered check does not replace them.
+
+**Gap decisions confirmed.** Non-tab-stop rows' Browse… and Clear are
+`tabIndex={-1}`; the help button sits beside the `h1` when no manifest is
+open; "200% text" is checked at a 400×280 viewport (not a 32 px root at
+800×560); the popover is anchored only in windows at least 40rem tall with
+anchor positioning (Chromium 125+), and top-pinned otherwise.
+
+**WebView2 middle-truncation check.** It needs Windows and cannot run in the
+implementers' Linux container, so it leaves U6's acceptance criteria. The
+user runs it on Windows as part of M7's Windows end-to-end check, before M7
+is signed off; a failure becomes a follow-up UI task and does not reopen U6.
+**Follow-up for the planner:** add it as a step in M7's end-to-end
+checklist (`docs/tarpack-e2e.md`), with the procedure stated in the U6 task
+plan (several widths, a pixel or two at a time, both table layouts, 200%
+zoom; "…" directly against the file name's leading `\`, no mid-word
+break; report a failure with a screenshot and the window width).

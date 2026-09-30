@@ -1,10 +1,15 @@
 # U6 — Keyboard shortcuts, final polish, and audit
 
-Status: awaiting approval (amended 2026-09-30: path reveal on the focused row,
+Status: changes required (implemented at ee3da63; the reviewer returned
+"changes required"; this run applies "Fixes required after review" below)
+(amended 2026-09-30: path reveal on the focused row,
 row-action names and hints, layout and scroll model from U3; stacked layout
 at the default window, 64rem switch, sticky offsets; WebView2 check of
 middle truncation; focus after dismissing the drop result, from U4;
-amended 2026-09-30: U5's waived audit and the short-window bar fallback)
+amended 2026-09-30: U5's waived audit and the short-window bar fallback;
+amended 2026-09-30 after review of ee3da63: fixes R1–R8, the implementer's
+gap decisions confirmed, the audit deliverables, the `--scrim` token, and
+the WebView2 truncation check moved to M7's Windows check, run by the user)
 Project: tarpack   Depends on: U2, U3, U4, U5 (all landed)
 
 ## Goal
@@ -139,7 +144,12 @@ access to them; it adds no new behaviour.
 | Escape | Dismiss the drop result or build result | one is visible (Escape never collapses the error report) |
 
 - Shortcuts are ignored while `ConfirmDialog` is open or a build is running.
-- Ctrl+R and F5 must not reload the webview; call `preventDefault`.
+  That includes the row keys (Up, Down, Enter, Delete): during a build every
+  row leaves the tab order and ignores its keys (R1).
+- No reload key may reload the webview, in any state: call `preventDefault`
+  on F5 with any modifier (F5, Shift+F5, Ctrl+F5) and on Ctrl+R and
+  Ctrl+Shift+R. Only bare F5 and Ctrl+R (no Shift) run Reload manifest; the
+  other variants do nothing else (R2).
 - Ctrl+Enter follows `session.canBuild` only. Never add an `errorCount`
   condition to it, and never open a dialog because errors exist: building
   with errors is allowed, and the result reports what was left out.
@@ -147,7 +157,10 @@ access to them; it adds no new behaviour.
   editors, and sits beside F5 in this scheme). It calls the same
   `showErrors()` as the bar's **Show errors**.
 - The table uses a roving `tabindex`: one row is in the tab order, and the
-  arrow keys move between rows.
+  arrow keys move between rows. The tab-stop row's own Browse… and Clear
+  stay in the tab order after it (`tabIndex={0}`, Clear only when enabled);
+  every other row's Browse… and Clear are `tabIndex={-1}`, so the table is
+  one stop plus the focused row's actions (confirmed 2026-09-30).
 - The Format picker gets no shortcut of its own: it is reached with Tab and
   operated with the native `<select>` keys (arrows, type-ahead, Alt+Down).
   Verify that order: Choose…, Format, Show errors (only when the manifest has
@@ -158,7 +171,25 @@ access to them; it adds no new behaviour.
   `--surface`, a 1 px `--border`, `--radius`, and `--shadow-overlay`. It is
   not a modal. Render keys in `<kbd>` at `--font-size-sm` on
   `--surface-sunken` with a 1 px `--border`. Escape closes it and returns
-  focus to the button. Visible shortcut hints (`title` and `aria-keyshortcuts`) go
+  focus to the button. While the popover is open, Escape belongs to it
+  even when focus is elsewhere: the view's Escape shortcut neither
+  dismisses a result nor calls `preventDefault`, so the browser's own
+  light dismiss closes the popover; the next Escape dismisses the result
+  (R6).
+  - **Placement (confirmed 2026-09-30).** With a manifest, the help button is
+    the last control in `ManifestHeader`'s actions. In the no-manifest state
+    it sits beside the `h1` in `.tarpack__titlebar`. In the loading state it
+    is not rendered.
+  - **Position (confirmed 2026-09-30).** In windows at least 40rem tall, and
+    where CSS anchor positioning is supported (Chromium 125+, which current
+    Evergreen WebView2 is), it is anchored under the button with
+    `position-try-fallbacks: flip-block`. Otherwise, and in any window under
+    40rem tall, it is pinned to the top right of the window
+    (`top: var(--space-4); right: var(--space-5)`). It scrolls inside
+    itself. Accepted limitation (P3): its `max-height` is measured from the
+    viewport, not from its anchored top, so in a tall window with the view
+    scrolled it can run past the bottom edge; the list is nine rows, so this
+    is left as is. Visible shortcut hints (`title` and `aria-keyshortcuts`) go
   on the corresponding buttons, including `aria-keyshortcuts="F8"` on the
   build bar's **Show errors**.
 
@@ -190,7 +221,15 @@ access to them; it adds no new behaviour.
   no glyph icons; no literal `font-size`; no `box-shadow` except
   `--shadow-overlay` on the Recent menu, the dialog, and the shortcuts
   popover; every selector in `tarpack.css` starts with `.tarpack`; no colored border thicker than 1 px except the drop
-  overlay's dashed border and the focus ring.
+  overlay's dashed border and the focus ring; no literal color (`#…`,
+  `rgb(`, `hsl(`) in any stylesheet except `tokens.css` (R4 moves the last
+  one, the dialog backdrop, to `--scrim`).
+- **What "200% text" means here (confirmed 2026-09-30).** The check is a
+  **400×280** viewport at the default root font size: the same CSS layout
+  as the 800×560 minimum window at 200% zoom, and it triggers media and
+  container queries as real zoom does. A 32 px root font at 800×560 is not
+  used: it does not trigger media queries and does not scale px values the
+  way zoom does.
 - The layout is intact at 200% text size and at the 800×560 minimum,
   including the worst case: the error report expanded, a build result with
   its report, and the sticky bar all at once. The view scrolls (one scroll
@@ -209,7 +248,12 @@ access to them; it adds no new behaviour.
   Windows paths (middle-truncated), long-name warning messages, error
   messages in both reports, and the extraction command (wrapped, never
   truncated). Both reports stay within `40vh` and scroll inside themselves.
-- **Middle truncation in WebView2.** In the running app (`npm run
+- **Middle truncation in WebView2 (moved out of this run, 2026-09-30).**
+  This check needs Windows, and the implementer's container is Linux. It is
+  not an acceptance criterion of this task: the user runs it on Windows as
+  part of M7's Windows end-to-end check, before M7 is signed off. Your
+  report says "WebView2 truncation check: not run (Linux); tracked for M7".
+  The check, for the record: in the running app (`npm run
   tauri:dev` on Windows, so the real Cascadia Mono or Consolas is used),
   every truncated Windows path, in the table and in the build bar's output
   path, shows "…" directly against the file name's leading `\`, with no gap,
@@ -221,7 +265,8 @@ access to them; it adds no new behaviour.
   Chromium on Linux with a fallback mono; U3's sandbox could not check
   WebView2's fonts. If a gap or a mid-word break appears, report it with a
   screenshot and the window width rather than changing the rules
-  piecemeal.
+  piecemeal. A failure found there becomes a follow-up UI task; it does not
+  reopen U6.
 - Consistent spacing on the `--space-*` scale, with no one-off pixel values.
 - All copy is plain and short. Re-read every string. Keep the no-manifest build bar
   honest: the Format picker (showing "tar (.tar)") and Choose… stay disabled.
@@ -243,8 +288,11 @@ access to them; it adds no new behaviour.
 - Touch-ups across `src/tools/tarpack/`, `src/app/`, and `src/styles/`
   (including the nav fix in `app.css`); the shortcuts popover's styles in
   `src/styles/tarpack.css`, scoped under `.tarpack`
-- The root `DESIGN.md`: the Navigation entry only, plus any drift the audit
-  proves
+- The root `DESIGN.md`: the Navigation entry, plus the entries R3 and R4
+  name (shortcuts popover, `<kbd>`, focused row, `--scrim`), plus any drift
+  the audit proves
+- `src/styles/tokens.css` and `src/styles/tokens.test.ts`: the `--scrim`
+  token (R4)
 - Tests
 
 ## Skill
@@ -276,32 +324,47 @@ How to run it:
   in context.
 - Capture screenshots of the running frontend (`npm run dev` in
   `apps/desktop`, with `lib/` mocked or in the Tauri dev shell) at 1280×800
-  and at 800×560, in light and dark, and at 200% text. Use them as the
-  audit's evidence. This session's plan audit could run neither the detector
-  nor screenshots, so this is the first rendered check.
+  and at 800×560, in light and dark, and at 200% text (400×280, see Polish
+  targets). Use them as the audit's evidence. This session's plan audit could run neither the detector
+  nor screenshots, so this is the first rendered check. The exact set, and
+  what the report must contain, is in "The audit deliverables" under the
+  review fixes below.
 - If the skill is not installed, install it with `npx impeccable install`. If
   its launcher cannot run, follow `reference/polish.md` and
   `reference/audit.md` from `github.com/pbakaus/impeccable` by hand, and say
   that the detector did not run.
-- `DESIGN.md` is updated only for the nav fix above, and for any drift the
-  audit proves.
+- `DESIGN.md` is updated only for the nav fix above, for R3 and R4, and for
+  any drift the audit proves.
 
 ## Acceptance criteria
 
 - Every shortcut in the table works in its "active when" condition, and does
   nothing outside it.
-- Ctrl+R and F5 do not reload the webview.
+- No reload key reloads the webview (F5, Shift+F5, Ctrl+F5, Ctrl+R,
+  Ctrl+Shift+R), in any state, including during a build; only F5 and Ctrl+R
+  run Reload manifest.
 - Roving focus in the table works with Up and Down, and Enter and Delete act
   on the focused row, in the table and stacked layouts. The focused row shows
   its full Windows path and is never obscured by the sticky header or bar.
+- During a build no row is in the tab order and no row key (Up, Down,
+  Enter, Delete) does anything; after the build the tab stop is back on the
+  row that had it.
+- Clearing a row from its Clear button (click, Enter, Space, or Delete)
+  leaves focus on that row, never on `<body>`.
 - The shortcuts help is reachable by keyboard and lists every shortcut,
-  including F8.
+  including F8. With it open and focus elsewhere, Escape does not dismiss a
+  drop or build result.
 - F8 moves focus to the error report when `errorCount > 0`, and does nothing
   otherwise. Ctrl+Enter builds a `canBuild: true` session that has errors,
   with no dialog.
-- The `/impeccable audit` report (with detector output, or a stated reason it
-  could not run) has no open P0 or P1 findings, and its health score is
-  included in your report.
+- The `/impeccable audit` report has no open P0 or P1 findings, and your
+  report contains everything listed in "The audit deliverables" below: the
+  numeric health score table, the detector output with a verdict per
+  finding, and the screenshot list. A written description of a rendered
+  check does not replace any of the three.
+- `controls.css` has no literal color; the dialog backdrop uses `--scrim`,
+  defined in all three theme blocks of `tokens.css`. `DESIGN.md` describes
+  the shortcuts popover as landed, the `<kbd>` style, and `--scrim`.
 - `.tool-nav__item` has no border thicker than 1 px, and the current item
   shows the accent dot. `DESIGN.md` no longer lists the drift.
 - The vocabulary sweep above finds nothing.
@@ -321,12 +384,20 @@ How to run it:
 
 - `useTarpackShortcuts.test.tsx`: each shortcut, its active and inactive
   conditions (F8 with and without errors; Ctrl+Enter on a `canBuild: true`
-  session with errors), and suppression during the dialog and the build.
+  session with errors), and suppression during the dialog and the build;
+  every reload variant prevented in every state (R2); Escape while the
+  shortcuts popover is open (R6).
 - `EntryTable.keyboard.test.tsx`: roving focus, Enter, and Delete; Escape
   with focus on the drop result's Dismiss moves focus to the tab-stop row,
-  and Escape with focus elsewhere leaves focus where it was.
+  and Escape with focus elsewhere leaves focus where it was; the `disabled`
+  prop (R1); focus stays on the row after Clear (R5).
+- `TarpackView.build.test.tsx` (extend U5's): Enter and Delete on the
+  tab-stop row during a real pending build call neither the file dialog nor
+  `clear` (R1).
 - `ShortcutsHelp.test.tsx`: opens from the button by keyboard, lists every
-  shortcut, and closes on Escape, returning focus.
+  shortcut, and closes on Escape, returning focus; reports its open state
+  through `onOpenChange`, including `false` on unmount (R6).
+- `tokens.test.ts`: `--scrim` in each theme block (R4).
 - `ToolNav.test.tsx` (extend U1's): the current item still has
   `aria-current="page"` after the style change.
 - `TarpackView.a11y.test.tsx`: axe over every state.
@@ -334,6 +405,229 @@ How to run it:
 ## States covered
 
 All states of the view.
+
+## Fixes required after review (2026-09-30)
+
+The first run landed at ee3da63 and the reviewer returned "changes
+required". Apply R1–R8 on top of ee3da63, in this order, then re-run the
+audit as "The audit deliverables" says. Line numbers are against ee3da63.
+Everything else in ee3da63 stands, including these choices, which are now
+part of this plan (see Shortcuts and Polish targets above): non-tab-stop
+rows' Browse… and Clear are `tabIndex={-1}`; the help button sits beside
+the `h1` when no manifest is open; "200% text" is a 400×280 viewport; the
+popover is top-pinned under 40rem of window height and where anchor
+positioning is missing.
+
+### R1 (P1). Row keys act during a build
+
+`TarpackView.tsx` (~line 402) disables the header and table with
+`<fieldset disabled={building}>`, but that disables only form controls. A
+`<tr tabIndex={0}>` stays focusable, and `EntryTable`'s `tbody` `onKeyDown`
+(`EntryTable.tsx` ~lines 207-232) still runs: Enter on the tab-stop row
+mid-build opened the file dialog, and Delete would call `onClear`.
+
+- Add a prop to `EntryTable`: `disabled?: boolean` (default `false`).
+  `TarpackView` passes `disabled={building}`.
+- While `disabled`:
+  - every row renders `tabIndex={-1}`, and so do its Browse… and Clear
+    (they are also disabled by the fieldset). Do this by passing
+    `tabStop={!disabled && e.id === tabId}` to `EntryRow`, so the memo
+    comparator (`EntryTable.tsx` ~line 169) sees the change;
+  - `onKeyDown` returns at once for every key, before the arrow handling:
+    no Up/Down, Enter, or Delete;
+  - do not use `inert` and do not blur: a row that holds focus when the
+    build starts keeps it (a `tabIndex={-1}` element can still hold focus),
+    so U5's "return focus to Create archive only when it was lost" rule
+    leaves it there after the build.
+- Keep `stopId` untouched while disabled, so after the build the tab stop
+  is back on the same row.
+- Tests:
+  - `EntryTable.keyboard.test.tsx`: render with `disabled`; assert every
+    `tbody tr` and every row button has `tabindex="-1"`; focus a row
+    programmatically and press Enter, Delete, and ArrowDown: `onBrowse` and
+    `onClear` are not called and focus does not move. Rerender with
+    `disabled={false}`: the row that was the tab stop before is
+    `tabindex="0"` again.
+  - `TarpackView.build.test.tsx`: with an assigned entry, focus the
+    tab-stop row, start a build with a pending `build` promise, press Enter
+    and then Delete on the row: the mocked `openFileDialog` and `clear` are
+    not called. Settle the build; Enter on the row then calls
+    `openFileDialog`.
+
+### R2 (P2). Every reload key must be blocked
+
+`useTarpackShortcuts.ts` (~line 39) prevents only bare F5 and Ctrl+R.
+Shift+F5, Ctrl+F5, and Ctrl+Shift+R still reload WebView2 and lose the
+session. Change the first branch to:
+
+- if `e.key === "F5"` with any modifiers, or `e.ctrlKey && key === "r"`
+  (with or without Shift; `key` is already lower-cased), call
+  `e.preventDefault()`;
+- then, only when the chord is bare F5 or Ctrl+R without Shift (no Alt, no
+  Meta), and `active && hasManifest && !e.repeat`, call `onReload()`;
+- return in every case.
+
+The shortcuts help lists only F5 and Ctrl+R; do not add the blocked
+variants to it. Test in `useTarpackShortcuts.test.tsx`: for each of
+Shift+F5, Ctrl+F5, Ctrl+Shift+R, with a manifest and with `active: true`
+and then `active: false`, the event's `defaultPrevented` is `true` and
+`onReload` is not called; bare F5 and Ctrl+R still call it once.
+
+### R3 (P2). `DESIGN.md` is stale about the popover and the keys
+
+Edit the root `DESIGN.md`:
+
+- **Elevation & Depth** (~lines 185-189): "the shortcuts popover (planned,
+  U6)" becomes "the shortcuts popover (landed, U6, `ShortcutsHelp`)". The
+  backdrop sentence is in R4.
+- Add a section after **Banners**, headed `### Shortcuts help and keys
+  (Landed, U6)`, with:
+  - **Help button:** a quiet `Button` with the `keyboard` icon and the
+    visible label "Keyboard shortcuts"; the last header action, or beside
+    the `h1` when no manifest is open.
+  - **Popover:** native `popover="auto"`, `role="dialog"`, not modal;
+    `--surface`, 1 px `--border`, `--radius`, `--shadow-overlay`, padding
+    `--space-3 --space-4`; anchored under the button in windows at least
+    40rem tall where anchor positioning is supported, else pinned to the top
+    right; scrolls inside itself. Escape closes it and returns focus to the
+    button.
+  - **Keys:** `<kbd>` is inline-block, `--font-mono` at `--font-size-sm`,
+    on `--surface-sunken` with a 1 px `--border` and `--radius`, padding
+    `0 --space-1`. A chord joins keys with an `aria-hidden` "+"; alternatives
+    are joined by "or" in `--text-muted`. The "active when" column is
+    `--text-muted` at `--font-size-sm`.
+  - **Hints on controls:** every button with a shortcut has
+    `aria-keyshortcuts` and a `title` "Shortcut: …" (Clear appends it to its
+    own `title`).
+- **Data table**: change its heading from "(Planned, U3)" to "(Landed, U3;
+  focused row U6)" and add one bullet: "**Focused row.** Roving focus: one
+  row in the tab order, Up/Down move, Enter browses, Delete clears. The
+  focused row gets the global ring inset (`outline-offset: -2px`) and the
+  `--surface-sunken` fill, and shows its full Windows path. No side stripe."
+
+Check each statement against `tarpack.css` as it stands after your fixes;
+where the code differs, fix the code if the plan above says so, otherwise
+describe the code.
+
+### R4 (P2, decided: fix now). The dialog backdrop is a literal color
+
+`controls.css` (~lines 180-182) has
+`.confirm-dialog::backdrop { background: rgb(0 0 0 / 0.4); }`. Add a token:
+
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--scrim` | `rgb(0 0 0 / 0.4)` | `rgb(0 0 0 / 0.6)` | the backdrop behind a modal dialog, only |
+
+- Define it in all three blocks of `src/styles/tokens.css`: `:root`, the
+  `@media (prefers-color-scheme: dark)` `:root:not([data-theme="light"])`
+  block, and `:root[data-theme="dark"]` (the two dark blocks must stay
+  identical; `tokens.test.ts` asserts that).
+- `controls.css`: `background: var(--scrim);`.
+- `tokens.test.ts`: a test per theme block, like the overlay-shadow one,
+  that `--scrim` is `rgb(0 0 0 / 0.4)` in light and `rgb(0 0 0 / 0.6)` in
+  both dark blocks.
+- `DESIGN.md`, Elevation & Depth: "The dialog also sits over a dimmed
+  backdrop." becomes "The dialog also sits over a dimmed backdrop,
+  `--scrim` (`rgb(0 0 0 / 0.4)` light, `rgb(0 0 0 / 0.6)` dark), used for
+  nothing else."
+- Look at the open dialog in both themes in the rendered check: the dialog
+  must stand clear of the dimmed view in dark.
+
+This clears the detector's one advisory from the first run.
+
+### R5 (P2). Clear drops focus to `<body>`
+
+Delete (or Enter, Space, or a click) on a focused Clear button clears the
+row, Clear becomes disabled, and focus falls to `<body>`
+(`EntryTable.tsx` ~lines 226-229, and the Clear `onClick` ~line 160).
+
+- In `EntryTable`, route every Clear through one function: given the row
+  element and the entry id, if `document.activeElement` is inside that row
+  and is not the row itself, call `row.focus({ preventScroll: true })`
+  first, then `onClear(id)`. The Delete key handler and Clear's `onClick`
+  both use it (in `EntryRow`, get the row from `event.currentTarget.closest("tr")`).
+- Focus on the row is not lost, so the view's focus rules leave it there,
+  and U3's reveal shows the full path of the row just cleared (now "—").
+- Tests in `EntryTable.keyboard.test.tsx`, with an assigned tab-stop row:
+  focus its Clear and press Delete: `onClear` is called once and the row
+  has focus; focus its Clear and click it: same; focus the row itself and
+  press Delete: `onClear` is called and focus stays on the row.
+
+### R6 (P3). Escape with the popover open and focus elsewhere
+
+`ShortcutsHelp.tsx` (~lines 32-40) handles Escape only when it bubbles from
+the button or the popover. With the popover open and focus elsewhere, the
+view's Escape shortcut dismisses a result and its `preventDefault` stops
+the popover's own light dismiss.
+
+- `ShortcutsHelp` gets a prop `onOpenChange?: (open: boolean) => void`,
+  called from `onToggle` with the new state, and called with `false` from
+  an unmount cleanup (the header and no-manifest instances swap when a
+  manifest opens or fails).
+- `TarpackView` keeps `const [shortcutsOpen, setShortcutsOpen] =
+  useState(false)`, passes `onOpenChange={setShortcutsOpen}` to whichever
+  `ShortcutsHelp` it renders (the header one goes through a new
+  `ManifestHeader` prop of the same name), and passes `shortcutsOpen` to
+  `useTarpackShortcuts`.
+- In the hook, add `shortcutsOpen: boolean` to `TarpackShortcutOptions`.
+  In the Escape branch, when `shortcutsOpen` is true, return without
+  `preventDefault` and without dismissing. Other shortcuts are unchanged
+  (the popover is not modal).
+- Tests: in `useTarpackShortcuts.test.tsx`, with `shortcutsOpen: true` and
+  a visible build result, Escape dispatched on `document.body` does not call
+  `onDismissBuildResult` or `onDismissDropResult`, and `defaultPrevented`
+  is `false`; with `shortcutsOpen: false` it dismisses as before. In
+  `ShortcutsHelp.test.tsx`, `onOpenChange` receives `true` then `false` on
+  toggle, and `false` on unmount while open.
+
+### R7 (P3, accepted). Popover height from the viewport
+
+The anchored popover's `max-height` is measured from the viewport, not
+from its anchored top (`tarpack.css` ~lines 120-130). Accepted; change
+nothing. It is recorded under Shortcuts.
+
+### R8. The audit deliverables
+
+The first run gave detector output and a written rendered check at five
+sizes, but no health score and no screenshots. After R1–R7, re-run
+`/impeccable audit` over the whole Tar Packager view (U2–U6's surfaces,
+including U5's bar, dialog, result, and report) against the rendered page,
+fix every P0 and P1, and put all of the following in your report:
+
+1. **Health score.** The audit's score table: Accessibility, Performance,
+   Responsive, Theming, and Implementation integrity, each 0–4, with one
+   key finding per row, and the total out of 20 with its band (for example
+   "18/20, Excellent").
+2. **Findings.** Every finding with its severity (P0–P3), where it is, and
+   its status: fixed (in which file), or deferred with the reason. P2s you
+   defer are listed by name.
+3. **Detector.** The exact command you ran (`impeccable detect --json`
+   over `apps/desktop/src/`), its exit status, and its JSON output, in full
+   if it is under about 100 lines, otherwise a count per rule plus every
+   finding; for each finding, file:line and your verdict (fixed, or false
+   positive and why). If it cannot run, say so and why; that does not
+   waive items 1, 2, and 4.
+4. **Screenshots.** PNG files taken with the pre-installed Chromium and
+   Playwright against the Vite dev server with the Tauri IPC mocked (the
+   fixtures in `src/tools/tarpack/fixtures.ts`). Save them outside the
+   repository, in your session's scratchpad directory, and do not commit
+   them. List each with its absolute path, viewport, theme, state, and one
+   line on what you saw in it. You must open and look at each one. The
+   minimum set:
+   - 1280×800, light and dark: the worst case (error report expanded, a
+     success result with files left out and its report, the bar);
+   - 1280×800, light: the replace dialog open; the shortcuts popover open;
+   - 1400×800, light: the seven-column table with a focused row mid-table
+     (full path revealed, header sticky);
+   - 800×560, light and dark: the worst case; the bar while building
+     (verifying);
+   - 400×280 (200% text), light: the worst case scrolled to the bar (the
+     short-window static bar); the shortcuts popover open (top-pinned);
+     the stacked table with a focused row.
+
+   If a screenshot shows a defect, fix it and replace the screenshot.
+5. **Not run.** "WebView2 truncation check: not run (Linux); tracked for
+   M7" (see Polish targets).
 
 ## Out of scope
 
