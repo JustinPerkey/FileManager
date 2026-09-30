@@ -610,7 +610,7 @@ is regenerated. The UI tasks (U2–U6) can therefore start from 17678e4 in
 parallel with it; U2 and U5 carry the corrected wording (progress phases
 start over, not necessarily at 0; `ManifestChangedOnDisk` also covers an
 unreadable manifest at build time; `stateWarning` may report a recent
-manifest that could not be reopened).
+manifest that could not be reopened). The follow-up landed in 909b36b, and the reviewer approved M6 at 909b36b.
 
 ## 5. Handoff to ui-designer
 

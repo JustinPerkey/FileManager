@@ -1,7 +1,8 @@
 # M6 — Tauri commands, events, watcher, and the typed client
 
-Status: implemented at 17678e4, reviewer-approved; review follow-up R1–R7
-pending (see "Review follow-up" at the end)
+Status: implemented at 17678e4; review follow-up R1–R7 landed in 909b36b;
+reviewer-approved at 909b36b. The R5 manual `tauri:dev` check was not run
+(headless Linux) and moves to M7's Windows end-to-end check.
 Project: tarpack   Depends on: M4 (landed), M5 (landed, including its review
 follow-up); M3's partial-results follow-up (landed before M4 and M5)
 
