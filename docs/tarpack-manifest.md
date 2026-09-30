@@ -219,3 +219,10 @@ tar -J --no-overwrite-dir -xpPf archive.tar.xz
 
 A file name outside `[A-Za-z0-9._+-]` is wrapped in single quotes in the
 commands the program shows.
+
+## Remembered locations
+
+The app remembers, per manifest, each entry's last source file, the last output
+path, and the last chosen archive format. The memory is keyed by the manifest's
+canonical path (on Windows without the `\\?\` prefix, lowercased), so renaming
+or moving a manifest file forgets what was remembered for it.
