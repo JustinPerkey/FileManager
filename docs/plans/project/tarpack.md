@@ -597,7 +597,8 @@ follow-up"** (R1–R8, decisions 44–47), run as its own implementer run on the
 same task plan. It lands **before M6 starts**: it changes the boundary type
 `DropOutcome` (typed `UnmatchedReason`, display-only paths) that M6 returns
 from `tarpack_assign_dropped` and U4 renders, and it regenerates
-`lib/generated/`. U4 is updated to match.
+`lib/generated/`. U4 is updated to match. The follow-up landed in 88273bd,
+the second-review fixes in de7ae19, and the reviewer approved M5 at de7ae19.
 
 ## 5. Handoff to ui-designer
 

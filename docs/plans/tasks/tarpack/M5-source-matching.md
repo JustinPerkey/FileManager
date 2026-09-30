@@ -1,7 +1,7 @@
 # M5 — Source matching and remembered locations
 
-Status: implemented, not yet committed; **review follow-up pending** (see
-"Review follow-up" at the end, which is the brief for the rework run)
+Status: implemented and reviewer-approved at de7ae19 (original implementation
+662099b, review follow-up R1–R8 88273bd, second-review fixes de7ae19)
 Project: tarpack   Depends on: M2 (landed), M3 (landed, including its
 partial-results follow-up). May run alongside M4.
 
@@ -307,14 +307,25 @@ a JSON string and is therefore already Unicode. Exactly:
     `Ambiguity.candidates`.
 - **Display-only paths in the outcome.** `Unmatched.path` and
   `Ambiguity.candidates` are shown to the user and never sent back. Serialize
-  them lossily with `#[serde(serialize_with = ...)]` helpers in
-  `matching.rs` (`to_string_lossy`), so no path in them can fail
-  serialization. They stay `PathBuf` in Rust, so tests compare them
-  exactly. ts-rs already maps `PathBuf` to `string`; the generated shapes do
-  not change. `DropOutcome`, `Unmatched`, `Ambiguity`, and `UnmatchedReason`
-  derive `Serialize` only (remove `Deserialize`): they are outbound, and a
-  lossy field must not be read back as a path. Write this in their doc
-  comments.
+  them lossily (`to_string_lossy`) through two serde `with` modules in
+  `matching.rs`, `lossy` and `lossy_vec`, so no path in them can fail
+  serialization. The fields are annotated
+  `#[serde(with = "lossy")] #[ts(type = "string")]` (`Unmatched.path`) and
+  `#[serde(with = "lossy_vec")] #[ts(type = "Array<string>")]`
+  (`Ambiguity.candidates`); the explicit `#[ts(type)]` keeps the generated
+  shapes unchanged. The `#[ts(type)]` override is used instead of ts-rs's
+  `no-serde-warnings` feature, because Cargo features unify workspace-wide
+  and that feature would silence the serde/TS mismatch warning for every
+  crate. They stay `PathBuf` in Rust, so tests compare them exactly.
+  `DropOutcome`, `Unmatched`, `Ambiguity`, and `UnmatchedReason` derive
+  `Serialize` only (no `Deserialize`): they are outbound, and a lossy field
+  must not be read back as a path. Their doc comments say so.
+
+  A path dropped more than once is reported once, and a walk error reached
+  through overlapping drops (a folder and a folder inside it) is reported
+  once. The dedup is by exact path, so it does not fold Windows case variants
+  of the same path. That is accepted: OS drops carry the file system's real
+  spelling, so case variants do not arise in practice.
 - **Remembered state never holds such a path.**
   - `key(path) -> Option<String>` uses `to_str()`, never `to_string_lossy`.
     `None` means the manifest has no memory: `remember` does nothing,
