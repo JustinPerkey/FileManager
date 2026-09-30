@@ -1,6 +1,8 @@
 # U4 — Drag-and-drop and per-row assignment
 
-Status: awaiting approval (amended 2026-09-30: row-action names fixed by U3;
+Status: done (landed 2026-09-30 at cbce88a, reviewer-approved; not yet
+run in real Tauri or on Windows, which moves to M7's Windows check;
+amended 2026-09-30: row-action names fixed by U3;
 scroll model; after the first implementation run: the ambiguous line names
 entries, Browse's start folder, the per-line name cap, the empty-outcome
 line, and the `notUnicode` copy; after review: focus after Dismiss, the

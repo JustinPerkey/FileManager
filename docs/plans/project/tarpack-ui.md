@@ -761,3 +761,25 @@ example `SessionChanged`, copy "The files changed while your drop was being
 matched. Drop them again.") would give accurate copy; it is a contract
 change to `TarpackErrorKind` and `errorMessages.ts`, so it is the planner's
 call. U4 accepts the `Io` copy until then.
+
+**Reviewer approval and follow-ups (2026-09-30).** The reviewer approved U4
+at cbce88a. Open items, none blocking U4:
+
+- **Planner (backend):** a drop still pending when the user opens a
+  *different* manifest is retried against the new one (`begin_drop` re-snapshots
+  after `revision` changes), so files dropped on manifest A can be assigned to,
+  and remembered for, manifest B. Suggested: keep the manifest path in
+  `DropJob` and retry only when it is unchanged (a reload); otherwise reject.
+  Opens and reloads also count toward the three attempts, so the note above
+  that "only Browse… or Clear" can cause the `Io` rejection is incomplete.
+- **Planner / U6:** `apply` has no guard against out-of-order responses; a
+  sequence guard would stop an older session overwriting a newer one.
+- **U6:** `focusAfterResult` should skip targets inside a closed `<details>` or
+  hidden by CSS (fall through when `focus()` does not take). When a load or
+  reload clears a result that holds focus (reachable once U6 adds a reload
+  shortcut), apply the same focus rule.
+- **U4 plan wording (optional):** "expands with Enter on its summary" means
+  native activation (jsdom can't simulate it; the test proves Tab reach), and
+  the tab order is lines, then "Full paths", then Dismiss.
+- **Tests (optional polish):** dismiss the "with rows" focus test by keyboard,
+  and assert a named control in the "nothing follows" test.
