@@ -55,6 +55,10 @@ test.each(themes)("%s defines the overlay shadow", (_name, t) => {
   expect(t["--shadow-overlay"]).toMatch(/^0 8px 24px rgb\(0 0 0 \/ 0\.(18|5)\)$/);
 });
 
+test.each(themes)("%s defines --scrim", (name, t) => {
+  expect(t["--scrim"]).toBe(name === "light" ? "rgb(0 0 0 / 0.4)" : "rgb(0 0 0 / 0.6)");
+});
+
 test("type-size tokens exist on :root", () => {
   const t = themes[0][1];
   expect(t["--font-size-sm"]).toBe("0.8125rem");

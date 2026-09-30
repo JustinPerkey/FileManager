@@ -10,6 +10,7 @@ interface ManifestHeaderProps {
   onOpenRecent: (path: string) => void;
   onReload: () => void;
   onEdit: () => void;
+  onShortcutsOpenChange?: (open: boolean) => void;
 }
 
 /** Splits a path so the tail stays visible when the head is truncated. */
@@ -20,7 +21,14 @@ function splitPath(path: string): [string, string] {
   return [chars.slice(0, chars.length - tail).join(""), chars.slice(-tail).join("")];
 }
 
-export function ManifestHeader({ session, onOpen, onOpenRecent, onReload, onEdit }: ManifestHeaderProps) {
+export function ManifestHeader({
+  session,
+  onOpen,
+  onOpenRecent,
+  onReload,
+  onEdit,
+  onShortcutsOpenChange,
+}: ManifestHeaderProps) {
   const manifest = session.manifest;
   const [recent, setRecent] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -150,7 +158,7 @@ export function ManifestHeader({ session, onOpen, onOpenRecent, onReload, onEdit
         <Button title="Shortcut: Ctrl+E" aria-keyshortcuts="Control+E" onClick={onEdit}>
           Edit in editor
         </Button>
-        <ShortcutsHelp />
+        <ShortcutsHelp onOpenChange={onShortcutsOpenChange} />
       </div>
     </header>
   );

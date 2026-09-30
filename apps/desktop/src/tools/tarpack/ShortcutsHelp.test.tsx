@@ -36,3 +36,19 @@ test("Escape closes it and returns focus to the button, without reaching the vie
   expect(outer.mock.calls.filter(([e]) => (e as KeyboardEvent).key === "Escape")).toHaveLength(0);
   window.removeEventListener("keydown", outer);
 });
+
+test("reports its open state, including false on unmount", async () => {
+  const user = userEvent.setup();
+  const onOpenChange = vi.fn();
+  const { unmount } = render(<ShortcutsHelp onOpenChange={onOpenChange} />);
+  await user.tab();
+  await user.keyboard("{Enter}");
+  expect(onOpenChange).toHaveBeenLastCalledWith(true);
+  await user.keyboard("{Escape}");
+  expect(onOpenChange).toHaveBeenLastCalledWith(false);
+  onOpenChange.mockClear();
+  await user.keyboard("{Enter}");
+  expect(onOpenChange).toHaveBeenLastCalledWith(true);
+  unmount();
+  expect(onOpenChange).toHaveBeenLastCalledWith(false);
+});

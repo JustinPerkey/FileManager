@@ -11,6 +11,7 @@ vi.mock("../../lib/tarpack", () => ({
   session: vi.fn(),
   build: vi.fn(),
   setOutput: vi.fn(),
+  clear: vi.fn(),
   setFormat: vi.fn(),
   revealOutput: vi.fn(),
   reloadManifest: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock("../../lib/tarpack", () => ({
 }));
 vi.mock("../../lib/tauri", () => ({ openFileDialog: vi.fn(), saveFileDialog: vi.fn(), onDragDrop: vi.fn() }));
 import * as tp from "../../lib/tarpack";
-import { onDragDrop, saveFileDialog } from "../../lib/tauri";
+import { onDragDrop, openFileDialog, saveFileDialog } from "../../lib/tauri";
 
 let emit: (p: Progress) => void = () => undefined;
 const unlisten = vi.fn();
@@ -28,6 +29,7 @@ const unlisten = vi.fn();
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(onDragDrop).mockResolvedValue(() => undefined);
+  vi.mocked(openFileDialog).mockResolvedValue(null);
   vi.mocked(tp.recentManifests).mockResolvedValue([]);
   vi.mocked(tp.onManifestChanged).mockResolvedValue(() => undefined);
   vi.mocked(tp.onBuildProgress).mockImplementation(async (h) => {
@@ -403,4 +405,26 @@ test("focus that is elsewhere when a build settles stays there", async () => {
   await screen.findByRole("heading", { level: 2, name: /Created/ });
   expect(report).toHaveFocus();
   expect(create()).not.toHaveFocus();
+});
+
+test("row keys do nothing during a build, and work again after it", async () => {
+  const user = userEvent.setup();
+  let done!: (s: ReturnType<typeof summary>) => void;
+  vi.mocked(tp.build).mockReturnValue(new Promise((r) => (done = r)));
+  const assigned = { ...entry("gateway", "gateway.conf"), assigned: "C:\\src\\gateway.conf", status: "ready" as const };
+  await mount(buildable(manifest({ entries: [assigned] })));
+  const row = screen.getAllByRole("row")[1];
+  act(() => row.focus());
+  await user.click(create());
+  await screen.findByRole("progressbar");
+  act(() => row.focus());
+  await user.keyboard("{Enter}");
+  await user.keyboard("{Delete}");
+  expect(openFileDialog).not.toHaveBeenCalled();
+  expect(tp.clear).not.toHaveBeenCalled();
+  await act(async () => done(summary()));
+  await screen.findByRole("heading", { level: 2, name: /Created/ });
+  act(() => row.focus());
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(openFileDialog).toHaveBeenCalledTimes(1));
 });

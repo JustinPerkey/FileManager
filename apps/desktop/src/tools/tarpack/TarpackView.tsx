@@ -357,6 +357,7 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
     setResult(null);
   }, []);
 
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const pending = drop?.kind === "pending";
   useTarpackShortcuts({
     active: !building && !confirming,
@@ -365,6 +366,7 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
     errorCount: session?.manifest?.errorCount ?? 0,
     dropResultVisible: !!session?.manifest && drop?.kind === "result",
     buildResultVisible: result !== null,
+    shortcutsOpen,
     onOpen: () => void onOpen(),
     onReload: () => void onReload(),
     onEdit: () => void onEdit(),
@@ -417,11 +419,12 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
             onOpenRecent={onOpenRecent}
             onReload={onReload}
             onEdit={onEdit}
+            onShortcutsOpenChange={setShortcutsOpen}
           />
         ) : (
           <div className="tarpack__titlebar">
             <h1>Tar Packager</h1>
-            {!loading && <ShortcutsHelp />}
+            {!loading && <ShortcutsHelp onOpenChange={setShortcutsOpen} />}
           </div>
         )}
         {!loading && (
@@ -497,6 +500,7 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
             entriesWithheld={manifest.entriesWithheld}
             onBrowse={onBrowse}
             onClear={onClear}
+            disabled={building}
           />
         )}
       </fieldset>

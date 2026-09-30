@@ -179,3 +179,51 @@ test("tab order through the build bar: Choose…, Format, Show errors, Create ar
   await user.tab();
   expect(screen.getByRole("button", { name: "Create archive" })).toHaveFocus();
 });
+
+test.each([
+  ["Shift+F5", "F5", { shiftKey: true }],
+  ["Ctrl+F5", "F5", { ctrlKey: true }],
+  ["Ctrl+Shift+R", "R", { ctrlKey: true, shiftKey: true }],
+])("%s never reloads the webview and never runs Reload manifest", async (_n, key, mods) => {
+  await mount();
+  expect(press(key, mods)).toBe(true);
+  expect(tp.reloadManifest).not.toHaveBeenCalled();
+});
+
+test("reload chords are prevented with no manifest too", async () => {
+  await mount(session(null));
+  expect(press("F5", { shiftKey: true })).toBe(true);
+  expect(press("F5", { ctrlKey: true })).toBe(true);
+  expect(press("R", { ctrlKey: true, shiftKey: true })).toBe(true);
+  expect(tp.reloadManifest).not.toHaveBeenCalled();
+});
+
+test("reload chords are prevented during a build", async () => {
+  vi.mocked(tp.build).mockReturnValue(new Promise(() => undefined));
+  await mount();
+  press("Enter", { ctrlKey: true });
+  await waitFor(() => expect(tp.build).toHaveBeenCalledTimes(1));
+  expect(press("F5", { shiftKey: true })).toBe(true);
+  expect(press("F5", { ctrlKey: true })).toBe(true);
+  expect(press("R", { ctrlKey: true, shiftKey: true })).toBe(true);
+  expect(tp.reloadManifest).not.toHaveBeenCalled();
+});
+
+test("Escape while the shortcuts popover is open neither dismisses a result nor is prevented", async () => {
+  const user = userEvent.setup();
+  vi.mocked(tp.build).mockResolvedValue(summary());
+  await mount();
+  await user.click(screen.getByRole("button", { name: "Create archive" }));
+  await screen.findByRole("heading", { level: 2, name: /Created/ });
+  await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
+  const pop = document.querySelector("[popover]") as HTMLElement;
+  await waitFor(() => expect(pop.dataset.open).toBe("true"));
+  screen.getByRole("button", { name: "Create archive" }).focus();
+  expect(press("Escape")).toBe(false);
+  expect(screen.getByRole("heading", { level: 2, name: /Created/ })).toBeInTheDocument();
+  // Once the popover is closed, Escape dismisses as before.
+  act(() => pop.hidePopover?.());
+  await waitFor(() => expect(pop.dataset.open).toBe("false"));
+  press("Escape");
+  await waitFor(() => expect(screen.queryByRole("heading", { level: 2, name: /Created/ })).toBeNull());
+});

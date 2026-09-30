@@ -8,6 +8,8 @@ export interface TarpackShortcutOptions {
   errorCount: number;
   dropResultVisible: boolean;
   buildResultVisible: boolean;
+  /** The shortcuts popover is open: Escape belongs to it. */
+  shortcutsOpen: boolean;
   onOpen: () => void;
   onReload: () => void;
   onEdit: () => void;
@@ -35,10 +37,11 @@ export function useTarpackShortcuts(options: TarpackShortcutOptions) {
       const bare = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
 
-      // The webview must never reload, whatever the state.
-      if ((bare && key === "F5") || (ctrl && key === "r")) {
+      // The webview must never reload, whatever the state or the modifiers.
+      if (key === "F5" || (e.ctrlKey && key === "r")) {
         e.preventDefault();
-        if (o.active && o.hasManifest && !e.repeat) o.onReload();
+        const plain = (bare && key === "F5") || (ctrl && key === "r");
+        if (plain && o.active && o.hasManifest && !e.repeat) o.onReload();
         return;
       }
       if (!o.active || e.defaultPrevented) return;
@@ -49,6 +52,8 @@ export function useTarpackShortcuts(options: TarpackShortcutOptions) {
       else if (ctrl && key === "Enter") run = o.canBuild ? o.onBuild : null;
       else if (bare && key === "F8") run = o.hasManifest && o.errorCount > 0 ? o.onShowErrors : null;
       else if (bare && key === "Escape") {
+        // The popover's own light dismiss handles this Escape.
+        if (o.shortcutsOpen) return;
         if (o.dropResultVisible) run = o.onDismissDropResult;
         else if (o.buildResultVisible) run = o.onDismissBuildResult;
       }

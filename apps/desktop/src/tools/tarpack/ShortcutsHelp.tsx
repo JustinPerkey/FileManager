@@ -1,4 +1,4 @@
-import { useId, useRef, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 import { Button } from "../../app/Button";
 
 export const SHORTCUTS: { keys: string[][]; action: string; when: string }[] = [
@@ -24,8 +24,14 @@ function isOpen(el: HTMLElement): boolean {
 }
 
 /** A quiet button that opens a non-modal popover listing every shortcut. */
-export function ShortcutsHelp() {
+export function ShortcutsHelp({ onOpenChange }: { onOpenChange?: (open: boolean) => void } = {}) {
   const id = useId();
+  const report = useRef(onOpenChange);
+  useEffect(() => {
+    report.current = onOpenChange;
+  });
+  // The header and no-manifest instances swap; an unmounted popover is closed.
+  useEffect(() => () => report.current?.(false), []);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
@@ -61,7 +67,9 @@ export function ShortcutsHelp() {
         aria-label="Keyboard shortcuts"
         onToggle={(e) => {
           const el = e.currentTarget;
-          el.dataset.open = String((e.nativeEvent as ToggleEvent).newState === "open");
+          const open = (e.nativeEvent as ToggleEvent).newState === "open";
+          el.dataset.open = String(open);
+          report.current?.(open);
           if (!isOpen(el) && el.contains(document.activeElement)) buttonRef.current?.focus();
         }}
       >

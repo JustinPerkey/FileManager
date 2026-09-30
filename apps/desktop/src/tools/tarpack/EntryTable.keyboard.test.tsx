@@ -36,14 +36,22 @@ const entries = [
   e("c", { status: "ready", assigned: "C:\\src\\c.bin" }),
 ];
 
-function setup() {
+function setup(disabled?: boolean) {
   const onBrowse = vi.fn();
   const onClear = vi.fn();
-  render(
-    <EntryTable entries={entries} failedCount={0} entriesWithheld={false} onBrowse={onBrowse} onClear={onClear} />,
+  const ui = (d?: boolean) => (
+    <EntryTable
+      entries={entries}
+      failedCount={0}
+      entriesWithheld={false}
+      onBrowse={onBrowse}
+      onClear={onClear}
+      disabled={d}
+    />
   );
+  const { rerender } = render(ui(disabled));
   const rows = () => screen.getAllByRole("row").slice(1);
-  return { onBrowse, onClear, rows };
+  return { onBrowse, onClear, rows, setDisabled: (d: boolean) => rerender(ui(d)) };
 }
 
 test("exactly one row is in the tab order, and Up and Down move focus between rows", async () => {
@@ -136,4 +144,44 @@ test("only the tab-stop row's own buttons are tabbable", () => {
   const rows = screen.getAllByRole("row").slice(1);
   expect(tabbable(rows[0])).toEqual(["0", "0"]);
   expect(tabbable(rows[1])).toEqual(["-1", "-1"]);
+});
+
+test("disabled: no row or row button is tabbable, row keys do nothing, and the tab stop comes back", async () => {
+  const user = userEvent.setup();
+  const { rows, onBrowse, onClear, setDisabled } = setup(true);
+  for (const r of rows()) expect(r).toHaveAttribute("tabindex", "-1");
+  for (const b of document.querySelectorAll("tbody button")) expect(b).toHaveAttribute("tabindex", "-1");
+  act(() => rows()[0].focus());
+  await user.keyboard("{Enter}{Delete}{ArrowDown}");
+  expect(onBrowse).not.toHaveBeenCalled();
+  expect(onClear).not.toHaveBeenCalled();
+  expect(rows()[0]).toHaveFocus();
+  setDisabled(false);
+  expect(rows().map((r) => r.getAttribute("tabindex"))).toEqual(["0", "-1", "-1"]);
+});
+
+test("Clear leaves focus on the row: from its button by Delete and by click, and from the row itself", async () => {
+  const user = userEvent.setup();
+  const { rows, onClear } = setup();
+  const clearBtn = () => screen.getAllByRole("button", { name: /^Clear/ })[0];
+  // Clear disables itself in the real view; emulate that so a lost focus would show.
+  onClear.mockImplementation(() => clearBtn().setAttribute("disabled", ""));
+  act(() => clearBtn().focus());
+  await user.keyboard("{Delete}");
+  expect(onClear).toHaveBeenCalledTimes(1);
+  expect(rows()[0]).toHaveFocus();
+
+  clearBtn().removeAttribute("disabled");
+  onClear.mockClear();
+  act(() => clearBtn().focus());
+  await user.click(clearBtn());
+  expect(onClear).toHaveBeenCalledTimes(1);
+  expect(rows()[0]).toHaveFocus();
+
+  clearBtn().removeAttribute("disabled");
+  onClear.mockClear();
+  act(() => rows()[0].focus());
+  await user.keyboard("{Delete}");
+  expect(onClear).toHaveBeenCalledWith("a");
+  expect(rows()[0]).toHaveFocus();
 });

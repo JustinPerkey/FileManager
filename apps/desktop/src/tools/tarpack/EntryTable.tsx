@@ -11,6 +11,8 @@ export interface EntryTableProps {
   entriesWithheld: boolean;
   onBrowse: (id: string) => void;
   onClear: (id: string) => void;
+  /** A build is running: every row leaves the tab order and ignores its keys. */
+  disabled?: boolean;
 }
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
@@ -80,6 +82,16 @@ const Label = ({ children }: { children: string }) => (
     {children}
   </span>
 );
+
+/**
+ * Clear a row. When focus is on a control inside the row, it moves to the row
+ * first: Clear is about to become disabled, and a disabled button drops focus to `<body>`.
+ */
+function clearRow(row: HTMLElement | null, id: string, onClear: (id: string) => void) {
+  const active = document.activeElement;
+  if (row && active && active !== row && row.contains(active)) row.focus({ preventScroll: true });
+  onClear(id);
+}
 
 interface RowProps {
   entry: SessionEntry;
@@ -157,7 +169,7 @@ const EntryRow = memo(
             title="Forget this file (nothing is deleted). Shortcut: Delete"
             aria-keyshortcuts="Delete"
             tabIndex={tabStop ? 0 : -1}
-            onClick={() => onClear(entry.id)}
+            onClick={(e) => clearRow(e.currentTarget.closest("tr"), entry.id, onClear)}
           >
             Clear{" "}
             <span className="visually-hidden">assigned file for {entry.targetPath}</span>
@@ -192,7 +204,14 @@ function Empty({ failedCount, entriesWithheld }: Pick<EntryTableProps, "failedCo
   );
 }
 
-export function EntryTable({ entries, failedCount, entriesWithheld, onBrowse, onClear }: EntryTableProps) {
+export function EntryTable({
+  entries,
+  failedCount,
+  entriesWithheld,
+  onBrowse,
+  onClear,
+  disabled = false,
+}: EntryTableProps) {
   const [stopId, setStopId] = useState<string | null>(null);
   if (entries.length === 0) return <Empty failedCount={failedCount} entriesWithheld={entriesWithheld} />;
   const tabId = entries.some((e) => e.id === stopId) ? stopId : entries[0].id;
@@ -205,6 +224,7 @@ export function EntryTable({ entries, failedCount, entriesWithheld, onBrowse, on
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (disabled) return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     const row = rowOf(e.target);
     if (!row) return;
@@ -227,7 +247,7 @@ export function EntryTable({ entries, failedCount, entriesWithheld, onBrowse, on
       onBrowse(entry.id);
     } else if (e.key === "Delete" && entry.status !== "unassigned") {
       e.preventDefault();
-      onClear(entry.id);
+      clearRow(row, entry.id, onClear);
     }
   };
 
@@ -256,7 +276,7 @@ export function EntryTable({ entries, failedCount, entriesWithheld, onBrowse, on
         {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
         <tbody onFocus={onFocus} onKeyDown={onKeyDown}>
           {entries.map((e) => (
-            <EntryRow key={e.id} entry={e} onBrowse={onBrowse} onClear={onClear} tabStop={e.id === tabId} />
+            <EntryRow key={e.id} entry={e} onBrowse={onBrowse} onClear={onClear} tabStop={!disabled && e.id === tabId} />
           ))}
         </tbody>
       </table>
