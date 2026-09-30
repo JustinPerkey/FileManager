@@ -55,7 +55,7 @@ docs/tarpack-manifest.md      the manifest, archive-layout, and extraction refer
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, eslint.config.js, index.html
   src-tauri/                  package and binary name: filemanager
-    Cargo.toml
+    Cargo.toml                (incl. notify-debouncer-mini: manifest file watcher)
     build.rs                  tauri_build::build()
     tauri.conf.json, capabilities/default.json
     icons/
@@ -63,12 +63,20 @@ apps/desktop/
     src/lib.rs                builder, plugins, tools::register
     src/tools/mod.rs          tool registry: the only place that calls
                               invoke_handler / setup
+    src/tools/tarpack/        mod.rs (the tarpack_* commands and managed state),
+                              core.rs (session logic as plain functions, no
+                              Tauri types), progress.rs (ProgressCoalescer),
+                              watch.rs (manifest watcher, notify-debouncer-mini),
+                              types.rs (boundary types exported through ts-rs),
+                              tests.rs
     src/generated_types.rs    #[cfg(test)] ts-rs export and currency test
   src/
     main.tsx, App.tsx
     App.test.tsx
     test-setup.ts             jest-dom matchers + afterEach(cleanup)
     lib/tauri.ts              thin wrappers over @tauri-apps/api (invoke, listen)
+    lib/tarpack.ts            typed client: one function per tarpack_* command,
+                              onManifestChanged, onBuildProgress
     lib/generated/            TS types generated from Rust (ts-rs)
     tools/registry.ts         export const tools: ToolEntry[]
 .github/workflows/ci.yml      linux and windows jobs, both run cargo test --workspace

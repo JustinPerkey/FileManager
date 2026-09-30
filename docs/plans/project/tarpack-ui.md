@@ -193,8 +193,9 @@ in this session, so the assumptions are marked.
 - **Line-ending conversion is visible.** Entries with `normalizeEol` carry a
   labelled "CRLF → LF" marker in the table, and the build result lists how
   many CRLF pairs each such entry had replaced.
-- **Two-phase progress.** Writing, then verifying, each 0 → 100% over the same
-  `bytesTotal`, shown as distinct labelled steps. Each phase ends with one
+- **Two-phase progress.** Writing, then verifying, each starting over and
+  running up to 100% over the same `bytesTotal` (a phase's first event may
+  already be a little past 0), shown as distinct labelled steps. Each phase ends with one
   event at 100% with no entry. The SHA-256 is computed during verifying, so the
   short "Finishing…" state after it covers only the final flush and rename.
 - **No manifest.** `format` is `"tar"`, all four formats are listed, and the
@@ -425,7 +426,9 @@ disclosure.
 U2 creates the module with all 17 entries; U4 and U5 only consume it. Two kinds
 are intercepted before the map in the build flow (U5): `OutputExists` opens the
 replace confirmation, and `ManifestChangedOnDisk` shows the warn banner "The
-manifest changed on disk." with **Reload**.
+manifest changed on disk." with **Reload**. `ManifestChangedOnDisk` also
+covers a manifest that can no longer be read at build time; the same copy
+fits, and **Reload** then reports `ManifestUnreadable`.
 
 | Kind | Raised by | Message |
 | --- | --- | --- |

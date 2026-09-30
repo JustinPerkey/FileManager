@@ -600,6 +600,18 @@ from `tarpack_assign_dropped` and U4 renders, and it regenerates
 `lib/generated/`. U4 is updated to match. The follow-up landed in 88273bd,
 the second-review fixes in de7ae19, and the reviewer approved M5 at de7ae19.
 
+M6 was implemented at 17678e4 and the reviewer approved it with low-severity
+findings. Its task plan's contract wording was corrected to match what
+landed (decision 48), and it now ends with a **"Review follow-up"** (R1–R7,
+decisions 49–51), run as its own implementer run on the same task plan. The
+follow-up changes no boundary shape: `TarpackSession` and the 17
+`TarpackErrorKind`s are unchanged, and only the `stateWarning` doc comment
+is regenerated. The UI tasks (U2–U6) can therefore start from 17678e4 in
+parallel with it; U2 and U5 carry the corrected wording (progress phases
+start over, not necessarily at 0; `ManifestChangedOnDisk` also covers an
+unreadable manifest at build time; `stateWarning` may report a recent
+manifest that could not be reopened). The follow-up landed in 909b36b, and the reviewer approved M6 at 909b36b.
+
 ## 5. Handoff to ui-designer
 
 The UI is written in [`tarpack-ui.md`](tarpack-ui.md). Its constraints are:
@@ -932,6 +944,40 @@ Added after the M5 review (2026-09-30):
     `canonicalize` fails; `is_symlink` also detects junctions on Windows, so
     the walk needs no separate junction check. The Windows key strips
     `\\?\UNC\` to `\\` and `\\?\` to nothing, then lowercases.
+
+Added after the M6 review (2026-09-30):
+
+48. **Contract wording corrected to what landed.**
+    - Capabilities are exactly `core:event:allow-listen`,
+      `core:event:allow-unlisten`, `dialog:allow-open`, and
+      `dialog:allow-save`. The opener is called from Rust only, so the
+      webview has no opener permission, and the UI never emits events.
+    - Each progress phase starts over; its first event may already be past
+      0 (M4 reports after the first 512-byte record) and is below the total.
+      "From 0" is no longer promised.
+    - `ManifestChangedOnDisk` also means the manifest can no longer be read
+      at build time: what is on disk is not what the user saw either way.
+    - `set_output` and `set_format` rewrite a recognised suffix to the
+      canonical extension (`.tgz` becomes `.tar.gz`, case normalised).
+    - `create_from_example` opens the created manifest, arms the watcher,
+      and returns the session.
+49. **No filesystem walk under the session lock.** `tarpack_assign_dropped`
+    clones what matching needs into a `DropJob`, walks on `spawn_blocking`
+    with no lock held, and applies only if a session revision counter is
+    unchanged, retrying up to 3 times and otherwise failing with `Io`
+    (nothing applied). This mirrors `tarpack_build`'s `BuildJob`. Rejected:
+    holding the lock inside `spawn_blocking` (other commands would still
+    block their async workers on the `std::sync::Mutex`), and applying a
+    stale outcome filtered by id (after a reopen the ids may belong to a
+    different manifest).
+50. **Nothing is left or lost silently around the session.**
+    `create_from_example` removes the partial file it created when the write
+    fails (it never removes a file it did not create); a recent manifest
+    that cannot be reopened at startup is reported in `stateWarning`, which
+    now accumulates warnings instead of replacing them; `reload` persists
+    `RememberedState` like every other mutating command.
+51. **Capabilities narrowed to `allow-listen` / `allow-unlisten`** in place
+    of `core:event:default`, which also granted emit. A test pins the list.
 
 ### 6.3 UI-facing contract changes (for the ui-designer)
 
