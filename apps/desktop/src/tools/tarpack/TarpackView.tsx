@@ -22,6 +22,7 @@ import {
 } from "../../lib/tarpack";
 import { errorMessage, toTarpackError } from "./errorMessages";
 import { ManifestErrors } from "./ManifestErrors";
+import { EntryTable } from "./EntryTable";
 import { ManifestHeader } from "./ManifestHeader";
 
 /** Functions later tasks call on the view. */
@@ -189,6 +190,10 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
     }
   }, [run, fail]);
 
+  // U4 wires these to lib.
+  const onBrowse = useCallback(() => undefined, []);
+  const onClear = useCallback(() => undefined, []);
+
   const loading = session === null && !restoreFailed;
   const manifest = session?.manifest ?? null;
   const stateWarning =
@@ -270,7 +275,16 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
           reportRef={reportRef}
         />
       )}
-      {/* Slots for later tasks: drop result (U4), entry table (U3), build result and bar (U5). */}
+      {manifest && (
+        <EntryTable
+          entries={manifest.entries}
+          failedCount={manifest.failedEntries.length}
+          entriesWithheld={manifest.entriesWithheld}
+          onBrowse={onBrowse}
+          onClear={onClear}
+        />
+      )}
+      {/* Slots for later tasks: drop result (U4), build result and bar (U5). */}
     </section>
   );
 }

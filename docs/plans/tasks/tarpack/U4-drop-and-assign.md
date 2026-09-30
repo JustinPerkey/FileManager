@@ -1,6 +1,7 @@
 # U4 — Drag-and-drop and per-row assignment
 
-Status: awaiting approval
+Status: awaiting approval (amended 2026-09-30: row-action names fixed by U3;
+scroll model)
 Project: tarpack   Depends on: U3 (landed), M6 (landed; this task reads its
 partial-results fields `entriesWithheld`, `failedEntries`, and `errorCount`),
 and M5's review follow-up (landed before M6; it generates `UnmatchedReason`).
@@ -47,7 +48,11 @@ match.
 **What exists.**
 
 - `TarpackView.tsx` holds the `TarpackSession` state. `EntryTable.tsx` (U3)
-  calls `onBrowse(id)` and `onClear(id)`.
+  calls `onBrowse(id)` and `onClear(id)`. `TarpackView`'s root,
+  `<section className="tool-view tarpack">`, is the view's single scroll
+  container: the table has no scroll box of its own, and `DropResult` sits
+  in the page flow above the table (no `overflow`, no `max-height`, no
+  sticky position).
 - From the session: `session.manifest` is `null` or has `entries` (passed
   entries only), `entriesWithheld: boolean`, `failedEntries` (use only its
   length), and `errorCount: number` (above 0 whenever the manifest has
@@ -220,9 +225,21 @@ match.
 - **Errors** from `assignDropped`, `assign`, or `clear` show as an error
   `Banner` with `errorMessage(error, entries)`, the backend `message` in a
   collapsed "Details" disclosure, and the session left as it was.
-- **Clear** on a row calls `clear(id)`. The accessible name is "Clear assigned
-  file for <source>". The copy and tooltip make clear that it only forgets the
-  selection: "Forget this file (nothing is deleted)".
+- **Clear** on a row calls `clear(id)`. It only forgets the selection;
+  nothing on disk is deleted.
+- **Row-action names are U3's; keep them.** U3 already renders both buttons
+  with these accessible names and tooltip. Do not change the labels, the
+  names, or the `title`; this task only wires the handlers:
+
+  | Button | Visible label | Accessible name | `title` |
+  | --- | --- | --- | --- |
+  | Browse | `Browse…` | "Browse… for {targetPath}" | none |
+  | Clear | `Clear` | "Clear assigned file for {targetPath}" | "Forget this file (nothing is deleted)" |
+
+  The names use `targetPath` because it is unique among listed entries,
+  while `source` may repeat. Each name is the visible label plus a visually
+  hidden suffix, so it starts with the visible words. In tests, find the
+  buttons by these names.
 
 **Rules that bind this task.**
 
@@ -239,7 +256,9 @@ match.
 
 - `src/app/DropZone.tsx`
 - `src/tools/tarpack/DropResult.tsx`
-- Edits to `TarpackView.tsx` and `EntryTable.tsx` to wire Browse and Clear
+- Edits to `TarpackView.tsx` to wire Browse and Clear through the
+  `onBrowse`/`onClear` props `EntryTable.tsx` already exposes (change
+  `EntryTable.tsx` only if wiring needs it; never its button names)
 - Styles: `src/styles/controls.css` (`DropZone`), `src/styles/tarpack.css`
   (`DropResult`, scoped under `.tarpack`)
 - Tests next to each
@@ -281,7 +300,9 @@ How to run it:
 - The overlay label is on a `--surface` plate, and each result line has its
   icon, so meaning never depends on color or the dashed border alone.
 - Browse and Clear call the right functions with the right id, and a cancelled
-  dialog makes no call.
+  dialog makes no call. Both are found by their U3 accessible names ("Browse…
+  for {targetPath}", "Clear assigned file for {targetPath}"), which this task
+  leaves unchanged, and Clear keeps its `title`.
 - A rejected `assign` with `NotAFile` shows "{source}: the chosen path is not
   a file." through `errorMessage`, and the table is unchanged.
 - Assign (Browse) and Clear never change the announcer text, and a drop

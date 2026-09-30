@@ -245,6 +245,23 @@ headers on `--surface`, 1 px row rules, and mono for path, target, and mode.
 Row hover is `--surface-sunken`. Each row status is an icon plus a word in its
 status color.
 
+- **A ruled sheet, not a card.** On `--surface`, with 1 px rules above and
+  below the header and under each row; no side borders, no radius, no
+  wrapper, no scroll box of its own. The view scrolls; the header sticks.
+- **Reflow, not sideways scroll.** Below a table width of 64rem (including
+  the default 1000 px window) each row stacks into labelled lines; it is
+  still a table. Cell labels are in the UI font; mono is on the data only.
+- **Fixed columns on wide windows.** At 64rem and wider: `table-layout:
+  fixed` with `rem` widths in a `<colgroup>` (Status 7.25, Mode 8.25,
+  Owner 5, Actions 11; File, Windows location, and Linux target share the
+  rest), so content never moves a column.
+- **Sticky edges follow the view padding.** The view's block padding is
+  `--view-pad-block`; the sticky header and the build bar are offset by its
+  negative, because the browser sticks to the scroll container's content
+  box.
+- **Middle truncation by CSS**, keeping the drive and the file name; a
+  keyboard-focused row shows the full path.
+
 ## Do's and Don'ts
 
 ### Do:
