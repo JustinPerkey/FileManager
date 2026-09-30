@@ -294,7 +294,7 @@ All components live under `apps/desktop/src/`.
 | `EolMarker` | `tools/tarpack/EolMarker.tsx` | — | shown only when `normalizeEol` | tool |
 | `MiddlePath` | `tools/tarpack/MiddlePath.tsx` | `path` | fits / truncated (CSS) / revealed (keyboard-focused row) | tool (U3; reused by U5) |
 | `pathParts` | `tools/tarpack/pathParts.ts` | `pathParts(path): { head, tail }` (module) | — | tool (U3) |
-| `DropResult` | `tools/tarpack/DropResult.tsx` | `outcome, hasFailedEntries, onDismiss` | matched / unmatched, one line per `UnmatchedReason` / unmatched with failed entries / ambiguous | tool |
+| `DropResult` | `tools/tarpack/DropResult.tsx` | `outcome, entries, hasFailedEntries, onDismiss` (module also exports `dropResultText(outcome, entries, hasFailedEntries)`) | matched / unmatched, one line per `UnmatchedReason` / unmatched with failed entries / ambiguous (both directions) / nothing matched | tool |
 | `BuildBar` | `tools/tarpack/BuildBar.tsx` | `session, building, progress, onChooseOutput, onFormatChange, onBuild, onShowErrors` | disabled-with-reason / no entries (three cases) / ready / ready with files left out / ready with manifest errors only / building | tool |
 | `FormatPicker` | `tools/tarpack/FormatPicker.tsx` | `formats, value, disabled, onChange` | enabled / disabled | tool |
 | `BuildProgress` | `tools/tarpack/BuildProgress.tsx` | `progress, entries` | writing / verifying / finishing | tool |
@@ -708,3 +708,24 @@ layout and the view's scroll model"):
   U5, U6, §3, and `DESIGN.md` carry the final values.
 - **No container.** The table's bordered, rounded scroll wrapper is removed
   (DESIGN.md's no-cards rule); the table is a ruled sheet.
+
+## 10. Amendments from U4's first run (ui-designer, 2026-09-30)
+
+Gaps the ui-implementer reported in U4 were resolved in the U4 task plan:
+
+- **Ambiguous line.** `Ambiguity` is keyed by entry id and covers both an
+  entry several files could fill and a file several entries could take.
+  `DropResult` now also takes `entries` (from the same `assignDropped`
+  result) and names each ambiguous entry by its `targetPath`, with "({k}
+  files)" or "({file name} fits more than one entry)" by
+  `candidates.length`; candidates' full paths in `title`.
+- **Browse start folder.** The folder of the row's current assignment, else
+  no default. There is no "last assignment" on the boundary. The folder
+  comes from a new `assignedFolder` export in `pathParts.ts`, which returns
+  nothing for a lossy (U+FFFD) path.
+- **Accepted from the run.** A cap of 8 names per result line, then ", and N
+  more" (also in the announcement), with the full count kept; and a
+  "Nothing was matched" line for an outcome with all buckets empty (the
+  implementer's wording tightened).
+- **`notUnicode` copy.** "not assigned, unsupported characters in its path —
+  rename it or its folder" (plural form in U4).

@@ -1,7 +1,9 @@
 # U4 — Drag-and-drop and per-row assignment
 
 Status: awaiting approval (amended 2026-09-30: row-action names fixed by U3;
-scroll model)
+scroll model; after the first implementation run: the ambiguous line names
+entries, Browse's start folder, the per-line name cap, the empty-outcome
+line, and the `notUnicode` copy)
 Project: tarpack   Depends on: U3 (landed), M6 (landed; this task reads its
 partial-results fields `entriesWithheld`, `failedEntries`, and `errorCount`),
 and M5's review follow-up (landed before M6; it generates `UnmatchedReason`).
@@ -67,7 +69,16 @@ match.
     `Unmatched = { path: string, reason: UnmatchedReason }` and
     `UnmatchedReason = "alreadyAssigned" | "noEntry" | "notFound" | "linkNotFollowed" | "folderNoMatch" | "unreadable" | "notUnicode"`
     (both generated; import them, never redeclare them);
-  - `ambiguous: { id, candidates: path[] }[]`.
+  - `ambiguous: Ambiguity[]`, where `Ambiguity = { id, candidates: path[] }`
+    (generated). `id` is always a **passed entry's id**; `candidates` are
+    the dropped files, all with that entry's file name, that were not
+    assigned because the match was not unique. It covers both directions:
+    an entry that several files could fill (one record, several
+    candidates), and a file that several entries could take (one record per
+    entry, each listing that file; its `candidates` has length 1, because a
+    single file that fits a single entry is always matched). An entry can
+    be both at once. Either way the entry was left as it was, and the user
+    resolves it with Browse… on that entry's row.
 
   The reasons mean:
 
@@ -140,9 +151,11 @@ match.
 | Component | Path | Props | States |
 | --- | --- | --- | --- |
 | `DropZone` | `src/app/DropZone.tsx` (shared) | `enabled, disabledReason, label, onDrop(paths)` | idle / hover / disabled |
-| `DropResult` | `src/tools/tarpack/DropResult.tsx` | `outcome, hasFailedEntries, onDismiss` | matched / unmatched, one line per reason / unmatched with failed entries / ambiguous |
+| `DropResult` | `src/tools/tarpack/DropResult.tsx` | `outcome, entries, hasFailedEntries, onDismiss` | matched / unmatched, one line per reason / unmatched with failed entries / ambiguous (several files for an entry; a file for several entries) / nothing matched |
 
-`TarpackView` passes `hasFailedEntries = manifest.failedEntries.length > 0`.
+`TarpackView` passes `entries = session.manifest.entries` from the **same**
+`assignDropped` result as `outcome` (so every ambiguous `id` is in it), and
+`hasFailedEntries = manifest.failedEntries.length > 0`.
 `DropZone` is shared and knows nothing about manifests: `TarpackView` computes
 `enabled` and `disabledReason` as below.
 
@@ -171,16 +184,31 @@ match.
   live region (a region that mounts with its text is not reliably
   announced). `DropResult.tsx` also exports
   `dropResultText(outcome, hasFailedEntries): string`: the same lines as
-  plain text, each ending in a full stop, joined by a space. After each drop
-  resolves, `TarpackView` calls `announce(dropResultText(...))`. It has one
-  line for
-  matched, one line per **unmatched reason** that occurs (grouped by
-  `reason`, in the table's order below), and one line for ambiguous, each
-  only when non-empty. For example:
+  `dropResultText(outcome, entries, hasFailedEntries): string`: the same
+  lines as plain text (the same names, the same "and N more"), each ending
+  in a full stop, joined by a space. After each drop resolves, `TarpackView`
+  calls `announce(dropResultText(...))`. It has one line for matched, one
+  line per **unmatched reason** that occurs (grouped by `reason`, in the
+  table's order below), and one line for ambiguous, each only when
+  non-empty. For example:
   - "3 matched"
   - "1 not in the manifest: notes.txt"
   - "2 already assigned, left unchanged: app.dll, core.dll"
-  - "1 ambiguous: app.dll could be 2 files — use Browse"
+  - "1 ambiguous, not assigned — use Browse… on its row: /opt/gw/bin/app.dll (2 files)"
+  - "2 ambiguous, not assigned — use Browse… on their rows: /opt/a/app.dll (app.dll fits more than one entry), /opt/b/app.dll (app.dll fits more than one entry)"
+
+  **When all three buckets are empty** (rare; nothing in the drop could be
+  reported), `DropResult` shows one line, "Nothing was matched", with the
+  `info` icon in `--text-muted`, and `dropResultText` returns "Nothing was
+  matched." The hint line below never appears with it.
+
+  **Names per line are capped at 8.** A line with more than 8 names shows
+  the first 8 (in the outcome's order) followed by ", and N more", where N
+  is the rest (", and 1 more" for one). The count at the start of the line
+  is always the full count. Only the shown names are rendered or announced;
+  the hidden ones are not listed anywhere (the count says how many, and
+  ambiguous and unassigned entries are visible in the table by their
+  status). The cap applies to every line, ambiguous included.
 
   The unmatched copy, as `{n} {phrase}: {names}`:
 
@@ -192,15 +220,43 @@ match.
   | `linkNotFollowed` | "link(s) not followed" (singular "link not followed") | `info`, `--text-muted` |
   | `notFound` | "no longer found" | `alert-triangle`, `--warn` |
   | `unreadable` | "could not be read" | `alert-triangle`, `--warn` |
-  | `notUnicode` | "can't be assigned: the path has unsupported characters. Rename it" | `alert-triangle`, `--warn` |
+  | `notUnicode` | "not assigned, unsupported characters in its path — rename it or its folder" (plural "not assigned, unsupported characters in their paths — rename them or their folders") | `alert-triangle`, `--warn` |
 
   Hold the mapping in one exhaustive `Record<UnmatchedReason, …>` in
   `DropResult.tsx`, so a reason added in Rust fails `npm run typecheck`
   until it has copy. Never render `reason` itself. `/impeccable clarify`
   may tighten the wording; the meaning and the grouping stay.
 
-  Paths show as file (or folder) names, with the full path in `title`. Each
-  line starts with an `Icon`: `check-circle` in `--ok` for matched, the
+  For example: "1 not assigned, unsupported characters in its path — rename
+  it or its folder: r�sum�.pdf". The unsupported character may be in a
+  folder name rather than the file name, which is why the copy names both.
+
+  **The ambiguous line** names **entries**, not dropped files, because the
+  entry's row is where the user acts:
+
+  - Lead: "{n} ambiguous, not assigned — use Browse… on its row" (n = 1) or
+    "… on their rows" (n > 1), where n is `ambiguous.length`, then ": " and
+    the items.
+  - One item per `Ambiguity`, in the outcome's order. Look up the entry in
+    `entries` by `id` and show its `targetPath` in `.mono` (unique among
+    listed entries, and the same text as the row's Browse… name, "Browse…
+    for {targetPath}"; `source` may repeat, so it is not used).
+  - After the target path, in parentheses:
+    - `candidates.length > 1`: "({k} files)", k in `.num`;
+    - `candidates.length === 1`: "({file name} fits more than one entry)",
+      the file name taken from that candidate.
+
+    Do not try to tell the two directions apart beyond `candidates.length`,
+    and do not group records by name; that is matching logic, and it stays
+    in Rust. The two phrasings above are always true for their case.
+  - Each item's `title` is "Matching files:" followed by each candidate's
+    full path, one per line (`\n`).
+  - If an `id` is not in `entries` (it should not happen), show the first
+    candidate's file name instead of the target path, with the same
+    parenthesis and `title`. Never show the raw `id`.
+
+  Other paths show as file (or folder) names, with the full path in
+  `title`. Each line starts with an `Icon`: `check-circle` in `--ok` for matched, the
   table's icon for each unmatched reason, and `alert-triangle` in `--warn`
   for ambiguous. Counts use `.num`. It sits on `--surface` with a 1 px
   `--border` (no tinted fill and no side stripe). It is dismissed with a quiet
@@ -219,9 +275,20 @@ match.
   Do not try to work out which unmatched file belongs to which failed entry;
   that is matching logic, and it stays in Rust. The other reasons' lines
   are the same with or without failed entries.
-- **Browse…** on a row opens `openFileDialog`, starting in the folder of the
-  row's current or last assignment when there is one. The chosen path goes to
-  `assign(id, path)`. A cancelled dialog does nothing.
+- **Browse…** on a row opens `openFileDialog`. When the row's entry has a
+  current assignment (`SessionEntry.assigned` is not `null`), pass
+  `defaultPath` = that assignment's folder; otherwise pass no `defaultPath`
+  and let the system dialog choose. There is no "last assignment": after
+  Clear, `assigned` is `null` and Browse… has no default. Compute the folder
+  with `assignedFolder(assigned): string | undefined`, a new export of
+  `src/tools/tarpack/pathParts.ts`: everything before the last `\` or `/`,
+  keeping the separator when only a drive prefix remains (`C:\a.txt` gives
+  `C:\`; `C:\tools\a.txt` gives `C:\tools`; a UNC share root
+  `\\srv\share\a.txt` gives `\\srv\share\`); `undefined` when there is
+  no separator or the path contains U+FFFD (a lossy string is never passed
+  back to `lib`). Work on code points, as `pathParts` does. The folder may
+  no longer exist (a Missing row); pass it anyway, the dialog copes. The
+  chosen path goes to `assign(id, path)`. A cancelled dialog does nothing.
 - **Errors** from `assignDropped`, `assign`, or `clear` show as an error
   `Banner` with `errorMessage(error, entries)`, the backend `message` in a
   collapsed "Details" disclosure, and the session left as it was.
@@ -259,6 +326,8 @@ match.
 - Edits to `TarpackView.tsx` to wire Browse and Clear through the
   `onBrowse`/`onClear` props `EntryTable.tsx` already exposes (change
   `EntryTable.tsx` only if wiring needs it; never its button names)
+- `src/tools/tarpack/pathParts.ts`: add the `assignedFolder` export
+  (leave `pathParts` unchanged), with tests in `pathParts.test.ts`
 - Styles: `src/styles/controls.css` (`DropZone`), `src/styles/tarpack.css`
   (`DropResult`, scoped under `.tarpack`)
 - Tests next to each
@@ -299,6 +368,17 @@ How to run it:
   entries it reads "not in the manifest" and there is no hint.
 - The overlay label is on a `--surface` plate, and each result line has its
   icon, so meaning never depends on color or the dashed border alone.
+- The ambiguous line names each ambiguous entry by its `targetPath` from
+  `entries`, with "({k} files)" for several candidates and "({file name}
+  fits more than one entry)" for one; the candidates' full paths are in the
+  item's `title`; an `id` missing from `entries` falls back to the first
+  candidate's file name, never the `id`.
+- A line with more than 8 names shows 8 and ", and N more", with the full
+  count at its start; `dropResultText` says the same.
+- An outcome with all three buckets empty shows and announces "Nothing was
+  matched" (with the full stop in the announcement), and no hint line.
+- Browse on a row with an assignment opens the dialog with `defaultPath` =
+  `assignedFolder(assigned)`; on an unassigned row, with no `defaultPath`.
 - Browse and Clear call the right functions with the right id, and a cancelled
   dialog makes no call. Both are found by their U3 accessible names ("Browse…
   for {targetPath}", "Clear assigned file for {targetPath}"), which this task
@@ -319,12 +399,20 @@ How to run it:
   (copy and icon); two items with one reason on one line; combined buckets
   and reasons; a U+FFFD path renders; dismiss; and the `noEntry` wording and
   hint with and without failed entries; `dropResultText` for a combined
-  outcome matches the rendered lines; no live role on the result.
+  outcome matches the rendered lines; no live role on the result; the
+  ambiguous line for an entry with 2 candidates, for two entries sharing
+  one candidate, and for an `id` not in `entries`; 9 names on one line
+  (8 shown, ", and 1 more", count 9) and in `dropResultText`; the empty
+  outcome; `notUnicode` singular and plural copy.
+- `pathParts.test.ts`: `assignedFolder` for `C:\a.txt`, `C:\tools\a.txt`,
+  a forward-slash path, a UNC share root, a name with no separator
+  (`undefined`), and a path with U+FFFD (`undefined`).
 - `TarpackView.assign.test.tsx`: the Browse flow, cancelled Browse, Clear,
   a `NotAFile` rejection, a drop plus Browse on a session with
   `errorCount > 0` and passed entries (enabled, `lib` called), and the
   disabled reasons for a withheld, an every-entry-failed, and a no-files
-  session; **silence on assign**: on a session with `errorCount > 0`, a
+  session; Browse on an assigned row passes its folder as `defaultPath`,
+  and on an unassigned row passes none; **silence on assign**: on a session with `errorCount > 0`, a
   Browse assign and a Clear leave the announcer text unchanged, and a drop
   sets it to `dropResultText` only, with no "has N errors" sentence; a
   non-`TarpackError` rejection from `assign` shows the `Io` copy.
@@ -334,8 +422,10 @@ How to run it:
 
 Idle, drag hover, disabled (no manifest, entries withheld or every entry
 failed, no files, building), enabled with manifest errors, result (each
-bucket and each unmatched reason, with and without failed entries), dialog
-cancelled, and command error.
+bucket and each unmatched reason, with and without failed entries; ambiguous
+in both directions; more than 8 names on a line; nothing matched), Browse
+with and without a current assignment, dialog cancelled, and command
+error.
 
 ## Out of scope
 
