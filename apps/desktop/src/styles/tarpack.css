@@ -1,6 +1,3 @@
-.tarpack:focus {
-  outline: none;
-}
 .tarpack {
   /* .tool-view pads its block edges by --space-4; sticky offsets derive from this. */
   --view-pad-block: var(--space-4);
@@ -521,4 +518,38 @@
 }
 .tarpack .drop-result .btn {
   flex: none;
+}
+
+.tarpack .drop-result__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tarpack .drop-result__paths {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+.tarpack .drop-result__paths > summary {
+  display: list-item;
+  width: fit-content;
+  min-height: 24px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.tarpack .drop-result__paths > summary:hover {
+  background: var(--surface-sunken);
+}
+.tarpack .drop-result__group-lead {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.tarpack .drop-result__group ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-5);
+  color: var(--text);
+}
+.tarpack .drop-result__group li {
+  overflow-wrap: anywhere;
 }

@@ -81,6 +81,10 @@ interface Line {
   items: Item[];
   /** Items beyond the cap. */
   more: number;
+  /** Every path behind this line, uncapped, for the "Full paths" disclosure. */
+  full?:
+    | { lead: string; paths: string[] }
+    | { lead: string; entries: { label: string; mono: boolean; candidates: string[] }[] };
 }
 
 /** The last path segment of a display path. */
@@ -132,6 +136,7 @@ function buildLines(outcome: DropOutcome, entries: SessionEntry[], hasFailedEntr
       tone: copy.tone,
       count: paths.length,
       lead: `${copy.phrase(paths.length, hasFailedEntries)}:`,
+      full: { lead: `${paths.length} ${copy.phrase(paths.length, hasFailedEntries)}`, paths },
       ...capped(paths.map((p) => ({ label: baseName(p), title: p }))),
     });
   }
@@ -148,6 +153,13 @@ function buildLines(outcome: DropOutcome, entries: SessionEntry[], hasFailedEntr
       tone: "warn",
       count: n,
       lead: `ambiguous, not assigned \u2014 use Browse\u2026 on ${n === 1 ? "its row" : "their rows"}:`,
+      full: {
+        lead: `${n} ambiguous, not assigned \u2014 use Browse\u2026 on ${n === 1 ? "its row" : "their rows"}`,
+        entries: outcome.ambiguous.map((a) => {
+          const item = ambiguousItem(a, byId);
+          return { label: item.label, mono: item.mono === true, candidates: a.candidates };
+        }),
+      },
       ...capped(outcome.ambiguous.map((a) => ambiguousItem(a, byId))),
     });
   }
@@ -185,51 +197,105 @@ interface DropResultProps {
   onDismiss: () => void;
 }
 
+function FullPaths({ lines }: { lines: Line[] }) {
+  const groups = lines.flatMap((l) => (l.full ? [{ key: l.key, full: l.full }] : []));
+  if (groups.length === 0) return null;
+  return (
+    <details className="drop-result__paths">
+      <summary>Full paths</summary>
+      {groups.map((l) => (
+        <div key={l.key} className="drop-result__group">
+          <p className="drop-result__group-lead">{l.full.lead}</p>
+          <ul>
+            {"paths" in l.full
+              ? l.full.paths.map((p, i) => (
+                  <li key={i} className="mono">
+                    {p}
+                  </li>
+                ))
+              : l.full.entries.map((e, i) => (
+                  <li key={i}>
+                    <span className={e.mono ? "mono" : undefined}>{e.label}</span>
+                    <ul>
+                      {e.candidates.map((c, j) => (
+                        <li key={j} className="mono">
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+          </ul>
+        </div>
+      ))}
+    </details>
+  );
+}
+
 /** What the last drop did. Deliberately not a live region: the view announces `dropResultText`. */
 export function DropResult({ outcome, entries, hasFailedEntries, onDismiss }: DropResultProps) {
   const lines = buildLines(outcome, entries, hasFailedEntries);
   return (
     <section className="drop-result" aria-label="Drop result">
-      <ul className="drop-result__lines">
-        {lines.map((l) => (
-          <li
-            key={l.key}
-            className={`drop-result__line${l.key === "hint" || l.key === "empty" ? " drop-result__line--hint" : ""}`}
-          >
-            <span className={`drop-result__icon drop-result__icon--${l.tone}`}>
-              <Icon name={l.icon} />
-            </span>
-            <span>
-              {l.count !== null && <span className="num">{l.count} </span>}
-              {l.lead}
-              {l.items.length > 0 && " "}
-              {l.items.map((it, i) => (
-                <span key={i}>
-                  <span title={it.title}>
-                    {it.mono ? <span className="mono">{it.label}</span> : it.label}
-                    {it.note && (
-                      <>
-                        {" ("}
-                        {"count" in it.note ? (
-                          <>
-                            <span className="num">{it.note.count}</span> files
-                          </>
-                        ) : (
-                          it.note.text
-                        )}
-                        {")"}
-                      </>
-                    )}
+      <div className="drop-result__body">
+        <ul className="drop-result__lines">
+          {lines.map((l) => (
+            <li
+              key={l.key}
+              className={`drop-result__line${l.key === "hint" || l.key === "empty" ? " drop-result__line--hint" : ""}`}
+            >
+              <span className={`drop-result__icon drop-result__icon--${l.tone}`}>
+                <Icon name={l.icon} />
+              </span>
+              <span>
+                {l.count !== null && <span className="num">{l.count} </span>}
+                {l.lead}
+                {l.items.length > 0 && " "}
+                {l.items.map((it, i) => (
+                  <span key={i}>
+                    <span title={it.title}>
+                      {it.mono ? <span className="mono">{it.label}</span> : it.label}
+                      {it.note && (
+                        <>
+                          {" ("}
+                          {"count" in it.note ? (
+                            <>
+                              <span className="num">{it.note.count}</span> files
+                            </>
+                          ) : (
+                            it.note.text
+                          )}
+                          {")"}
+                        </>
+                      )}
+                    </span>
+                    {i < l.items.length - 1 && ", "}
                   </span>
-                  {i < l.items.length - 1 && ", "}
-                </span>
-              ))}
-              {l.more > 0 && `, and ${l.more} more`}
-            </span>
-          </li>
-        ))}
-      </ul>
+                ))}
+                {l.more > 0 && `, and ${l.more} more`}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <FullPaths lines={lines} />
+      </div>
       <Button variant="quiet" icon="x" aria-label="Dismiss drop result" onClick={onDismiss} />
     </section>
+  );
+}
+
+/** Shown while a drop is being matched. Not focusable, not a live region. */
+export function DropPending() {
+  return (
+    <div className="drop-result drop-result--pending">
+      <ul className="drop-result__lines">
+        <li className="drop-result__line drop-result__line--hint">
+          <span className="drop-result__icon drop-result__icon--muted">
+            <Icon name="info" />
+          </span>
+          <span>Matching dropped files…</span>
+        </li>
+      </ul>
+    </div>
   );
 }

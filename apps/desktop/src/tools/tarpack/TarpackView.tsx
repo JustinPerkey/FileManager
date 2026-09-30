@@ -20,7 +20,7 @@ import {
   session as fetchSession,
 } from "../../lib/tarpack";
 import { errorMessage, toTarpackError } from "./errorMessages";
-import { DropResult, dropResultText } from "./DropResult";
+import { DropPending, DropResult, dropResultText } from "./DropResult";
 import { ManifestErrors } from "./ManifestErrors";
 import { EntryTable } from "./EntryTable";
 import { ManifestHeader } from "./ManifestHeader";
@@ -70,9 +70,9 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
   const [stateWarningDismissed, setStateWarningDismissed] = useState<string | null>(null);
   const dismissedRef = useRef<string | null>(null);
   const [expanded, setExpanded] = useState(true);
-  const [dropOutcome, setDropOutcome] = useState<{ outcome: DropOutcome; entries: SessionEntry[] } | null>(
-    null,
-  );
+  const [drop, setDrop] = useState<DropState>(null);
+  const [pendingShown, setPendingShown] = useState(false);
+  const pendingRef = useRef(false);
   const [announcement, setAnnouncement] = useState("");
   const reportRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLElement>(null);
@@ -95,7 +95,7 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
       if (origin !== "other") {
         changedRef.current = false;
         setChanged(false);
-        setDropOutcome(null);
+        setDrop((d) => (d?.kind === "result" ? null : d));
         if ((next.manifest?.errorCount ?? 0) > 0) setExpanded(true);
       }
       // One announce() call per result: a second call would lose the first.
@@ -218,31 +218,55 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
   );
   const onClear = useCallback((id: string) => run(() => clear(id), "other"), [run]);
 
+  /** Drops the result; if it holds focus, moves focus first (see `focusAfterResult`). */
+  const removeResult = useCallback(() => {
+    if (rootRef.current) focusAfterResult(rootRef.current);
+    setDrop(null);
+  }, []);
+
   const onDrop = useCallback(
     async (paths: string[]) => {
+      if (pendingRef.current) return;
+      pendingRef.current = true;
+      if (rootRef.current) focusAfterResult(rootRef.current);
+      setDrop({ kind: "pending" });
       try {
         const { session: next, outcome } = await assignDropped(paths);
         apply(next, "other");
         const entries = next.manifest?.entries ?? [];
-        const failed = (next.manifest?.failedEntries.length ?? 0) > 0;
-        setDropOutcome({ outcome, entries });
-        announce(dropResultText(outcome, entries, failed));
+        const hasFailedEntries = (next.manifest?.failedEntries.length ?? 0) > 0;
+        pendingRef.current = false;
+        setDrop({ kind: "result", outcome, entries, hasFailedEntries });
+        announce(dropResultText(outcome, entries, hasFailedEntries));
       } catch (e) {
+        pendingRef.current = false;
+        setDrop(null);
         fail(e);
       }
     },
     [apply, announce, fail],
   );
 
+  const pending = drop?.kind === "pending";
+  useEffect(() => {
+    if (!pending) return;
+    const show = setTimeout(() => setPendingShown(true), 150);
+    const say = setTimeout(() => announce("Matching dropped files\u2026"), 1000);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(say);
+      setPendingShown(false);
+    };
+  }, [pending, announce]);
+
   const loading = session === null && !restoreFailed;
   const manifest = session?.manifest ?? null;
-  const dropState = dropAvailability(manifest, building);
-  const hasFailedEntries = (manifest?.failedEntries.length ?? 0) > 0;
+  const dropState = dropAvailability(manifest, building, pending);
   const stateWarning =
     session?.stateWarning && session.stateWarning !== stateWarningDismissed ? session.stateWarning : null;
 
   return (
-    <section ref={rootRef} tabIndex={-1} className="tool-view tarpack" aria-busy={loading ? true : undefined}>
+    <section ref={rootRef} className="tool-view tarpack" aria-busy={loading ? true : undefined}>
       <Announcer text={announcement} />
       <DropZone
         enabled={dropState.enabled}
@@ -323,16 +347,13 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
           reportRef={reportRef}
         />
       )}
-      {manifest && dropOutcome && (
+      {manifest && pending && pendingShown && <DropPending />}
+      {manifest && drop?.kind === "result" && (
         <DropResult
-          outcome={dropOutcome.outcome}
-          entries={dropOutcome.entries}
-          hasFailedEntries={hasFailedEntries}
-          onDismiss={() => {
-            setDropOutcome(null);
-            // The focused Dismiss button unmounts; keep focus inside the view.
-            rootRef.current?.focus({ preventScroll: true });
-          }}
+          outcome={drop.outcome}
+          entries={drop.entries}
+          hasFailedEntries={drop.hasFailedEntries}
+          onDismiss={removeResult}
         />
       )}
       {manifest && (
@@ -349,9 +370,39 @@ export function TarpackView({ actionsRef, building = false }: TarpackViewProps) 
   );
 }
 
+type DropState =
+  | null
+  | { kind: "pending" }
+  | { kind: "result"; outcome: DropOutcome; entries: SessionEntry[]; hasFailedEntries: boolean };
+
+const TABBABLE = "button, a[href], input, select, textarea, summary, [tabindex]";
+
+/**
+ * When focus is inside the drop result, move it out before the result goes:
+ * to the first tabbable element after it, else the last one before it. Does
+ * nothing when focus is elsewhere.
+ */
+function focusAfterResult(root: HTMLElement) {
+  const result = root.querySelector(".drop-result");
+  if (!result || !result.contains(document.activeElement)) return;
+  const tabbable = Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter(
+    (el) =>
+      !result.contains(el) &&
+      !el.matches(":disabled") &&
+      el.getAttribute("tabindex") !== "-1" &&
+      !el.closest("[hidden], [inert]"),
+  );
+  const after = tabbable.find((el) => result.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const before = tabbable.filter(
+    (el) => result.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
+  );
+  (after ?? before[before.length - 1])?.focus({ preventScroll: false });
+}
+
 function dropAvailability(
   manifest: TarpackSession["manifest"],
   building: boolean,
+  pending: boolean,
 ): { enabled: boolean; reason: string } {
   if (!manifest) return { enabled: false, reason: "Open a manifest first" };
   if (manifest.entries.length === 0) {
@@ -364,6 +415,7 @@ function dropAvailability(
     };
   }
   if (building) return { enabled: false, reason: "A build is running" };
+  if (pending) return { enabled: false, reason: "Still matching the last drop" };
   return { enabled: true, reason: "" };
 }
 

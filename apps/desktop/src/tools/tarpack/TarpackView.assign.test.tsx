@@ -90,7 +90,8 @@ test("drop calls assignDropped with the dropped paths, renders session and outco
   expect(screen.queryByRole("region", { name: "Drop result" })!.closest("[aria-live]")).toBeNull();
   await user().click(screen.getByRole("button", { name: "Dismiss drop result" }));
   expect(screen.queryByRole("region", { name: "Drop result" })).toBeNull();
-  expect(container.querySelector(".tarpack")).toHaveFocus();
+  expect(screen.getByRole("button", { name: "Browse… for /opt/app" })).toHaveFocus();
+  expect(container.querySelector(".tarpack")).not.toHaveAttribute("tabindex");
   expect((await axe(container)).violations).toEqual([]);
 });
 const user = () => userEvent.setup();
@@ -110,6 +111,8 @@ test("Browse assigns the chosen file, starting in the current folder", async () 
   await user().click(screen.getByRole("button", { name: "Browse… for /opt/core" }));
   expect(openFileDialog).toHaveBeenCalledWith({ defaultPath: "C:\\libs" });
   expect(tp.assign).toHaveBeenCalledWith("core", "C:\\p\\app.bin");
+  expect(await screen.findByText("C:\\p\\app.bin", { exact: false, selector: "td *" })).toBeInTheDocument();
+  expect(screen.queryByText("C:\\libs\\core.bin", { exact: false })).toBeNull();
 });
 
 test("Browse on an unassigned row has no default path; cancel makes no call", async () => {
@@ -237,4 +240,83 @@ test("building disables drops", async () => {
   expect(screen.getByText("A build is running")).toBeInTheDocument();
   fire("drop", ["C:\\x"]);
   expect(tp.assignDropped).not.toHaveBeenCalled();
+});
+
+const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+
+test("focus after Dismiss with nothing following goes to the last tabbable before the result", async () => {
+  const empty = session(manifest({ entries: [], failedEntries: [failure(1)] }));
+  vi.mocked(tp.assignDropped).mockResolvedValue({ session: empty, outcome });
+  await mount();
+  await drop();
+  screen.getByRole("button", { name: "Dismiss drop result" }).focus();
+  const before = Array.from(document.querySelectorAll<HTMLElement>("button, summary, [tabindex]")).filter(
+    (el) => !el.closest(".drop-result") && !el.matches(":disabled"),
+  );
+  await userEvent.keyboard("{Enter}");
+  expect(screen.queryByRole("region", { name: "Drop result" })).toBeNull();
+  expect(document.activeElement).toBe(before[before.length - 1]);
+  expect(document.querySelector(".tarpack")).not.toHaveAttribute("tabindex");
+});
+
+test("one drop at a time: pending state, disabled reason, 150 ms line, 1 s announcement, resolve", async () => {
+  let resolve!: (v: { session: ReturnType<typeof session>; outcome: DropOutcome }) => void;
+  vi.mocked(tp.assignDropped).mockReturnValue(new Promise((r) => (resolve = r)));
+  const s = session(manifest({ entries: [entry("app"), assigned("core", "C:\\libs\\core.bin")] }));
+  await mount(s);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  fire("drop", ["C:\\a.bin"]);
+  expect(tp.assignDropped).toHaveBeenCalledTimes(1);
+  fire("drop", ["C:\\b.bin"]);
+  expect(tp.assignDropped).toHaveBeenCalledTimes(1);
+  fire("enter", ["C:\\b.bin"]);
+  expect(screen.getByText("Still matching the last drop")).toBeInTheDocument();
+  fire("leave");
+  expect(screen.queryByText("Matching dropped files…")).toBeNull();
+  await tick(150);
+  expect(screen.getByText("Matching dropped files…")).toBeInTheDocument();
+  await tick(900);
+  vi.useRealTimers();
+  await waitFor(() => expect(announcer()).toHaveTextContent("Matching dropped files…"));
+  await act(async () => resolve({ session: s, outcome }));
+  expect(await screen.findByRole("region", { name: "Drop result" })).toBeInTheDocument();
+  expect(screen.queryByText("Matching dropped files…")).toBeNull();
+  fire("enter", ["C:\\c.bin"]);
+  expect(screen.getByText("Drop files or folders to match them to the manifest")).toBeInTheDocument();
+});
+
+test("a rejected drop clears the previous result and shows the banner", async () => {
+  vi.mocked(tp.assignDropped).mockResolvedValueOnce({ session: withErrors(), outcome });
+  await mount();
+  await drop();
+  vi.mocked(tp.assignDropped).mockRejectedValueOnce({ kind: "Io", message: "changed" });
+  fire("drop", ["C:\\again.bin"]);
+  expect(await screen.findByRole("alert")).toHaveTextContent("A file could not be read or written.");
+  expect(screen.queryByRole("region", { name: "Drop result" })).toBeNull();
+});
+
+test("a result keeps its hasFailedEntries when the session later changes", async () => {
+  const clean = session(manifest({ entries: [entry("app"), assigned("core", "C:\\libs\\core.bin")] }));
+  vi.mocked(tp.assignDropped).mockResolvedValue({ session: withErrors(), outcome });
+  vi.mocked(tp.clear).mockResolvedValue(clean);
+  await mount(withErrors());
+  await drop();
+  expect(screen.getByRole("region", { name: "Drop result" })).toHaveTextContent("1 not matched: notes.txt");
+  await user().click(screen.getByRole("button", { name: "Clear assigned file for /opt/core" }));
+  await waitFor(() => expect(tp.clear).toHaveBeenCalled());
+  await act(async () => undefined);
+  expect(screen.getByRole("region", { name: "Drop result" })).toHaveTextContent("1 not matched: notes.txt");
+});
+
+test("view-level axe with the result visible and Full paths expanded", async () => {
+  const o: DropOutcome = {
+    ...outcome,
+    ambiguous: [{ id: "app", candidates: ["C:\\a\\app.bin", "C:\\b\\app.bin"] }],
+  };
+  vi.mocked(tp.assignDropped).mockResolvedValue({ session: withErrors(), outcome: o });
+  const { container } = await mount(withErrors());
+  await drop();
+  await user().click(screen.getByText("Full paths"));
+  expect(container.querySelector("details.drop-result__paths")).toHaveAttribute("open");
+  expect((await axe(container)).violations).toEqual([]);
 });

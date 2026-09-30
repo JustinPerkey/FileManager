@@ -4,7 +4,7 @@ import { axe } from "vitest-axe";
 import { expect, test, vi } from "vitest";
 import type { DropOutcome } from "../../lib/generated/DropOutcome";
 import type { UnmatchedReason } from "../../lib/generated/UnmatchedReason";
-import { DropResult, dropResultText } from "./DropResult";
+import { DropPending, DropResult, dropResultText } from "./DropResult";
 import { entry } from "./fixtures";
 
 const empty: DropOutcome = { matched: [], unmatched: [], ambiguous: [] };
@@ -15,7 +15,8 @@ const out = (over: Partial<DropOutcome>): DropOutcome => ({
 const entries = [entry("app"), entry("core"), entry("other")];
 const show = (o: DropOutcome, failed = false, onDismiss = vi.fn()) =>
   render(<DropResult outcome={o} entries={entries} hasFailedEntries={failed} onDismiss={onDismiss} />);
-const lines = (c: HTMLElement) => Array.from(c.querySelectorAll("li")).map((l) => l.textContent);
+const lines = (c: HTMLElement) =>
+  Array.from(c.querySelectorAll(".drop-result__lines > li")).map((l) => l.textContent);
 
 test("matched line", () => {
   const { container } = show(
@@ -48,7 +49,7 @@ test.each(cases)("unmatched reason %s has its copy and icon", (reason, text, ton
   const { container } = show(out({ unmatched: [{ path: "C:\\d\\notes.txt", reason }] }));
   expect(lines(container)).toEqual([text]);
   expect(container.querySelector(`.drop-result__icon--${tone} svg`)).not.toBeNull();
-  expect(screen.getByText("notes.txt")).toHaveAttribute("title", "C:\\d\\notes.txt");
+  expect(container.querySelector(".drop-result__lines [title]")).toHaveAttribute("title", "C:\\d\\notes.txt");
   expect(container.textContent).not.toContain(reason === "noEntry" ? "reason" : `${reason}`);
 });
 
@@ -81,7 +82,7 @@ test("ambiguous: an entry with two candidates", () => {
     "1 ambiguous, not assigned \u2014 use Browse\u2026 on its row: /opt/app (2 files)",
   ]);
   expect(container.querySelector(".mono")).toHaveTextContent("/opt/app");
-  expect(screen.getByText("/opt/app").closest("[title]")).toHaveAttribute(
+  expect(container.querySelector(".drop-result__lines .mono")!.closest("[title]")).toHaveAttribute(
     "title",
     "Matching files:\nC:\\a\\app.dll\nC:\\b\\app.dll",
   );
@@ -135,7 +136,7 @@ test("more than 8 names: 8 shown, full count, and the same in dropResultText", (
   const o = out({ unmatched });
   const { container } = show(o);
   expect(lines(container)[0]).toBe("9 not in the manifest: f0, f1, f2, f3, f4, f5, f6, f7, and 1 more");
-  expect(screen.queryByText("f8")).toBeNull();
+  expect(container.querySelector(".drop-result__lines")).not.toHaveTextContent("f8");
   expect(dropResultText(o, entries, false)).toBe(
     "9 not in the manifest: f0, f1, f2, f3, f4, f5, f6, f7, and 1 more.",
   );
@@ -192,6 +193,7 @@ test("dismiss by keyboard; no live role; axe clean", async () => {
   expect(container.querySelector("[role=status],[role=alert],[aria-live]")).toBeNull();
   expect((await axe(container)).violations).toEqual([]);
   await user.tab();
+  await user.tab(); // the Full paths summary comes first
   expect(screen.getByRole("button", { name: "Dismiss drop result" })).toHaveFocus();
   await user.keyboard("{Enter}");
   expect(onDismiss).toHaveBeenCalled();
@@ -201,4 +203,54 @@ test("an outcome with nothing in it says so", () => {
   const { container } = show(empty);
   expect(lines(container)).toEqual(["Nothing was matched"]);
   expect(dropResultText(empty, entries, false)).toBe("Nothing was matched.");
+});
+
+test("empty outcome: text and icon are muted, no disclosure", () => {
+  const { container } = show(empty);
+  const li = container.querySelector(".drop-result__lines > li")!;
+  expect(li).toHaveClass("drop-result__line--hint");
+  expect(li.querySelector(".drop-result__icon--muted")).not.toBeNull();
+  expect(container.querySelector("details")).toBeNull();
+});
+
+test("Full paths: collapsed, expands, lists every path past the cap", async () => {
+  const user = userEvent.setup();
+  const unmatched = Array.from({ length: 9 }, (_, i) => ({
+    path: `C:\\dir\\f${i}`,
+    reason: "noEntry" as const,
+  }));
+  const o = out({
+    matched: [["app", "C:\\m\\matched-only.txt"]],
+    unmatched,
+    ambiguous: [{ id: "app", candidates: ["C:\\a\\app.dll", "C:\\b\\app.dll"] }],
+  });
+  const { container } = show(o);
+  const details = container.querySelector("details")!;
+  expect(details).not.toHaveAttribute("open");
+  expect(details.querySelector("summary")).toHaveTextContent("Full paths");
+  await user.tab();
+  expect(details.querySelector("summary")).toHaveFocus();
+  // A native <summary> is keyboard operable; jsdom does not synthesize Enter on it, so click.
+  await user.click(details.querySelector("summary")!);
+  expect(details).toHaveAttribute("open");
+  for (let i = 0; i < 9; i++) expect(details).toHaveTextContent(`C:\\dir\\f${i}`);
+  expect(details).toHaveTextContent("C:\\a\\app.dll");
+  expect(details).toHaveTextContent("C:\\b\\app.dll");
+  expect(details).toHaveTextContent("/opt/app");
+  expect(details).toHaveTextContent("9 not in the manifest");
+  expect(details).not.toHaveTextContent("matched-only");
+  expect(dropResultText(o, entries, false)).not.toContain("Full paths");
+  expect(dropResultText(o, entries, false)).not.toContain("C:\\dir\\f8");
+});
+
+test("Full paths is absent for matched-only outcomes", () => {
+  const { container } = show(out({ matched: [["a", "C:\\a"]] }));
+  expect(container.querySelector("details")).toBeNull();
+});
+
+test("DropPending: one muted line, no button, no live role", () => {
+  const { container } = render(<DropPending />);
+  expect(container).toHaveTextContent("Matching dropped files\u2026");
+  expect(container.querySelector("button, [tabindex], [aria-live], [role]")).toBeNull();
+  expect(container.querySelector(".drop-result__icon--muted")).not.toBeNull();
 });
