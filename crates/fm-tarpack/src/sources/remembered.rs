@@ -40,21 +40,37 @@ impl StateData for RememberedState {
     const SCHEMA_VERSION: u32 = 1;
 }
 
-/// The key for a manifest path: canonical, and on Windows without the `\\?\`
-/// prefix and lowercased. The string is a key, not for display.
-fn key(path: &Path) -> String {
+/// The key for a manifest path: canonical (or the path as given when it
+/// cannot be canonicalized), and on Windows without the `\\?\` / `\\?\UNC\`
+/// prefix and lowercased. `None` when the path is not valid Unicode: such a
+/// manifest has no memory. The string is a key, not for display.
+pub(super) fn key(path: &Path) -> Option<String> {
     let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let s = canon.to_string_lossy().into_owned();
+    let s = canon.to_str()?;
     if cfg!(windows) {
-        s.strip_prefix(r"\\?\").unwrap_or(&s).to_lowercase()
+        let s = if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{rest}")
+        } else {
+            s.strip_prefix(r"\\?\").unwrap_or(s).to_owned()
+        };
+        Some(s.to_lowercase())
     } else {
-        s
+        Some(s.to_owned())
     }
 }
 
 impl RememberedState {
+    fn memory(&self, manifest_path: &Path) -> Option<&ManifestMemory> {
+        self.per_manifest.get(&key(manifest_path)?)
+    }
+
     /// Stores the sources, output path and format for this manifest. The
     /// sources replace what was there, which prunes ids the caller left out.
+    ///
+    /// Defence in depth: a source whose path is not valid Unicode is not
+    /// stored, `last_output` is `None` for such an output path, and a manifest
+    /// path that is not Unicode remembers nothing. The app's inputs are
+    /// already Unicode and the drop boundary reports `NotUnicode`.
     pub fn remember(
         &mut self,
         manifest_path: &Path,
@@ -62,11 +78,19 @@ impl RememberedState {
         output: Option<&Path>,
         format: ArchiveFormat,
     ) {
+        let Some(k) = key(manifest_path) else { return };
         self.per_manifest.insert(
-            key(manifest_path),
+            k,
             ManifestMemory {
-                sources: assignments.map().clone(),
-                last_output: output.map(Path::to_path_buf),
+                sources: assignments
+                    .map()
+                    .iter()
+                    .filter(|(_, p)| p.to_str().is_some())
+                    .map(|(id, p)| (id.clone(), p.clone()))
+                    .collect(),
+                last_output: output
+                    .filter(|p| p.to_str().is_some())
+                    .map(Path::to_path_buf),
                 last_format: Some(format),
             },
         );
@@ -75,7 +99,7 @@ impl RememberedState {
     /// Remembered sources for ids that are still in the manifest.
     pub fn restore(&self, manifest_path: &Path, manifest: &Manifest) -> Assignments {
         let mut out = Assignments::new();
-        if let Some(mem) = self.per_manifest.get(&key(manifest_path)) {
+        if let Some(mem) = self.memory(manifest_path) {
             for e in manifest.entries() {
                 if let Some(p) = mem.sources.get(e.id()) {
                     out.insert(e.id(), p.clone());
@@ -89,31 +113,32 @@ impl RememberedState {
     /// Use for a manifest with errors, so a typo does not erase a location.
     pub fn restore_all(&self, manifest_path: &Path) -> Assignments {
         Assignments::from_map(
-            self.per_manifest
-                .get(&key(manifest_path))
+            self.memory(manifest_path)
                 .map(|m| m.sources.clone())
                 .unwrap_or_default(),
         )
     }
 
     pub fn restore_output(&self, manifest_path: &Path) -> Option<PathBuf> {
-        self.per_manifest
-            .get(&key(manifest_path))
+        self.memory(manifest_path)
             .and_then(|m| m.last_output.clone())
     }
 
     /// The remembered format, else the one the manifest's `output_name` implies.
     pub fn restore_format(&self, manifest_path: &Path, manifest: &Manifest) -> ArchiveFormat {
-        self.per_manifest
-            .get(&key(manifest_path))
+        self.memory(manifest_path)
             .and_then(|m| m.last_format)
             .unwrap_or_else(|| manifest.default_format())
     }
 
     /// Moves `path` to the front of the recent list, capped at [`MAX_RECENT`].
+    ///
+    /// A path that is not valid Unicode is ignored (defence in depth: the
+    /// app's inputs are already Unicode, and the list must stay serializable).
     pub fn touch_recent(&mut self, path: &Path) {
-        let k = key(path);
-        self.recent_manifests.retain(|p| key(p) != k);
+        let Some(k) = key(path) else { return };
+        self.recent_manifests
+            .retain(|p| key(p).as_deref() != Some(k.as_str()));
         self.recent_manifests.insert(0, path.to_path_buf());
         self.recent_manifests.truncate(MAX_RECENT);
     }

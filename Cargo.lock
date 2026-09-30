@@ -1082,6 +1082,7 @@ dependencies = [
  "fm-core",
  "liblzma",
  "serde",
+ "serde_json",
  "sha2 0.11.0",
  "tar",
  "tempfile",

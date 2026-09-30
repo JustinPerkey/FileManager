@@ -14,5 +14,8 @@ sha2 = "0.11.0"
 tar = { version = "0.4.46", default-features = false }
 tempfile = { workspace = true }
 toml = { version = "1.1.6", features = ["parse", "serde"] }
-ts-rs = { workspace = true }
+ts-rs = { workspace = true, features = ["no-serde-warnings"] }
 zstd = "0.14.0"
+
+[dev-dependencies]
+serde_json = "1"

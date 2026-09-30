@@ -3,5 +3,8 @@
 /**
  * An entry that more than one file could fill, or a file that more than one
  * entry could take. Assigned to nothing.
+ *
+ * Outbound only: the candidates are for display, serialized lossily, and
+ * must not be read back as paths.
  */
 export type Ambiguity = { id: string, candidates: Array<string>, };

@@ -4,6 +4,9 @@ import type { Unmatched } from "./Unmatched";
 
 /**
  * What a drop would do. Computed without changing anything; see [`apply`].
+ *
+ * Outbound only. `matched` holds only paths that are valid Unicode; the
+ * paths in `unmatched` and `ambiguous` are display-only and lossy.
  */
 export type DropOutcome = { 
 /**

@@ -44,7 +44,10 @@ crates/
                               No tauri dependency.
     src/manifest/             parse, validate, model, views
     src/format.rs             ArchiveFormat, compression constants
-    src/sources/              Assignments: entry id -> Windows source file
+    src/sources/              Assignments (entry id -> Windows source file), drop
+                              matching (match_dropped, apply), and remembered
+                              state (RememberedState, persisted as tarpack/state
+                              in fm-core's Store)
     src/archive/              plan, header, eol, encode, write, verify:
                               atomic archive writer and post-write verification
 examples/tarpack/             example manifests, valid, used by tests through include_str!

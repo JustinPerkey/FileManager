@@ -8,5 +8,7 @@ mod remembered;
 mod tests;
 
 pub use assignments::{Assignments, EntryStatus};
-pub use matching::{apply, match_dropped, Ambiguity, DropOutcome, Unmatched, MAX_DEPTH};
+pub use matching::{
+    apply, match_dropped, Ambiguity, DropOutcome, Unmatched, UnmatchedReason, MAX_DEPTH,
+};
 pub use remembered::{ManifestMemory, RememberedState, MAX_RECENT};
