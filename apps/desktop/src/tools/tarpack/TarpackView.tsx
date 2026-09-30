@@ -1,18 +1,16 @@
 import { flushSync } from "react-dom";
-import {
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-  type Ref,
-} from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Banner } from "../../app/Banner";
 import { Button } from "../../app/Button";
+import { DropZone } from "../../app/DropZone";
 import { openFileDialog, saveFileDialog } from "../../lib/tauri";
+import type { DropOutcome } from "../../lib/generated/DropOutcome";
 import type { TarpackError } from "../../lib/generated/TarpackError";
 import type { TarpackSession } from "../../lib/generated/TarpackSession";
 import {
+  assign,
+  assignDropped,
+  clear,
   createManifestFromExample,
   onManifestChanged,
   openInEditor,
@@ -21,6 +19,7 @@ import {
   session as fetchSession,
 } from "../../lib/tarpack";
 import { errorMessage, toTarpackError } from "./errorMessages";
+import { DropResult, dropResultText } from "./DropResult";
 import { ManifestErrors } from "./ManifestErrors";
 import { EntryTable } from "./EntryTable";
 import { ManifestHeader } from "./ManifestHeader";
@@ -33,6 +32,8 @@ export interface TarpackActions {
 
 interface TarpackViewProps {
   actionsRef?: Ref<TarpackActions>;
+  /** A build is running (wired in U5): drops are ignored. */
+  building?: boolean;
 }
 
 const TOML = [{ name: "Manifest", extensions: ["toml"] }];
@@ -56,7 +57,7 @@ function manifestSentence(s: TarpackSession, prevErrors: number, origin: Origin)
   return null;
 }
 
-export function TarpackView({ actionsRef }: TarpackViewProps) {
+export function TarpackView({ actionsRef, building = false }: TarpackViewProps) {
   const [session, setSession] = useState<TarpackSession | null>(null);
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [commandError, setCommandError] = useState<TarpackError | null>(null);
@@ -67,6 +68,7 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
   const [stateWarningDismissed, setStateWarningDismissed] = useState<string | null>(null);
   const dismissedRef = useRef<string | null>(null);
   const [expanded, setExpanded] = useState(true);
+  const [dropOutcome, setDropOutcome] = useState<DropOutcome | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const reportRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<TarpackSession | null>(null);
@@ -88,6 +90,7 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
       if (origin !== "other") {
         changedRef.current = false;
         setChanged(false);
+        setDropOutcome(null);
         if ((next.manifest?.errorCount ?? 0) > 0) setExpanded(true);
       }
       // One announce() call per result: a second call would lose the first.
@@ -148,7 +151,10 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
     const reduce =
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollIntoView?.({ behavior: reduce ? "instant" : "smooth", block: "nearest" });
+    el.scrollIntoView?.({
+      behavior: reduce ? "instant" : "smooth",
+      block: "nearest",
+    });
   }, []);
 
   useImperativeHandle(actionsRef, () => ({ showErrors, announce }), [showErrors, announce]);
@@ -183,25 +189,60 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
   }, [fail]);
   const onCreate = useCallback(async () => {
     try {
-      const path = await saveFileDialog({ defaultPath: "manifest.toml", filters: TOML });
+      const path = await saveFileDialog({
+        defaultPath: "manifest.toml",
+        filters: TOML,
+      });
       if (path) await run(() => createManifestFromExample(path), "load");
     } catch (e) {
       fail(e);
     }
   }, [run, fail]);
 
-  // U4 wires these to lib.
-  const onBrowse = useCallback(() => undefined, []);
-  const onClear = useCallback(() => undefined, []);
+  const onBrowse = useCallback(
+    async (id: string) => {
+      const assigned = sessionRef.current?.manifest?.entries.find((e) => e.id === id)?.assigned;
+      try {
+        const path = await openFileDialog({ defaultPath: folderOf(assigned) });
+        if (path) await run(() => assign(id, path), "other");
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [run, fail],
+  );
+  const onClear = useCallback((id: string) => run(() => clear(id), "other"), [run]);
+
+  const onDrop = useCallback(
+    async (paths: string[]) => {
+      try {
+        const { session: next, outcome } = await assignDropped(paths);
+        apply(next, "other");
+        setDropOutcome(outcome);
+        announce(dropResultText(outcome, next.manifest?.failedEntries.length ? true : false));
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [apply, announce, fail],
+  );
 
   const loading = session === null && !restoreFailed;
   const manifest = session?.manifest ?? null;
+  const dropState = dropAvailability(manifest, building);
+  const hasFailedEntries = (manifest?.failedEntries.length ?? 0) > 0;
   const stateWarning =
     session?.stateWarning && session.stateWarning !== stateWarningDismissed ? session.stateWarning : null;
 
   return (
     <section className="tool-view tarpack" aria-busy={loading ? true : undefined}>
       <Announcer text={announcement} />
+      <DropZone
+        enabled={dropState.enabled}
+        disabledReason={dropState.reason}
+        label="Drop files or folders to match them to the manifest"
+        onDrop={onDrop}
+      />
       {loading ? (
         <>
           <span className="visually-hidden">Loading manifest</span>
@@ -275,6 +316,13 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
           reportRef={reportRef}
         />
       )}
+      {manifest && dropOutcome && (
+        <DropResult
+          outcome={dropOutcome}
+          hasFailedEntries={hasFailedEntries}
+          onDismiss={() => setDropOutcome(null)}
+        />
+      )}
       {manifest && (
         <EntryTable
           entries={manifest.entries}
@@ -284,9 +332,34 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
           onClear={onClear}
         />
       )}
-      {/* Slots for later tasks: drop result (U4), build result and bar (U5). */}
+      {/* Slot for a later task: build result and bar (U5). */}
     </section>
   );
+}
+
+/** The folder part of a display path, or undefined when there is none or the path is lossy. */
+function folderOf(path: string | null | undefined): string | undefined {
+  if (!path || path.includes("\uFFFD")) return undefined;
+  const i = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return i > 0 ? path.slice(0, i) : undefined;
+}
+
+function dropAvailability(
+  manifest: TarpackSession["manifest"],
+  building: boolean,
+): { enabled: boolean; reason: string } {
+  if (!manifest) return { enabled: false, reason: "Open a manifest first" };
+  if (manifest.entries.length === 0) {
+    return {
+      enabled: false,
+      reason:
+        manifest.entriesWithheld || manifest.failedEntries.length > 0
+          ? "Fix the manifest errors first. No files can be matched yet."
+          : "This manifest lists no files",
+    };
+  }
+  if (building) return { enabled: false, reason: "A build is running" };
+  return { enabled: true, reason: "" };
 }
 
 function Announcer({ text }: { text: string }) {
