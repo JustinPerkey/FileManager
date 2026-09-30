@@ -14,14 +14,15 @@ vi.mock("../../lib/tarpack", () => ({
   createManifestFromExample: vi.fn(),
   onManifestChanged: vi.fn(),
 }));
-vi.mock("../../lib/tauri", () => ({ openFileDialog: vi.fn(), saveFileDialog: vi.fn() }));
+vi.mock("../../lib/tauri", () => ({ openFileDialog: vi.fn(), saveFileDialog: vi.fn(), onDragDrop: vi.fn() }));
 import * as tp from "../../lib/tarpack";
-import { openFileDialog } from "../../lib/tauri";
+import { openFileDialog, onDragDrop } from "../../lib/tauri";
 
 let changed: () => void = () => undefined;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(onDragDrop).mockResolvedValue(() => undefined);
   vi.mocked(tp.recentManifests).mockResolvedValue([]);
   vi.mocked(tp.onManifestChanged).mockImplementation(async (h) => {
     changed = () => h({ path: "x" });

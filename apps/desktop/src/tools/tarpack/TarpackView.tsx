@@ -1,18 +1,17 @@
 import { flushSync } from "react-dom";
-import {
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-  type Ref,
-} from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Banner } from "../../app/Banner";
 import { Button } from "../../app/Button";
+import { DropZone } from "../../app/DropZone";
 import { openFileDialog, saveFileDialog } from "../../lib/tauri";
+import type { DropOutcome } from "../../lib/generated/DropOutcome";
+import type { SessionEntry } from "../../lib/generated/SessionEntry";
 import type { TarpackError } from "../../lib/generated/TarpackError";
 import type { TarpackSession } from "../../lib/generated/TarpackSession";
 import {
+  assign,
+  assignDropped,
+  clear,
   createManifestFromExample,
   onManifestChanged,
   openInEditor,
@@ -21,9 +20,11 @@ import {
   session as fetchSession,
 } from "../../lib/tarpack";
 import { errorMessage, toTarpackError } from "./errorMessages";
+import { DropPending, DropResult, dropResultText } from "./DropResult";
 import { ManifestErrors } from "./ManifestErrors";
 import { EntryTable } from "./EntryTable";
 import { ManifestHeader } from "./ManifestHeader";
+import { assignedFolder } from "./pathParts";
 
 /** Functions later tasks call on the view. */
 export interface TarpackActions {
@@ -33,6 +34,8 @@ export interface TarpackActions {
 
 interface TarpackViewProps {
   actionsRef?: Ref<TarpackActions>;
+  /** A build is running (wired in U5): drops are ignored. */
+  building?: boolean;
 }
 
 const TOML = [{ name: "Manifest", extensions: ["toml"] }];
@@ -56,7 +59,7 @@ function manifestSentence(s: TarpackSession, prevErrors: number, origin: Origin)
   return null;
 }
 
-export function TarpackView({ actionsRef }: TarpackViewProps) {
+export function TarpackView({ actionsRef, building = false }: TarpackViewProps) {
   const [session, setSession] = useState<TarpackSession | null>(null);
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [commandError, setCommandError] = useState<TarpackError | null>(null);
@@ -67,8 +70,12 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
   const [stateWarningDismissed, setStateWarningDismissed] = useState<string | null>(null);
   const dismissedRef = useRef<string | null>(null);
   const [expanded, setExpanded] = useState(true);
+  const [drop, setDrop] = useState<DropState>(null);
+  const [pendingShown, setPendingShown] = useState(false);
+  const pendingRef = useRef(false);
   const [announcement, setAnnouncement] = useState("");
   const reportRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
   const sessionRef = useRef<TarpackSession | null>(null);
   const frame = useRef(0);
 
@@ -88,6 +95,7 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
       if (origin !== "other") {
         changedRef.current = false;
         setChanged(false);
+        setDrop((d) => (d?.kind === "result" ? null : d));
         if ((next.manifest?.errorCount ?? 0) > 0) setExpanded(true);
       }
       // One announce() call per result: a second call would lose the first.
@@ -148,7 +156,10 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
     const reduce =
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollIntoView?.({ behavior: reduce ? "instant" : "smooth", block: "nearest" });
+    el.scrollIntoView?.({
+      behavior: reduce ? "instant" : "smooth",
+      block: "nearest",
+    });
   }, []);
 
   useImperativeHandle(actionsRef, () => ({ showErrors, announce }), [showErrors, announce]);
@@ -183,25 +194,86 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
   }, [fail]);
   const onCreate = useCallback(async () => {
     try {
-      const path = await saveFileDialog({ defaultPath: "manifest.toml", filters: TOML });
+      const path = await saveFileDialog({
+        defaultPath: "manifest.toml",
+        filters: TOML,
+      });
       if (path) await run(() => createManifestFromExample(path), "load");
     } catch (e) {
       fail(e);
     }
   }, [run, fail]);
 
-  // U4 wires these to lib.
-  const onBrowse = useCallback(() => undefined, []);
-  const onClear = useCallback(() => undefined, []);
+  const onBrowse = useCallback(
+    async (id: string) => {
+      const assigned = sessionRef.current?.manifest?.entries.find((e) => e.id === id)?.assigned;
+      try {
+        const path = await openFileDialog({ defaultPath: assigned ? assignedFolder(assigned) : undefined });
+        if (path) await run(() => assign(id, path), "other");
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [run, fail],
+  );
+  const onClear = useCallback((id: string) => run(() => clear(id), "other"), [run]);
+
+  /** Drops the result; if it holds focus, moves focus first (see `focusAfterResult`). */
+  const removeResult = useCallback(() => {
+    if (rootRef.current) focusAfterResult(rootRef.current);
+    setDrop(null);
+  }, []);
+
+  const onDrop = useCallback(
+    async (paths: string[]) => {
+      if (pendingRef.current) return;
+      pendingRef.current = true;
+      if (rootRef.current) focusAfterResult(rootRef.current);
+      setDrop({ kind: "pending" });
+      try {
+        const { session: next, outcome } = await assignDropped(paths);
+        apply(next, "other");
+        const entries = next.manifest?.entries ?? [];
+        const hasFailedEntries = (next.manifest?.failedEntries.length ?? 0) > 0;
+        pendingRef.current = false;
+        setDrop({ kind: "result", outcome, entries, hasFailedEntries });
+        announce(dropResultText(outcome, entries, hasFailedEntries));
+      } catch (e) {
+        pendingRef.current = false;
+        setDrop(null);
+        fail(e);
+      }
+    },
+    [apply, announce, fail],
+  );
+
+  const pending = drop?.kind === "pending";
+  useEffect(() => {
+    if (!pending) return;
+    const show = setTimeout(() => setPendingShown(true), 150);
+    const say = setTimeout(() => announce("Matching dropped files\u2026"), 1000);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(say);
+      setPendingShown(false);
+    };
+  }, [pending, announce]);
 
   const loading = session === null && !restoreFailed;
   const manifest = session?.manifest ?? null;
+  const dropState = dropAvailability(manifest, building, pending);
   const stateWarning =
     session?.stateWarning && session.stateWarning !== stateWarningDismissed ? session.stateWarning : null;
 
   return (
-    <section className="tool-view tarpack" aria-busy={loading ? true : undefined}>
+    <section ref={rootRef} className="tool-view tarpack" aria-busy={loading ? true : undefined}>
       <Announcer text={announcement} />
+      <DropZone
+        enabled={dropState.enabled}
+        disabledReason={dropState.reason}
+        label="Drop files or folders to match them to the manifest"
+        onDrop={onDrop}
+      />
       {loading ? (
         <>
           <span className="visually-hidden">Loading manifest</span>
@@ -275,6 +347,15 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
           reportRef={reportRef}
         />
       )}
+      {manifest && pending && pendingShown && <DropPending />}
+      {manifest && drop?.kind === "result" && (
+        <DropResult
+          outcome={drop.outcome}
+          entries={drop.entries}
+          hasFailedEntries={drop.hasFailedEntries}
+          onDismiss={removeResult}
+        />
+      )}
       {manifest && (
         <EntryTable
           entries={manifest.entries}
@@ -284,9 +365,58 @@ export function TarpackView({ actionsRef }: TarpackViewProps) {
           onClear={onClear}
         />
       )}
-      {/* Slots for later tasks: drop result (U4), build result and bar (U5). */}
+      {/* Slot for a later task: build result and bar (U5). */}
     </section>
   );
+}
+
+type DropState =
+  | null
+  | { kind: "pending" }
+  | { kind: "result"; outcome: DropOutcome; entries: SessionEntry[]; hasFailedEntries: boolean };
+
+const TABBABLE = "button, a[href], input, select, textarea, summary, [tabindex]";
+
+/**
+ * When focus is inside the drop result, move it out before the result goes:
+ * to the first tabbable element after it, else the last one before it. Does
+ * nothing when focus is elsewhere.
+ */
+function focusAfterResult(root: HTMLElement) {
+  const result = root.querySelector(".drop-result");
+  if (!result || !result.contains(document.activeElement)) return;
+  const tabbable = Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter(
+    (el) =>
+      !result.contains(el) &&
+      !el.matches(":disabled") &&
+      el.getAttribute("tabindex") !== "-1" &&
+      !el.closest("[hidden], [inert]"),
+  );
+  const after = tabbable.find((el) => result.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const before = tabbable.filter(
+    (el) => result.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
+  );
+  (after ?? before[before.length - 1])?.focus({ preventScroll: false });
+}
+
+function dropAvailability(
+  manifest: TarpackSession["manifest"],
+  building: boolean,
+  pending: boolean,
+): { enabled: boolean; reason: string } {
+  if (!manifest) return { enabled: false, reason: "Open a manifest first" };
+  if (manifest.entries.length === 0) {
+    return {
+      enabled: false,
+      reason:
+        manifest.entriesWithheld || manifest.failedEntries.length > 0
+          ? "Fix the manifest errors first. No files can be matched yet."
+          : "This manifest lists no files",
+    };
+  }
+  if (building) return { enabled: false, reason: "A build is running" };
+  if (pending) return { enabled: false, reason: "Still matching the last drop" };
+  return { enabled: true, reason: "" };
 }
 
 function Announcer({ text }: { text: string }) {

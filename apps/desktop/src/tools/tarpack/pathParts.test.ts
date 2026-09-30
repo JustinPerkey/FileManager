@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { pathParts } from "./pathParts";
+import { assignedFolder, pathParts } from "./pathParts";
 
 test("splits at the last separator", () => {
   expect(pathParts("C:\\Users\\me\\build\\out\\gateway.exe")).toEqual({
@@ -51,4 +51,22 @@ test("an astral character at the cap is not split", () => {
 test("U+FFFD is preserved", () => {
   const p = "C:\\d\uFFFD\\bad\uFFFD.txt";
   expect(pathParts(p)).toEqual({ head: "C:\\d\uFFFD", tail: "\\bad\uFFFD.txt" });
+});
+
+test("assignedFolder: drive root keeps its separator", () => {
+  expect(assignedFolder("C:\\a.txt")).toBe("C:\\");
+  expect(assignedFolder("C:/a.txt")).toBe("C:/");
+});
+
+test("assignedFolder: nested, forward-slash and UNC paths", () => {
+  expect(assignedFolder("C:\\tools\\a.txt")).toBe("C:\\tools");
+  expect(assignedFolder("C:/tools/sub/a.txt")).toBe("C:/tools/sub");
+  expect(assignedFolder("\\\\srv\\share\\a.txt")).toBe("\\\\srv\\share\\");
+  expect(assignedFolder("\\\\srv\\share\\d\\a.txt")).toBe("\\\\srv\\share\\d");
+});
+
+test("assignedFolder: undefined without a separator or with U+FFFD", () => {
+  expect(assignedFolder("a.txt")).toBeUndefined();
+  expect(assignedFolder("C:a.txt")).toBeUndefined();
+  expect(assignedFolder("C:\\bad\uFFFD\\a.txt")).toBeUndefined();
 });

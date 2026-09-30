@@ -118,3 +118,51 @@
 .banner__details > summary:hover {
   background: var(--surface-sunken);
 }
+
+.drop-zone {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: var(--drop-overlay);
+  pointer-events: none;
+  animation: drop-zone-in 120ms ease-out;
+}
+
+.drop-zone::before {
+  content: "";
+  position: absolute;
+  inset: var(--space-2);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+}
+
+.drop-zone__plate {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(100%, 40rem);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-lg);
+  color: var(--text);
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+@keyframes drop-zone-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drop-zone {
+    animation: none;
+  }
+}

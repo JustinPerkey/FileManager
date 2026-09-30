@@ -3,7 +3,7 @@
 Status: awaiting approval (amended 2026-09-30: path reveal on the focused row,
 row-action names and hints, layout and scroll model from U3; stacked layout
 at the default window, 64rem switch, sticky offsets; WebView2 check of
-middle truncation)
+middle truncation; focus after dismissing the drop result, from U4)
 Project: tarpack   Depends on: U2, U3, U4, U5 (all landed)
 
 ## Goal
@@ -69,7 +69,14 @@ That loop must take a few keystrokes, not a mouse trip.
     use `top`/`bottom: calc(var(--view-pad-block) * -1)` because Chromium
     sticks to the content box; if you change the view's padding, change the
     variable, never a sticky offset.
-- `DropResult.tsx`;
+- `DropResult.tsx` (U4): dismissing it moves focus only when focus was
+  inside the result, to the first tabbable element after it (else the last
+  one before it); the view root is never focusable. Escape dismisses
+  through the same `onDismiss`, so keep that rule. With roving focus, the
+  table's tab-stop row (`tabindex="0"`) is what "first tabbable after the
+  result" finds; check that in `EntryTable.keyboard.test.tsx`. The result
+  also has a native "Full paths" `<details>`; its `summary` is in the tab
+  order;
 - `BuildBar.tsx` (output path with Choose…, the **Format** picker — a labelled
   native `<select>` over the four formats tar, gzip, zstd, xz — the status
   text, **Show errors** when the manifest has errors, and the **Create
@@ -298,7 +305,9 @@ How to run it:
 - `useTarpackShortcuts.test.tsx`: each shortcut, its active and inactive
   conditions (F8 with and without errors; Ctrl+Enter on a `canBuild: true`
   session with errors), and suppression during the dialog and the build.
-- `EntryTable.keyboard.test.tsx`: roving focus, Enter, and Delete.
+- `EntryTable.keyboard.test.tsx`: roving focus, Enter, and Delete; Escape
+  with focus on the drop result's Dismiss moves focus to the tab-stop row,
+  and Escape with focus elsewhere leaves focus where it was.
 - `ShortcutsHelp.test.tsx`: opens from the button by keyboard, lists every
   shortcut, and closes on Escape, returning focus.
 - `ToolNav.test.tsx` (extend U1's): the current item still has
