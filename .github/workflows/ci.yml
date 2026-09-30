@@ -62,15 +62,19 @@ jobs:
       - run: npm run build -w apps/desktop
       - run: cargo test --workspace --locked
       - run: npm run tauri:build
-      - uses: ilammy/msvc-dev-cmd@v1
-      - name: Exe must import no C runtime, zstd, or liblzma DLL
+      - name: Exe must import no C runtime, zstd, liblzma, or WebView2Loader DLL
         shell: pwsh
         run: |
-          $out = (dumpbin /dependents target\release\filemanager.exe | Out-String)
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          if (-not $dumpbin) { Write-Error "dumpbin.exe not found"; exit 1 }
+          $out = (& $dumpbin /dependents target\release\filemanager.exe | Out-String)
           Write-Host $out
           if ($LASTEXITCODE -ne 0) { Write-Error "dumpbin failed"; exit 1 }
           if ($out -notmatch '(?i)KERNEL32\.dll') { Write-Error "dumpbin output looks wrong"; exit 1 }
-          $bad = [regex]::Matches($out, '(?im)^\s*(vcruntime\S*\.dll|msvcp\S*\.dll|api-ms-win-crt-\S*|zstd\S*\.dll|liblzma\S*\.dll)\s*$')
+          $bad = [regex]::Matches($out, '(?im)^\s*(vcruntime\S*\.dll|msvcp\S*\.dll|api-ms-win-crt-\S*|zstd\S*\.dll|liblzma\S*\.dll|WebView2Loader\.dll)\s*$')
           if ($bad.Count -gt 0) {
             Write-Error ("Forbidden dependencies: " + (($bad | ForEach-Object { $_.Value.Trim() }) -join ', '))
             exit 1

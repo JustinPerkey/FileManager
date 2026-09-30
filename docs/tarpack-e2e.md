@@ -11,6 +11,9 @@ deployment. Never on a developer's own Linux machine.
 - Commit SHA tested: _(fill in)_
 - CI artifact name: _(fill in, `FileManager-<version>-x64.exe`)_
 - Tester / date: _(fill in)_
+- Windows version (step 10): _(fill in)_
+- Monospace font (step 10): _(Cascadia Mono / Consolas / could not tell)_
+- Step 12 ran on: _(armv7 device / armv7 container under qemu)_
 
 ## Steps
 
@@ -44,8 +47,8 @@ deployment. Never on a developer's own Linux machine.
     bar's output path truncates too. Record the Windows version and, if you can
     tell, the monospace font (Cascadia Mono or Consolas). For every truncated
     path, in the table and in the build bar:
-    - "..." (the ellipsis) sits directly against the file name's leading `\`,
-      with no gap;
+    - "…" sits directly against the file name's leading `\`, with no
+      gap;
     - the file name is never split mid-word.
 
     Check at several window widths, resizing a pixel or two at a time over at
@@ -69,8 +72,8 @@ deployment. Never on a developer's own Linux machine.
       example `/etc`) keeps its original mode and owner; the normalised script
       has no CR bytes (`grep -c $'\r'` gives `0`) and runs.
 12. **Decompression cost on armv7.** On the armv7 target, or an armv7 container
-    under qemu (note which), run `/usr/bin/time -v tar --zstd -xpPf ...` and the
-    `.tar.xz` equivalent. Record peak resident set size and wall time. Expect
+    under qemu (note which), run `/usr/bin/time -v tar --zstd -xpPf archive.tar.zst` and
+    `/usr/bin/time -v tar -J -xpPf archive.tar.xz`. Record peak resident set size and wall time. Expect
     roughly 8 MiB (zstd) and 9 MiB (xz) above tar's own baseline.
 
 ## Results

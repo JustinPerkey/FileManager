@@ -10,8 +10,10 @@ Developer commands and layout are in `CLAUDE.md`.
 
 FileManager is a single portable `.exe`. There is no installer: download
 `FileManager-<version>-x64.exe` (the CI artifact, or `target/release/filemanager.exe`
-from `npm run tauri:build`), put it anywhere, and run it. The C runtime is
-linked statically, so no VC++ redistributable is needed.
+from `npm run tauri:build`), put it anywhere, and run it. GitHub downloads the
+CI artifact as `FileManager-<version>-x64.exe.zip`; unzip it to get
+`FileManager-<version>-x64.exe`. The C runtime is linked statically, so no
+VC++ redistributable and no `api-ms-win-crt-*` DLLs are needed.
 
 - **WebView2.** The app needs the Evergreen WebView2 runtime, which ships with
   Windows 11 and current Windows 10. If the app fails to start on a machine that
