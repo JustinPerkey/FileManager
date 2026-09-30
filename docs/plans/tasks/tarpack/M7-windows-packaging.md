@@ -1,6 +1,9 @@
 # M7 — Portable Windows exe and end-to-end check
 
-Status: awaiting approval
+Status: implemented at 908abc4; the reviewer returned "changes required".
+**Awaiting the review follow-up** (R1–R8, "Review follow-up" at the end),
+run as its own implementer run on this task plan. The manual checklist
+(steps 1–12) is run by the user after the follow-up lands and CI is green.
 (amended 2026-09-30: step 10, the WebView2 middle-truncation check, moved
 here from U6's review; the Linux steps are now 11 and 12)
 Project: tarpack   Depends on: M6 (landed), U6 (landed)
@@ -41,6 +44,42 @@ from Windows to extraction on the Linux target.
   The `cc` crate reads this target feature and compiles the zstd and liblzma
   sources with `/MT` to match. Mismatched CRTs fail at link time with LNK2038;
   if that happens, fix it, do not suppress it.
+
+  **`+crt-static` alone is not enough: tauri-build's `staticVCRuntime` must be
+  off.** The locked `tauri-build` 2.7.0 reads `build.windows.staticVCRuntime`
+  from `tauri.conf.json` (tauri-utils 2.10.0, `WindowsBuildConfig`), which
+  **defaults to `true`**. When true, `tauri_build::build()` on an MSVC target
+  runs its `static_vcruntime::build()`, which emits
+  `/NODEFAULTLIB:libucrt.lib`, `/DEFAULTLIB:libcmt.lib`,
+  `/DEFAULTLIB:libvcruntime.lib`, and `/DEFAULTLIB:ucrt.lib`: a "hybrid" CRT
+  with a static vcruntime but the **dynamic** UCRT. That undoes
+  `+crt-static` for the UCRT, and the exe imports `api-ms-win-crt-*.dll`
+  again. Set, in `apps/desktop/src-tauri/tauri.conf.json`:
+
+  ```json
+  "build": { ..., "windows": { "staticVCRuntime": false } }
+  ```
+
+  (inside the existing `build` object, keeping its four keys). This is the
+  chosen mechanism, not the `build.rs` alternative
+  (`tauri_build::try_build(Attributes::new().windows_attributes(
+  WindowsAttributes::new().static_vc_runtime(false)))`), because it is
+  declarative, keeps `build.rs` a one-line `tauri_build::build()`, and is
+  accepted by both the locked Rust config parser (serde rename
+  `staticVCRuntime`, `deny_unknown_fields` on the struct, so a typo fails the
+  build) and the `@tauri-apps/cli` 2.12.0 config schema
+  (`WindowsBuildConfig.staticVCRuntime`). Then the only CRT settings are
+  Rust's own `+crt-static` ones (`libcmt`, `libvcruntime`, `libucrt`, all
+  static). JSON has no comments, so the explanation lives in the comment
+  above the `[target.x86_64-pc-windows-msvc]` section of
+  `.cargo/config.toml`.
+
+  Two environment variables override this silently, and neither may be set
+  in CI or the build scripts: `RUSTFLAGS` (when set, cargo ignores
+  `[target.*].rustflags` in `.cargo/config.toml` entirely, dropping
+  `+crt-static`), and the deprecated `STATIC_VCRUNTIME` (tauri-build checks it
+  before the config; any value other than `false` turns the hybrid CRT back
+  on). The Tauri CLI 2.12.0 sets neither.
 - **WebView2.** The exe uses the Evergreen WebView2 runtime that ships with
   Windows 11 and current Windows 10. A portable exe cannot bootstrap it
   (`bundle.windows.webviewInstallMode` applies only to installers, so leave it
@@ -91,14 +130,18 @@ from Windows to extraction on the Linux target.
 - `.cargo/config.toml`: add the static-CRT target section (above), keeping
   the existing `[env]` section
 - `apps/desktop/src-tauri/tauri.conf.json`: product name `FileManager`,
-  identifier, version, and the icons embedded in the exe
+  identifier, version, and the icons embedded in the exe; and
+  `build.windows.staticVCRuntime: false` (above)
 - `.github/workflows/ci.yml`, in the Windows job, after `tauri:build`:
-  - Run `dumpbin /dependents target\release\filemanager.exe` (from a VS
-    developer shell, for example via `ilammy/msvc-dev-cmd`). Fail the job if
-    the output lists `vcruntime*.dll`, `msvcp*.dll`, `api-ms-win-crt-*`,
-    `zstd*.dll`, or `liblzma*.dll`.
+  - Run `dumpbin /dependents target\release\filemanager.exe`, locating
+    `dumpbin.exe` with `vswhere.exe` (preinstalled on `windows-latest` at
+    `${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe`),
+    not through a third-party action. Fail the job if the output lists
+    `vcruntime*.dll`, `msvcp*.dll`, `api-ms-win-crt-*`, `zstd*.dll`,
+    `liblzma*.dll`, or `WebView2Loader.dll`.
   - Upload the exe as an artifact named `FileManager-<version>-x64.exe`,
-    without the `.pdb`.
+    without the `.pdb`. GitHub serves an artifact as a zip
+    (`FileManager-<version>-x64.exe.zip`); the README says to unzip it.
 - `docs/tarpack-e2e.md`: the manual checklist below, with a results table
 - `README.md`:
   - how to run the portable exe;
@@ -107,7 +150,14 @@ from Windows to extraction on the Linux target.
   - where state lives;
   - how to extract each format on the target, pointing at
     `docs/tarpack-manifest.md` for the full command table.
-- `CLAUDE.md`, Commands: note the static CRT setting and the dependency check.
+- `CLAUDE.md`:
+  - Layout: the `.cargo/config.toml` line mentions the static-CRT target
+    section; `docs/tarpack-e2e.md` is listed next to `docs/tarpack-manifest.md`;
+    the `ci.yml` line says the windows job runs the `dumpbin` dependency check
+    and uploads the exe artifact.
+  - Commands: note the static CRT setting, that `staticVCRuntime` is off on
+    purpose, that `RUSTFLAGS` / `STATIC_VCRUNTIME` override it, and the
+    dependency check.
 
 ## The end-to-end checklist
 
@@ -189,8 +239,8 @@ Record each step with pass/fail and notes in `docs/tarpack-e2e.md`.
 ## Acceptance criteria
 
 - CI uploads the portable exe as an artifact on every push to the branch.
-- The CI dependency check proves that the exe imports no C runtime, zstd, or
-  liblzma DLL.
+- The CI dependency check proves that the exe imports no C runtime, zstd,
+  liblzma, or `WebView2Loader.dll`.
 - `docs/tarpack-e2e.md` records all 12 steps, with the commit SHA tested.
   Steps 1–9, 11, and 12 pass. Step 10 has been run on Windows and is
   recorded: pass, or fail with the window width, the layout, the text size,
@@ -228,3 +278,137 @@ Record each step with pass/fail and notes in `docs/tarpack-e2e.md`.
   problem. Do not change opt-level without measuring.
 - A missing WebView2 runtime makes the exe fail at startup. Only the README
   covers this; there is no in-app recovery.
+
+## Review follow-up
+
+M7 is implemented at 908abc4 (`.cargo/config.toml`, `.github/workflows/ci.yml`,
+`CLAUDE.md`, `README.md`, `docs/tarpack-e2e.md`). The reviewer returned
+"changes required". The sections above are now the corrected spec; this list
+is the concrete work to bring the **existing** files into line with them. Do
+not rewrite what already works: every item names the file and what changes.
+No Rust or TypeScript source changes, no boundary type changes, and nothing
+under `lib/generated/` changes.
+
+### R1. Turn off tauri-build's hybrid CRT (reviewer P0)
+
+`apps/desktop/src-tauri/tauri.conf.json`: inside the existing `build` object,
+after `frontendDist`, add
+
+```json
+"windows": { "staticVCRuntime": false }
+```
+
+Change nothing else in the file (not the CSP, not `bundle`). Leave
+`apps/desktop/src-tauri/build.rs` as `tauri_build::build()`; do not also set
+`static_vc_runtime` there (one mechanism, one place).
+
+Why (the Context section has the detail): tauri-build 2.7.0 defaults
+`staticVCRuntime` to `true` and then emits `/NODEFAULTLIB:libucrt.lib` and
+`/DEFAULTLIB:ucrt.lib`, linking the UCRT dynamically, so the 908abc4 exe
+would still import `api-ms-win-crt-*.dll` and fail the `dumpbin` check.
+
+### R2. Explain it in `.cargo/config.toml` (reviewer P0)
+
+Extend the comment above `[target.x86_64-pc-windows-msvc]` so it says, in a
+few lines:
+
+- `+crt-static` makes Rust link `libcmt`, `libvcruntime`, and `libucrt`
+  statically, and `cc` builds zstd/liblzma with `/MT`;
+- this only holds because `build.windows.staticVCRuntime` is `false` in
+  `apps/desktop/src-tauri/tauri.conf.json`: tauri-build's default (`true`)
+  forces the dynamic UCRT (`ucrt.lib`, `api-ms-win-crt-*.dll`);
+- a `RUSTFLAGS` environment variable replaces these rustflags entirely, and
+  the deprecated `STATIC_VCRUNTIME` variable overrides the config; set
+  neither.
+
+Keep the `[env]` section unchanged.
+
+### R3. Find `dumpbin` with `vswhere`, drop `ilammy/msvc-dev-cmd` (reviewer P3)
+
+`.github/workflows/ci.yml`, windows job: remove the
+`uses: ilammy/msvc-dev-cmd@v1` step (an unpinned third-party action whose
+only job here is to put `dumpbin` on `PATH`). In the check step, locate it
+with the vswhere that ships on `windows-latest`:
+
+```powershell
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$dumpbin = & $vswhere -latest -products * `
+  -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+  -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+if (-not $dumpbin) { Write-Error "dumpbin.exe not found"; exit 1 }
+$out = (& $dumpbin /dependents target\release\filemanager.exe | Out-String)
+```
+
+Keep the rest of the step's logic: print the output, fail on a non-zero
+`$LASTEXITCODE`, sanity-check that `KERNEL32.dll` is listed, then match the
+forbidden list.
+
+### R4. Add `WebView2Loader.dll` to the forbidden list (reviewer P3)
+
+Same step: the forbidden-DLL regex also matches `WebView2Loader\.dll`
+(case-insensitive, like the others). The MSVC build links the WebView2
+loader statically; a loader DLL beside the exe would break "single portable
+exe". Rename the step to "Exe must import no C runtime, zstd, liblzma, or
+WebView2Loader DLL".
+
+### R5. `CLAUDE.md` (reviewer P2-1, P3)
+
+In the Layout block:
+
+- the `.cargo/config.toml` line also mentions the
+  `[target.x86_64-pc-windows-msvc]` static-CRT section (`+crt-static`);
+- add `docs/tarpack-e2e.md` on the line after `docs/tarpack-manifest.md`,
+  described as the manual end-to-end release checklist, and remove the
+  sentence about it from the Commands note;
+- the `.github/workflows/ci.yml` line says the windows job also runs the
+  `dumpbin` dependency check and uploads the `FileManager-<version>-x64.exe`
+  artifact.
+
+In the Commands note added at 908abc4 (the `.cargo/config.toml` bullet):
+
+- say that `build.windows.staticVCRuntime` is `false` in `tauri.conf.json`
+  on purpose, because tauri-build's default re-links the UCRT dynamically;
+- say that a `RUSTFLAGS` environment variable overrides the config's
+  rustflags (dropping `+crt-static`), and `STATIC_VCRUNTIME` overrides
+  `staticVCRuntime`, so neither is set;
+- update the forbidden list to include `WebView2Loader.dll`.
+
+### R6. `docs/tarpack-e2e.md` (reviewer P2-2)
+
+- In the header fields (after "Tester / date"), add:
+  - `Windows version (step 10): _(fill in)_`
+  - `Monospace font (step 10): _(Cascadia Mono / Consolas / could not tell)_`
+  - `Step 12 ran on: _(armv7 device / armv7 container under qemu)_`
+- Step 10: write the ellipsis as the single character `…` (U+2026), not
+  `"..."`: the first bullet reads `"…" sits directly against the file name's
+  leading \`, with no gap;` (drop the "(the ellipsis)" gloss). The tester
+  compares it with the character on screen.
+- Step 12: replace the `...` placeholder in the command with explicit
+  archive names: `/usr/bin/time -v tar --zstd -xpPf archive.tar.zst` and
+  `/usr/bin/time -v tar -J -xpPf archive.tar.xz`.
+- Check that no other `...` standing for an ellipsis remains in the file.
+  Save the file as UTF-8.
+
+### R7. README: the artifact is a zip (reviewer P2-3)
+
+`README.md`, "Running the portable exe": say that GitHub downloads the CI
+artifact as `FileManager-<version>-x64.exe.zip`, and to unzip it to get
+`FileManager-<version>-x64.exe`. Also say the static C runtime claim in
+concrete terms: no VC++ redistributable and no `api-ms-win-crt-*` DLLs are
+needed.
+
+### R8. Verify
+
+- Locally (Linux container): `cargo fmt --all --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace` (this parses `tauri.conf.json` through
+  `tauri_build::build()`, so a misspelt `staticVCRuntime` fails here: the
+  struct denies unknown fields), and
+  `npm run typecheck && npm run lint && npm run test`.
+- Validate the workflow YAML parses (for example
+  `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml'))"`).
+- The Windows CI job is the proof of R1–R4: after pushing, it must be green,
+  its `dumpbin` output must list no forbidden DLL, and the artifact must be
+  present. If you cannot observe CI, say so in the handoff; the reviewer and
+  orchestrator confirm it.
+- Hand the diff to the reviewer, naming R1–R8.

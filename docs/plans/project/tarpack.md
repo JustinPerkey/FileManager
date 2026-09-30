@@ -232,8 +232,17 @@ first implementation's `"targets": ["nsis"]` named an installer and is removed
 (M1 review, P3-6). Consequences M7 handles:
 
 - The C runtime is linked statically (`+crt-static` for
-  `x86_64-pc-windows-msvc`), so the exe runs without the VC++ redistributable.
-  The `cc`-built zstd and liblzma objects follow the same CRT setting.
+  `x86_64-pc-windows-msvc` in `.cargo/config.toml`), so the exe runs without
+  the VC++ redistributable or the `api-ms-win-crt-*` DLLs. The `cc`-built
+  zstd and liblzma objects follow the same CRT setting (`/MT`). This needs
+  `build.windows.staticVCRuntime: false` in `tauri.conf.json` (decision 52):
+  tauri-build 2.7.0 defaults it to `true` and then links a hybrid CRT
+  (static vcruntime, **dynamic** UCRT via `/NODEFAULTLIB:libucrt.lib` and
+  `/DEFAULTLIB:ucrt.lib`), which undoes `+crt-static` for the UCRT. A
+  `RUSTFLAGS` environment variable (replaces the config's rustflags) or the
+  deprecated `STATIC_VCRUNTIME` (overrides the config) would also undo it,
+  so neither is set. The Windows CI job proves the result with
+  `dumpbin /dependents` (decision 53).
 - The exe relies on the Evergreen WebView2 runtime already installed on
   Windows 10/11. It cannot bootstrap it. The README states the requirement.
 - State stays in `%APPDATA%\FileManager\` (Q5), not beside the exe. "Portable"
@@ -618,6 +627,15 @@ start over, not necessarily at 0; `ManifestChangedOnDisk` also covers an
 unreadable manifest at build time; `stateWarning` may report a recent
 manifest that could not be reopened). The follow-up landed in 909b36b, and the reviewer approved M6 at 909b36b.
 
+M7 was implemented at 908abc4 and the review returned "changes required":
+the exe would still import the dynamic UCRT (tauri-build's default
+`staticVCRuntime`, §2.5), plus documentation and CI gaps. Its task plan now
+ends with a **"Review follow-up"** (R1–R8, decisions 52–53), run as its own
+implementer run on the same task plan. It changes configuration, CI, and
+documentation only, no boundary type. The user runs the manual checklist
+(`docs/tarpack-e2e.md`, steps 1–12) after it lands and the Windows CI job is
+green.
+
 ## 5. Handoff to ui-designer
 
 The UI is written in [`tarpack-ui.md`](tarpack-ui.md). Its constraints are:
@@ -984,6 +1002,25 @@ Added after the M6 review (2026-09-30):
     `RememberedState` like every other mutating command.
 51. **Capabilities narrowed to `allow-listen` / `allow-unlisten`** in place
     of `core:event:default`, which also granted emit. A test pins the list.
+
+Added after the M7 review (2026-09-30):
+
+52. **tauri-build's static VC runtime is off; `+crt-static` alone decides
+    the CRT.** Set as `build.windows.staticVCRuntime: false` in
+    `tauri.conf.json`, explained in a comment in `.cargo/config.toml`.
+    Rejected: the `build.rs` form
+    (`WindowsAttributes::new().static_vc_runtime(false)` via
+    `tauri_build::try_build`). Both are accepted by the locked tauri-build
+    2.7.0 / tauri-utils 2.10.0 and the CLI 2.12.0 schema; the config key is
+    declarative, schema-checked (the struct denies unknown fields), and
+    keeps `build.rs` a one-liner.
+53. **The dependency check needs no third-party action and also forbids
+    `WebView2Loader.dll`.** `dumpbin` is located with the runner's
+    preinstalled `vswhere.exe`, replacing the unpinned
+    `ilammy/msvc-dev-cmd@v1` (rejected alternative: pin it to a commit SHA,
+    which still trusts a third party for one binary path). A loader DLL
+    beside the exe would break the single-file portable exe, so the check
+    fails on it like on the CRT, zstd, and liblzma DLLs.
 
 ### 6.3 UI-facing contract changes (for the ui-designer)
 
