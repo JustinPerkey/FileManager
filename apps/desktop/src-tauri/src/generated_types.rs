@@ -27,6 +27,12 @@ const EXPORTERS: &[Exporter] = &[
     <fm_tarpack::archive::BuildPhase as ts_rs::TS>::export_all,
     <fm_tarpack::sources::EntryStatus as ts_rs::TS>::export_all,
     <fm_tarpack::sources::DropOutcome as ts_rs::TS>::export_all,
+    <crate::tools::tarpack::types::TarpackSession as ts_rs::TS>::export_all,
+    <crate::tools::tarpack::types::ArchiveFormatOption as ts_rs::TS>::export_all,
+    <crate::tools::tarpack::types::TarpackError as ts_rs::TS>::export_all,
+    <crate::tools::tarpack::types::TarpackErrorKind as ts_rs::TS>::export_all,
+    <crate::tools::tarpack::types::DroppedAssignment as ts_rs::TS>::export_all,
+    <crate::tools::tarpack::types::ManifestChanged as ts_rs::TS>::export_all,
 ];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");
@@ -154,4 +160,67 @@ fn sync_replaces_stale_files_and_keeps_gitkeep() {
     assert!(target.path().join(".gitkeep").exists());
     assert_eq!(read_tree(target.path()), read_tree(fresh.path()));
     assert!(!target.path().join("old_dir").exists());
+}
+
+/// TS `bigint` cannot be formatted or compared like a number, so no 64-bit
+/// field may reach the UI as one. Reads the committed files; regenerate first.
+#[test]
+fn generated_types_have_no_bigint() {
+    let tree = read_tree(Path::new(COMMITTED));
+    assert!(!tree.is_empty(), "no generated files found");
+    for (path, bytes) in tree {
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            !text.contains("bigint"),
+            "{} contains `bigint`: annotate the field with #[ts(type = \"number\")]",
+            path.display()
+        );
+    }
+}
+
+/// The kinds the UI switches over exhaustively. Changing this list is a UI
+/// contract change.
+const ERROR_KINDS: &[&str] = &[
+    "NoManifest",
+    "ManifestUnreadable",
+    "NoEntries",
+    "ManifestChangedOnDisk",
+    "UnknownEntry",
+    "NotAFile",
+    "NoOutput",
+    "EntriesNotReady",
+    "OutputExists",
+    "PathExists",
+    "SourceMissing",
+    "SourceUnreadable",
+    "SourceChanged",
+    "VerifyFailed",
+    "BuildInProgress",
+    "OpenerFailed",
+    "Io",
+];
+
+#[test]
+fn error_kind_is_string_union() {
+    let text = fs::read_to_string(Path::new(COMMITTED).join("TarpackErrorKind.ts"))
+        .expect("TarpackErrorKind.ts exists; regenerate lib/generated");
+    let body = text
+        .split_once("export type TarpackErrorKind =")
+        .expect("exports the type")
+        .1
+        .trim()
+        .trim_end_matches(';');
+    let mut found: Vec<&str> = body
+        .split('|')
+        .map(|part| {
+            part.trim()
+                .strip_prefix('"')
+                .and_then(|p| p.strip_suffix('"'))
+                .unwrap_or_else(|| panic!("`{part}` is not a string literal"))
+        })
+        .collect();
+    let mut want = ERROR_KINDS.to_vec();
+    found.sort_unstable();
+    want.sort_unstable();
+    assert_eq!(found, want);
 }

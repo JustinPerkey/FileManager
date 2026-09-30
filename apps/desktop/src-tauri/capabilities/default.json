@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core defaults plus dialog and opener",
+  "description": "Events (including drag and drop) and the native open and save dialogs. The opener is used from Rust only.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default", "opener:default"]
+  "permissions": ["core:event:default", "dialog:allow-open", "dialog:allow-save"]
 }

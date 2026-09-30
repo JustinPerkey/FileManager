@@ -12,13 +12,13 @@
 //!   A tool module never receives or returns the `Builder`.
 //! - Tools never import each other; shared code lives in `fm-core`.
 //!
-//! The shape M6 fills in:
+//! The shape, as `register` has it:
 //!
 //! ```ignore
 //! builder
 //!     .manage(tarpack::state())
 //!     .invoke_handler(tauri::generate_handler![
-//!         tarpack::tarpack_open,
+//!         tarpack::tarpack_session,
 //!         tarpack::tarpack_build,
 //!     ])
 //!     .setup(|app| {
@@ -26,12 +26,33 @@
 //!         Ok(())
 //!     })
 //! ```
+//!
+//! The Tar Packager needs no `setup`: its watcher takes an `AppHandle` from
+//! the commands that open or reload a manifest.
+
+pub(crate) mod tarpack;
 
 use tauri::{Builder, Wry};
 
-/// Registers every tool on the builder. Empty until the first tool lands.
+/// Registers every tool on the builder.
 pub fn register(builder: Builder<Wry>) -> Builder<Wry> {
     builder
+        .manage(tarpack::state())
+        .invoke_handler(tauri::generate_handler![
+            tarpack::tarpack_session,
+            tarpack::tarpack_open_manifest,
+            tarpack::tarpack_reload_manifest,
+            tarpack::tarpack_assign_dropped,
+            tarpack::tarpack_assign,
+            tarpack::tarpack_clear,
+            tarpack::tarpack_set_output,
+            tarpack::tarpack_set_format,
+            tarpack::tarpack_build,
+            tarpack::tarpack_recent_manifests,
+            tarpack::tarpack_open_in_editor,
+            tarpack::tarpack_reveal_output,
+            tarpack::tarpack_create_manifest_from_example,
+        ])
 }
 
 #[cfg(test)]
