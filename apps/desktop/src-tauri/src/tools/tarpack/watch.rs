@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult, DebouncedEventKind, Debouncer};
 
 /// Quiet time after the last change before an event is sent.
 pub const DEBOUNCE: Duration = Duration::from_millis(300);
@@ -33,7 +33,12 @@ impl ManifestWatcher {
         };
         let mut debouncer = new_debouncer(DEBOUNCE, move |res: DebounceEventResult| {
             if let Ok(events) = res {
-                if events.iter().any(|e| e.path.file_name() == Some(&name)) {
+                // `AnyContinuous` reports a burst that is still going, and can
+                // arrive just before the `Any` that ends it; only `Any` counts.
+                if events
+                    .iter()
+                    .any(|e| e.kind == DebouncedEventKind::Any && e.path.file_name() == Some(&name))
+                {
                     on_change();
                 }
             }
