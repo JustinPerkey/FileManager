@@ -19,8 +19,10 @@ export function DropZone({ enabled, disabledReason, label, onDrop }: DropZonePro
   const [over, setOver] = useState(false);
   const enabledRef = useRef(enabled);
   const onDropRef = useRef(onDrop);
-  enabledRef.current = enabled;
-  onDropRef.current = onDrop;
+  useEffect(() => {
+    enabledRef.current = enabled;
+    onDropRef.current = onDrop;
+  });
 
   useEffect(() => {
     let live = true;
