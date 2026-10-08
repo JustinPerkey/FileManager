@@ -1,0 +1,10 @@
+[package]
+name = "fm-schedule"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+ts-rs = { workspace = true }

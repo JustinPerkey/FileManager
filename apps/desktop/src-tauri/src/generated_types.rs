@@ -33,6 +33,8 @@ const EXPORTERS: &[Exporter] = &[
     <crate::tools::tarpack::types::TarpackErrorKind as ts_rs::TS>::export_all,
     <crate::tools::tarpack::types::DroppedAssignment as ts_rs::TS>::export_all,
     <crate::tools::tarpack::types::ManifestChanged as ts_rs::TS>::export_all,
+    <crate::tools::schedule::types::ScheduleSession as ts_rs::TS>::export_all,
+    <crate::tools::schedule::types::ApplySummary as ts_rs::TS>::export_all,
 ];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");
