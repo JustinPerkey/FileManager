@@ -55,9 +55,9 @@ pub fn register(builder: Builder<Wry>) -> Builder<Wry> {
             tarpack::tarpack_reveal_output,
             tarpack::tarpack_create_manifest_from_example,
             schedule::schedule_session,
-            schedule::schedule_open_text,
-            schedule::schedule_reload_text,
-            schedule::schedule_open_xml,
+            schedule::schedule_set_text,
+            schedule::schedule_set_xml,
+            schedule::schedule_set_dropped,
             schedule::schedule_apply,
         ])
 }

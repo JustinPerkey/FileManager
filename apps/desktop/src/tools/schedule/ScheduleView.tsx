@@ -1,40 +1,38 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Banner } from "../../app/Banner";
 import { Button } from "../../app/Button";
 import { ConfirmDialog } from "../../app/ConfirmDialog";
+import { DropZone } from "../../app/DropZone";
 import type { ApplySummary } from "../../lib/generated/ApplySummary";
-import type { ScheduleError } from "../../lib/generated/ScheduleError";
-import type { SchedulePreview } from "../../lib/generated/SchedulePreview";
+import type { FileSlot } from "../../lib/generated/FileSlot";
 import type { ScheduleSession } from "../../lib/generated/ScheduleSession";
-import { apply, openText, openXml, reloadText, session as fetchSession } from "../../lib/schedule";
-import { openFileDialog } from "../../lib/tauri";
+import { apply, session as fetchSession, setDropped, setText, setXml } from "../../lib/schedule";
+import { openFileDialog, type DialogFilter } from "../../lib/tauri";
 import { errorMessage, fileName, toScheduleError, type ViewError } from "./errorMessages";
 
-const TEXT = [
+const TEXT: DialogFilter[] = [
   { name: "Text", extensions: ["txt"] },
   { name: "All files", extensions: ["*"] },
 ];
-const XML = [
+const XML: DialogFilter[] = [
   { name: "XML", extensions: ["xml"] },
   { name: "All files", extensions: ["*"] },
 ];
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
-/** What to announce after the text file is read. A failed parse needs none: its banner is an alert. */
-function parsedSentence(s: ScheduleSession): string | null {
-  if (s.parseError) return s.parseError.kind === "ParseFailed" ? null : errorMessage(s.parseError);
-  if (s.preview) {
-    const n = s.preview.rows.length;
-    return `Schedule read: ${n} ${plural(n, "entry", "entries")}.`;
-  }
-  return null;
+/** A typed or pasted path: trimmed, without the quotes Explorer's "Copy as path" adds. Empty means none. */
+export function cleanPath(typed: string): string | null {
+  const t = typed
+    .trim()
+    .replace(/^"(.*)"$/, "$1")
+    .trim();
+  return t === "" ? null : t;
 }
 
 function applyReason(s: ScheduleSession): string | null {
-  if (!s.textPath) return "Choose a schedule text file.";
-  if (!s.preview) return "The schedule file must be read without errors first.";
-  if (s.preview.rows.length === 0) return "The schedule file has no entries to add.";
-  if (!s.xmlPath) return "Choose the XML file to update.";
+  if (!s.text) return "Choose a schedule file.";
+  if (!s.xml) return "Choose the XML file to update.";
+  if (s.text.error || s.xml.error) return "Fix the file paths above first.";
   return null;
 }
 
@@ -42,25 +40,32 @@ function resultSentence(r: ApplySummary): string {
   return `Added ${r.added} ${plural(r.added, "entry", "entries")} to ${fileName(r.xmlPath)}.`;
 }
 
+function dropSentence(s: ScheduleSession): string {
+  const parts: string[] = [];
+  if (s.text) parts.push(`Schedule file: ${fileName(s.text.path)}${s.text.error ? " (has a problem)" : ""}.`);
+  if (s.xml) parts.push(`XML file: ${fileName(s.xml.path)}${s.xml.error ? " (has a problem)" : ""}.`);
+  return parts.join(" ");
+}
+
 export function ScheduleView() {
   const [session, setSession] = useState<ScheduleSession | null>(null);
   const [restoreFailed, setRestoreFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [commandError, setCommandError] = useState<ViewError | null>(null);
   const [failureCount, setFailureCount] = useState(0);
   const [confirming, setConfirming] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<ApplySummary | null>(null);
-  // The text and XML of the last successful apply: adding them again would duplicate entries.
+  // The files of the last successful apply: adding the same schedule again would duplicate entries.
   const [applied, setApplied] = useState<string | null>(null);
-  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [announcement, setAnnouncement] = useState("");
+  const frame = useRef(0);
   // After the confirm dialog closes, the Add button is disabled (busy), so the
   // dialog cannot return focus to it; focus moves here once applying ends.
   const refocus = useRef(false);
   const addRef = useRef<HTMLButtonElement>(null);
   const outcomeRef = useRef<HTMLDivElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
-  const [announcement, setAnnouncement] = useState("");
-  const frame = useRef(0);
   const reasonId = useId();
 
   const announce = useCallback((text: string) => {
@@ -103,43 +108,49 @@ export function ScheduleView() {
     } else addRef.current?.focus();
   }, [applying]);
 
-  /** Runs a session command. `parsed` announces the parse outcome (opening or reloading the text). */
   const run = useCallback(
-    async (fn: () => Promise<ScheduleSession>, parsed: boolean) => {
+    async (fn: () => Promise<ScheduleSession>): Promise<ScheduleSession | null> => {
       try {
         const next = await fn();
         setSession(next);
         setCommandError(null);
         setResult(null);
-        setApplied(null);
-        const sentence = parsed ? parsedSentence(next) : null;
-        if (sentence) announce(sentence);
+        return next;
       } catch (e) {
         fail(e);
+        return null;
       }
     },
-    [announce, fail],
+    [fail],
   );
 
-  const onChooseText = useCallback(async () => {
+  const chooseText = useCallback(async () => {
     try {
       const path = await openFileDialog({ filters: TEXT });
-      if (path) await run(() => openText(path), true);
+      if (path) await run(() => setText(path));
     } catch (e) {
       fail(e);
     }
   }, [run, fail]);
-  const onReload = useCallback(() => run(reloadText, true), [run]);
-  const onChooseXml = useCallback(async () => {
+  const chooseXml = useCallback(async () => {
     try {
       const path = await openFileDialog({ filters: XML });
-      if (path) await run(() => openXml(path), false);
+      if (path) await run(() => setXml(path));
     } catch (e) {
       fail(e);
     }
   }, [run, fail]);
+  const typeText = useCallback((path: string | null) => void run(() => setText(path)), [run]);
+  const typeXml = useCallback((path: string | null) => void run(() => setXml(path)), [run]);
+  const onDrop = useCallback(
+    async (paths: string[]) => {
+      const next = await run(() => setDropped(paths));
+      if (next) announce(dropSentence(next));
+    },
+    [run, announce],
+  );
 
-  const applyKey = session ? `${session.textPath ?? ""}\n${session.xmlPath ?? ""}` : null;
+  const applyKey = session ? `${session.text?.path ?? ""}\n${session.xml?.path ?? ""}` : null;
   const onApply = useCallback(async () => {
     refocus.current = true;
     setConfirming(false);
@@ -160,17 +171,23 @@ export function ScheduleView() {
 
   const loading = session === null && !restoreFailed;
   const reason = session ? applyReason(session) : null;
-  const xmlName = fileName(session?.xmlPath ?? "");
 
   return (
     <section className="tool-view schedule" aria-busy={loading ? true : undefined}>
       <div className="visually-hidden" role="status" aria-live="polite">
         {announcement}
       </div>
+      <DropZone
+        enabled={!!session && !applying}
+        disabledReason={applying ? "The XML file is being updated" : "Not ready yet"}
+        label="Drop a schedule file, an XML file, or both"
+        onDrop={(paths) => void onDrop(paths)}
+      />
       <header className="schedule__header">
         <h1>Schedule Creator</h1>
         <p className="schedule__intro">
-          Read a schedule from a text file and add it to an existing XML file.
+          Choose a schedule text file and the XML file to add it to. Type or paste a path, browse for it, or
+          drop the files on the window.
         </p>
       </header>
       {loading && <span className="visually-hidden">Loading</span>}
@@ -204,23 +221,23 @@ export function ScheduleView() {
       {session && (
         <fieldset className="schedule__steps" disabled={applying}>
           <legend className="visually-hidden">Files</legend>
-          <FileStep
+          <FileField
             step={1}
-            title="Schedule text file"
-            path={session.textPath}
-            chooseLabel="Choose schedule file…"
-            onChoose={onChooseText}
-            onReload={session.textPath ? onReload : undefined}
-          >
-            {session.parseError && <ParseProblem error={session.parseError} />}
-            {session.preview && <PreviewTable preview={session.preview} />}
-          </FileStep>
-          <FileStep
+            label="Schedule file"
+            placeholder="C:\path\to\schedule.txt"
+            slot={session.text}
+            browseLabel="Browse for the schedule file"
+            onBrowse={chooseText}
+            onCommit={typeText}
+          />
+          <FileField
             step={2}
-            title="XML file to update"
-            path={session.xmlPath}
-            chooseLabel="Choose XML file…"
-            onChoose={onChooseXml}
+            label="XML file to update"
+            placeholder="C:\path\to\schedule.xml"
+            slot={session.xml}
+            browseLabel="Browse for the XML file"
+            onBrowse={chooseXml}
+            onCommit={typeXml}
           />
         </fieldset>
       )}
@@ -254,11 +271,12 @@ export function ScheduleView() {
       </div>
       <ConfirmDialog
         open={confirming}
-        title={`Update ${xmlName}?`}
+        title={`Update ${fileName(session?.xml?.path ?? "")}?`}
         body={
           <>
-            The schedule will be added to <span className="mono">{session?.xmlPath ?? ""}</span>. A backup
-            copy of the current file is saved next to it first.
+            The schedule in <span className="mono">{session?.text?.path ?? ""}</span> will be read and added
+            to <span className="mono">{session?.xml?.path ?? ""}</span>. A backup copy of the XML file is
+            saved next to it first.
             {applied !== null && applied === applyKey && (
               <>
                 {" "}
@@ -276,77 +294,79 @@ export function ScheduleView() {
   );
 }
 
-interface FileStepProps {
+interface FileFieldProps {
   step: number;
-  title: string;
-  path: string | null;
-  chooseLabel: string;
-  onChoose: () => void;
-  onReload?: () => void;
-  children?: ReactNode;
+  label: string;
+  placeholder: string;
+  slot: FileSlot | null;
+  browseLabel: string;
+  onBrowse: () => void;
+  /** A typed path, cleaned; `null` clears the file. Called on Enter or leaving the field, when changed. */
+  onCommit: (path: string | null) => void;
 }
 
-function FileStep({ step, title, path, chooseLabel, onChoose, onReload, children }: FileStepProps) {
-  const headingId = useId();
+function FileField({ step, label, placeholder, slot, browseLabel, onBrowse, onCommit }: FileFieldProps) {
+  const inputId = useId();
+  const errorId = useId();
+  const current = slot?.path ?? "";
+  const [draft, setDraft] = useState(current);
+  // Follow the session when it changes (browse, drop): adjust state while rendering.
+  const [shown, setShown] = useState(current);
+  if (shown !== current) {
+    setShown(current);
+    setDraft(current);
+  }
+
+  const commit = () => {
+    const path = cleanPath(draft);
+    if ((path ?? "") === current) {
+      setDraft(current);
+      return;
+    }
+    onCommit(path);
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+    } else if (e.key === "Escape" && draft !== current) {
+      e.preventDefault();
+      setDraft(current);
+    }
+  };
+
   return (
-    <section className="schedule__step" aria-labelledby={headingId}>
-      <h2 id={headingId} className="schedule__step-title">
+    <div className="schedule__step">
+      <label htmlFor={inputId} className="schedule__step-title">
         <span className="schedule__step-number" aria-hidden="true">
           {step}
         </span>
-        {title}
-      </h2>
+        {label}
+      </label>
       <div className="schedule__file">
-        {path ? (
-          <p className="schedule__path mono" title={path}>
-            {path}
-          </p>
-        ) : (
-          <p className="schedule__path schedule__path--none">None chosen</p>
-        )}
-        <div className="schedule__file-actions">
-          <Button onClick={onChoose}>{chooseLabel}</Button>
-          {onReload && <Button onClick={onReload}>Reload</Button>}
-        </div>
+        <input
+          id={inputId}
+          className="schedule__input mono"
+          type="text"
+          spellCheck={false}
+          autoComplete="off"
+          placeholder={placeholder}
+          value={draft}
+          aria-invalid={slot?.error ? true : undefined}
+          aria-describedby={slot?.error ? errorId : undefined}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={onKeyDown}
+        />
+        <Button onClick={onBrowse} aria-label={browseLabel}>
+          Browse…
+        </Button>
       </div>
-      {children}
-    </section>
-  );
-}
-
-function ParseProblem({ error }: { error: ScheduleError }) {
-  const notImplemented = error.kind === "ParseNotImplemented";
-  return <Banner tone={notImplemented ? "warn" : "error"} message={errorMessage(error)} />;
-}
-
-function PreviewTable({ preview }: { preview: SchedulePreview }) {
-  const n = preview.rows.length;
-  if (n === 0) return <p className="schedule__empty">The schedule file has no entries.</p>;
-  return (
-    <div className="schedule__preview">
-      <table className="schedule__table">
-        <caption className="schedule__caption">
-          {n} {plural(n, "entry", "entries")} to add
-        </caption>
-        <thead>
-          <tr>
-            {preview.columns.map((c, i) => (
-              <th key={i} scope="col">
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {preview.rows.map((row, r) => (
-            <tr key={r}>
-              {row.map((cell, c) => (
-                <td key={c}>{cell}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {slot?.error && (
+        <p id={errorId} className="schedule__field-error">
+          {errorMessage(slot.error)}
+        </p>
+      )}
     </div>
   );
 }

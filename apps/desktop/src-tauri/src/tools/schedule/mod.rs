@@ -42,37 +42,42 @@ pub async fn schedule_session(
     Ok(lock(&state.core).snapshot())
 }
 
+/// Sets the schedule text file, or clears it with `null`.
 #[tauri::command]
-pub async fn schedule_open_text(
+pub async fn schedule_set_text(
     state: State<'_, ScheduleState>,
-    path: PathBuf,
+    path: Option<PathBuf>,
 ) -> Result<ScheduleSession, ScheduleError> {
     let mut core = lock(&state.core);
-    core.open_text(&path)?;
+    core.set_text(path.as_deref());
     Ok(core.snapshot())
 }
 
+/// Sets the XML file, or clears it with `null`.
 #[tauri::command]
-pub async fn schedule_reload_text(
+pub async fn schedule_set_xml(
     state: State<'_, ScheduleState>,
+    path: Option<PathBuf>,
 ) -> Result<ScheduleSession, ScheduleError> {
     let mut core = lock(&state.core);
-    core.reload_text()?;
+    core.set_xml(path.as_deref());
     Ok(core.snapshot())
 }
 
+/// Sets the files from a drop: a `.xml` file is the XML file, any other the
+/// schedule file.
 #[tauri::command]
-pub async fn schedule_open_xml(
+pub async fn schedule_set_dropped(
     state: State<'_, ScheduleState>,
-    path: PathBuf,
+    paths: Vec<PathBuf>,
 ) -> Result<ScheduleSession, ScheduleError> {
     let mut core = lock(&state.core);
-    core.open_xml(&path)?;
+    core.set_dropped(&paths)?;
     Ok(core.snapshot())
 }
 
-/// Adds the previewed schedule to the chosen XML file. The UI confirms first;
-/// a backup of the current file is always saved beside it.
+/// Parses the schedule file and adds it to the XML file. The UI confirms
+/// first; a backup of the current XML is always saved beside it.
 #[tauri::command]
 pub async fn schedule_apply(
     state: State<'_, ScheduleState>,

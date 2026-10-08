@@ -1082,10 +1082,6 @@ dependencies = [
 [[package]]
 name = "fm-schedule"
 version = "0.1.0"
-dependencies = [
- "serde",
- "ts-rs",
-]
 
 [[package]]
 name = "fm-tarpack"

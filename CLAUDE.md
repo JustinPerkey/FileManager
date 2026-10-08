@@ -54,7 +54,8 @@ crates/
                               atomic archive writer and post-write verification
   fm-schedule/                Schedule Creator domain library. No tauri dependency.
                               parse (text -> Schedule) and merge (Schedule + XML -> XML)
-                              are the hooks; both are stubs returning NotImplemented
+                              are the hooks, run only on apply; both are stubs
+                              returning NotImplemented
 examples/tarpack/             example manifests, valid, used by tests through include_str!
 docs/tarpack-manifest.md      the manifest, archive-layout, and extraction reference
 docs/tarpack-e2e.md           manual end-to-end release checklist (Windows exe to Linux target)
@@ -76,8 +77,9 @@ apps/desktop/
                               watch.rs (manifest watcher, notify-debouncer-mini),
                               types.rs (boundary types exported through ts-rs),
                               tests.rs
-    src/tools/schedule/       mod.rs (the schedule_* commands), core.rs (session,
-                              backup, atomic write; calls the fm-schedule hooks),
+    src/tools/schedule/       mod.rs (the schedule_* commands), core.rs (the two
+                              chosen files, drop sorting, backup, atomic write;
+                              calls the fm-schedule hooks),
                               types.rs, tests.rs
     src/generated_types.rs    #[cfg(test)] ts-rs export and currency test
   src/

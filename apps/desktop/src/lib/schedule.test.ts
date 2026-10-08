@@ -17,9 +17,11 @@ beforeEach(() => {
 describe("schedule client", () => {
   it.each([
     ["session", () => schedule.session(), "schedule_session", undefined],
-    ["openText", () => schedule.openText("s.txt"), "schedule_open_text", { path: "s.txt" }],
-    ["reloadText", () => schedule.reloadText(), "schedule_reload_text", undefined],
-    ["openXml", () => schedule.openXml("s.xml"), "schedule_open_xml", { path: "s.xml" }],
+    ["setText", () => schedule.setText("s.txt"), "schedule_set_text", { path: "s.txt" }],
+    ["setText null", () => schedule.setText(null), "schedule_set_text", { path: null }],
+    ["setXml", () => schedule.setXml("s.xml"), "schedule_set_xml", { path: "s.xml" }],
+    ["setXml null", () => schedule.setXml(null), "schedule_set_xml", { path: null }],
+    ["setDropped", () => schedule.setDropped(["a", "b"]), "schedule_set_dropped", { paths: ["a", "b"] }],
     ["apply", () => schedule.apply(), "schedule_apply", undefined],
   ])("%s invokes the right command", async (_name, run, command, args) => {
     await run();

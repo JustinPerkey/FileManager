@@ -4,22 +4,30 @@
 
 use std::fmt;
 
-use fm_schedule::{MergeError, ParseError, SchedulePreview};
+use fm_schedule::{MergeError, ParseError};
 use serde::Serialize;
+
+/// One chosen file. `error` says why it cannot be used as it is; the path is
+/// kept so the user sees what they chose or typed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FileSlot {
+    /// Display string.
+    pub path: String,
+    /// `NotAFile`, `TextUnreadable` or `XmlUnreadable`.
+    pub error: Option<ScheduleError>,
+}
 
 /// Everything the UI shows. Every command but `schedule_apply` returns one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ScheduleSession {
-    /// The chosen schedule text file, as a display string.
-    pub text_path: Option<String>,
-    /// The chosen XML file, as a display string.
-    pub xml_path: Option<String>,
-    /// The parsed schedule, when the text file parsed.
-    pub preview: Option<SchedulePreview>,
-    /// Why the text file did not parse (`ParseFailed` or `ParseNotImplemented`).
-    pub parse_error: Option<ScheduleError>,
-    /// A text file parsed into at least one row and an XML file is chosen.
+    /// The schedule text file.
+    pub text: Option<FileSlot>,
+    /// The XML file to update.
+    pub xml: Option<FileSlot>,
+    /// Both files are chosen and neither has an error. The text is parsed
+    /// only when applying.
     pub can_apply: bool,
 }
 
@@ -46,6 +54,8 @@ pub enum ScheduleErrorKind {
     TextUnreadable,
     /// The XML file could not be read or is not UTF-8.
     XmlUnreadable,
+    /// More than one schedule file or more than one XML file was dropped.
+    DropAmbiguous,
     /// The schedule text has a problem; `line` says where, when known.
     ParseFailed,
     /// The parse hook is still a stub.

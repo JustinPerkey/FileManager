@@ -60,105 +60,153 @@ fn core() -> Core {
     })
 }
 
+/// A core with `text` and `xml` written and chosen.
+fn ready(d: &TempDir, text: &str, xml: &str) -> (Core, PathBuf) {
+    let mut c = core();
+    c.set_text(Some(&write(d, "s.txt", text)));
+    let xml = write(d, "s.xml", xml);
+    c.set_xml(Some(&xml));
+    (c, xml)
+}
+
 #[test]
 fn empty_session() {
     let s = Core::default().snapshot();
-    assert_eq!(s.text_path, None);
-    assert_eq!(s.xml_path, None);
-    assert_eq!(s.preview, None);
-    assert_eq!(s.parse_error, None);
+    assert_eq!(s.text, None);
+    assert_eq!(s.xml, None);
     assert!(!s.can_apply);
+}
+
+#[test]
+fn setting_files_does_not_parse() {
+    let d = dir();
+    // The fake parser rejects `!`; choosing the file must not run it.
+    let (c, _) = ready(&d, "a!\n", "<schedule></schedule>");
+    let s = c.snapshot();
+    assert_eq!(s.text.as_ref().unwrap().error, None);
+    assert!(s.can_apply);
+}
+
+#[test]
+fn a_bad_path_is_kept_with_its_error() {
+    let d = dir();
+    let mut c = core();
+    let gone = d.path().join("gone.txt");
+    c.set_text(Some(&gone));
+    let text = c.snapshot().text.unwrap();
+    assert_eq!(text.path, gone.to_string_lossy());
+    assert_eq!(text.error.map(|e| e.kind), Some(K::NotAFile));
+
+    c.set_xml(Some(d.path()));
+    assert_eq!(
+        c.snapshot().xml.unwrap().error.map(|e| e.kind),
+        Some(K::NotAFile)
+    );
+
+    let utf16 = d.path().join("utf16.xml");
+    fs::write(&utf16, [0xff, 0xfe, 0x3c, 0x00]).unwrap();
+    c.set_xml(Some(&utf16));
+    assert_eq!(
+        c.snapshot().xml.unwrap().error.map(|e| e.kind),
+        Some(K::XmlUnreadable)
+    );
+
+    let latin1 = d.path().join("latin1.txt");
+    fs::write(&latin1, [0x61, 0xe9, 0x0a]).unwrap();
+    c.set_text(Some(&latin1));
+    assert_eq!(
+        c.snapshot().text.unwrap().error.map(|e| e.kind),
+        Some(K::TextUnreadable)
+    );
+    assert!(!c.snapshot().can_apply);
+    assert_eq!(c.apply().unwrap_err().kind, K::TextUnreadable);
+}
+
+#[test]
+fn none_clears_a_slot() {
+    let d = dir();
+    let (mut c, _) = ready(&d, "a\n", "<schedule></schedule>");
+    c.set_text(None);
+    assert_eq!(c.snapshot().text, None);
+    assert_eq!(c.apply().unwrap_err().kind, K::NoText);
+    c.set_xml(None);
+    assert_eq!(c.snapshot().xml, None);
+}
+
+#[test]
+fn drop_sorts_xml_from_text() {
+    let d = dir();
+    let mut c = core();
+    let text = write(&d, "week.TXT", "a\n");
+    let xml = write(&d, "plan.XML", "<schedule></schedule>");
+    c.set_dropped(&[xml.clone(), text.clone()]).unwrap();
+    let s = c.snapshot();
+    assert_eq!(s.text.unwrap().path, text.to_string_lossy());
+    assert_eq!(s.xml.unwrap().path, xml.to_string_lossy());
+
+    // A drop of one kind keeps the other slot.
+    let other = write(&d, "other.csv", "b\n");
+    c.set_dropped(std::slice::from_ref(&other)).unwrap();
+    let s = c.snapshot();
+    assert_eq!(s.text.unwrap().path, other.to_string_lossy());
+    assert_eq!(s.xml.unwrap().path, xml.to_string_lossy());
+}
+
+#[test]
+fn ambiguous_drop_changes_nothing() {
+    let d = dir();
+    let mut c = core();
+    let a = write(&d, "a.xml", "<a/>");
+    let b = write(&d, "b.xml", "<b/>");
+    let t = write(&d, "t.txt", "t");
+    assert_eq!(
+        c.set_dropped(&[a, b, t.clone()]).unwrap_err().kind,
+        K::DropAmbiguous
+    );
+    let u = write(&d, "u.txt", "u");
+    assert_eq!(c.set_dropped(&[t, u]).unwrap_err().kind, K::DropAmbiguous);
+    assert_eq!(c.snapshot().text, None);
+    assert_eq!(c.snapshot().xml, None);
 }
 
 #[test]
 fn default_hooks_are_the_stubs() {
     let d = dir();
     let mut c = Core::default();
-    c.open_text(&write(&d, "s.txt", "a\n")).unwrap();
-    let s = c.snapshot();
-    assert_eq!(s.parse_error.map(|e| e.kind), Some(K::ParseNotImplemented));
-    assert!(!s.can_apply);
+    c.set_text(Some(&write(&d, "s.txt", "a\n")));
+    let xml = write(&d, "s.xml", "<schedule/>");
+    c.set_xml(Some(&xml));
+    assert_eq!(c.apply().unwrap_err().kind, K::ParseNotImplemented);
+    assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
 }
 
 #[test]
-fn open_text_previews_and_strips_bom() {
+fn parse_runs_on_apply_and_its_error_names_the_line() {
     let d = dir();
-    let mut c = core();
-    c.open_text(&write(&d, "s.txt", "\u{feff}a\r\nb\r\n"))
-        .unwrap();
-    let preview = c.snapshot().preview.expect("preview");
-    assert_eq!(preview.columns, ["Item"]);
-    assert_eq!(preview.rows, [["a"], ["b"]]);
-}
-
-#[test]
-fn parse_failure_is_kept_in_the_session_with_its_line() {
-    let d = dir();
-    let mut c = core();
-    c.open_text(&write(&d, "s.txt", "a\nb!\n")).unwrap();
-    let s = c.snapshot();
-    let e = s.parse_error.expect("error");
+    let (c, xml) = ready(&d, "a\nb!\n", "<schedule></schedule>");
+    let e = c.apply().unwrap_err();
     assert_eq!(e.kind, K::ParseFailed);
     assert_eq!(e.line, Some(2));
-    assert!(s.text_path.is_some());
-    assert_eq!(s.preview, None);
+    assert_eq!(fs::read_to_string(&xml).unwrap(), "<schedule></schedule>");
+    assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
 }
 
 #[test]
-fn unreadable_or_missing_text_leaves_the_session_unchanged() {
+fn apply_reads_the_text_as_it_is_now() {
     let d = dir();
-    let mut c = core();
-    let good = write(&d, "s.txt", "a\n");
-    c.open_text(&good).unwrap();
-
-    let bad = d.path().join("latin1.txt");
-    fs::write(&bad, [0x61, 0xe9, 0x0a]).unwrap();
-    assert_eq!(c.open_text(&bad).unwrap_err().kind, K::TextUnreadable);
+    let (c, xml) = ready(&d, "a\n", "<schedule></schedule>");
+    fs::write(d.path().join("s.txt"), "\u{feff}b\r\nc\r\n").unwrap();
+    assert_eq!(c.apply().unwrap().added, 2);
     assert_eq!(
-        c.open_text(&d.path().join("gone.txt")).unwrap_err().kind,
-        K::NotAFile
+        fs::read_to_string(&xml).unwrap(),
+        "<schedule><item>b</item><item>c</item></schedule>"
     );
-    assert_eq!(c.open_text(d.path()).unwrap_err().kind, K::NotAFile);
-    assert_eq!(
-        c.snapshot().text_path,
-        Some(good.to_string_lossy().into_owned())
-    );
-}
-
-#[test]
-fn reload_rereads_the_file() {
-    let d = dir();
-    let mut c = core();
-    assert_eq!(c.reload_text().unwrap_err().kind, K::NoText);
-    let path = write(&d, "s.txt", "a\n");
-    c.open_text(&path).unwrap();
-    fs::write(&path, "a\nb\n").unwrap();
-    c.reload_text().unwrap();
-    assert_eq!(c.snapshot().preview.unwrap().rows.len(), 2);
-}
-
-#[test]
-fn apply_needs_a_parsed_text_and_an_xml() {
-    let d = dir();
-    let mut c = core();
-    assert_eq!(c.apply().unwrap_err().kind, K::NoText);
-    c.open_text(&write(&d, "s.txt", "a!\n")).unwrap();
-    assert_eq!(c.apply().unwrap_err().kind, K::ParseFailed);
-    c.open_text(&write(&d, "s.txt", "a\n")).unwrap();
-    assert_eq!(c.apply().unwrap_err().kind, K::NoXml);
-    assert!(!c.snapshot().can_apply);
-    c.open_xml(&write(&d, "s.xml", "<schedule></schedule>"))
-        .unwrap();
-    assert!(c.snapshot().can_apply);
 }
 
 #[test]
 fn apply_backs_up_then_writes_the_merged_xml() {
     let d = dir();
-    let mut c = core();
-    c.open_text(&write(&d, "s.txt", "a\nb\n")).unwrap();
-    let xml = write(&d, "s.xml", "<schedule></schedule>");
-    c.open_xml(&xml).unwrap();
+    let (c, xml) = ready(&d, "a\nb\n", "<schedule></schedule>");
 
     let first = c.apply().unwrap();
     assert_eq!(first.added, 2);
@@ -194,10 +242,7 @@ fn apply_backs_up_then_writes_the_merged_xml() {
 #[test]
 fn failed_merge_writes_nothing() {
     let d = dir();
-    let mut c = core();
-    c.open_text(&write(&d, "s.txt", "a\n")).unwrap();
-    let xml = write(&d, "s.xml", "<other/>");
-    c.open_xml(&xml).unwrap();
+    let (c, xml) = ready(&d, "a\n", "<other/>");
     assert_eq!(c.apply().unwrap_err().kind, K::MergeFailed);
     assert_eq!(fs::read_to_string(&xml).unwrap(), "<other/>");
     assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
@@ -210,31 +255,26 @@ fn stub_merge_writes_nothing() {
         parse: fake_parse,
         ..Hooks::default()
     });
-    c.open_text(&write(&d, "s.txt", "a\n")).unwrap();
-    let xml = write(&d, "s.xml", "<schedule/>");
-    c.open_xml(&xml).unwrap();
+    c.set_text(Some(&write(&d, "s.txt", "a\n")));
+    c.set_xml(Some(&write(&d, "s.xml", "<schedule/>")));
     assert_eq!(c.apply().unwrap_err().kind, K::MergeNotImplemented);
     assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
 }
 
 #[test]
-fn xml_removed_after_choosing_is_reported() {
+fn files_removed_after_choosing_are_reported() {
     let d = dir();
-    let mut c = core();
-    c.open_text(&write(&d, "s.txt", "a\n")).unwrap();
-    let xml = write(&d, "s.xml", "<schedule></schedule>");
-    c.open_xml(&xml).unwrap();
+    let (c, xml) = ready(&d, "a\n", "<schedule></schedule>");
     fs::remove_file(&xml).unwrap();
     assert_eq!(c.apply().unwrap_err().kind, K::XmlUnreadable);
+    fs::remove_file(d.path().join("s.txt")).unwrap();
+    assert_eq!(c.apply().unwrap_err().kind, K::TextUnreadable);
 }
 
 #[test]
 fn xml_bom_is_kept_and_backed_up() {
     let d = dir();
-    let mut c = core();
-    c.open_text(&write(&d, "s.txt", "a\n")).unwrap();
-    let xml = write(&d, "s.xml", "\u{feff}<schedule></schedule>");
-    c.open_xml(&xml).unwrap();
+    let (c, xml) = ready(&d, "a\n", "\u{feff}<schedule></schedule>");
     let summary = c.apply().unwrap();
     assert_eq!(
         fs::read_to_string(&xml).unwrap(),
@@ -244,25 +284,4 @@ fn xml_bom_is_kept_and_backed_up() {
         fs::read_to_string(&summary.backup_path).unwrap(),
         "\u{feff}<schedule></schedule>"
     );
-}
-
-#[test]
-fn unreadable_xml_is_rejected_when_chosen() {
-    let d = dir();
-    let mut c = core();
-    let bad = d.path().join("utf16.xml");
-    fs::write(&bad, [0xff, 0xfe, 0x3c, 0x00]).unwrap();
-    assert_eq!(c.open_xml(&bad).unwrap_err().kind, K::XmlUnreadable);
-    assert_eq!(c.snapshot().xml_path, None);
-}
-
-#[test]
-fn an_empty_schedule_cannot_be_applied() {
-    let d = dir();
-    let mut c = core();
-    c.open_text(&write(&d, "s.txt", "\n")).unwrap();
-    c.open_xml(&write(&d, "s.xml", "<schedule></schedule>"))
-        .unwrap();
-    assert_eq!(c.snapshot().preview.unwrap().rows.len(), 0);
-    assert!(!c.snapshot().can_apply);
 }

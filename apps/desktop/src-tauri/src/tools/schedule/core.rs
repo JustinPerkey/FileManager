@@ -1,6 +1,7 @@
 //! The Schedule Creator's session logic as plain functions, with no Tauri
 //! types. The parse and merge steps go through [`Hooks`], which default to
-//! `fm_schedule::parse` and `fm_schedule::merge`; tests swap in fakes.
+//! `fm_schedule::parse` and `fm_schedule::merge`; tests swap in fakes. Both
+//! run only in [`Core::apply`].
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -8,7 +9,9 @@ use std::path::{Path, PathBuf};
 
 use fm_schedule::{MergeError, MergeOutcome, ParseError, Schedule};
 
-use super::types::{ApplySummary, ScheduleError, ScheduleErrorKind as K, ScheduleSession};
+use super::types::{
+    ApplySummary, FileSlot, ScheduleError, ScheduleErrorKind as K, ScheduleSession,
+};
 
 pub(super) type ParseFn = fn(&str) -> Result<Schedule, ParseError>;
 pub(super) type MergeFn = fn(&Schedule, &str) -> Result<MergeOutcome, MergeError>;
@@ -29,17 +32,50 @@ impl Default for Hooks {
     }
 }
 
-/// The text file, and what parsing it produced.
-struct Text {
+/// A chosen file and, if it cannot be used, why.
+struct Slot {
     path: PathBuf,
-    parsed: Result<Schedule, ScheduleError>,
+    error: Option<ScheduleError>,
+}
+
+impl Slot {
+    /// Checks `path` is a file of UTF-8 text. A problem is kept, not returned.
+    fn check(path: &Path, unreadable: K) -> Slot {
+        let error = require_file(path)
+            .and_then(|()| read_text(path, unreadable))
+            .err();
+        Slot {
+            path: path.to_path_buf(),
+            error,
+        }
+    }
+
+    fn view(&self) -> FileSlot {
+        FileSlot {
+            path: display(&self.path),
+            error: self.error.clone(),
+        }
+    }
+
+    /// The path, if the slot is usable.
+    fn usable<'a>(
+        slot: &'a Option<Slot>,
+        missing: K,
+        what: &str,
+    ) -> Result<&'a Path, ScheduleError> {
+        match slot {
+            None => Err(ScheduleError::new(missing, format!("no {what} is chosen"))),
+            Some(Slot { error: Some(e), .. }) => Err(e.clone()),
+            Some(Slot { path, error: None }) => Ok(path),
+        }
+    }
 }
 
 #[derive(Default)]
 pub(super) struct Core {
     hooks: Hooks,
-    text: Option<Text>,
-    xml: Option<PathBuf>,
+    text: Option<Slot>,
+    xml: Option<Slot>,
 }
 
 fn display(path: &Path) -> String {
@@ -70,6 +106,11 @@ fn require_file(path: &Path) -> Result<(), ScheduleError> {
             format!("{} is not a file", path.display()),
         ))
     }
+}
+
+fn is_xml(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("xml"))
 }
 
 /// Copies `path` to the first free name of `<name>.bak`, `<name>.bak.1`, …
@@ -117,66 +158,62 @@ impl Core {
     }
 
     pub fn snapshot(&self) -> ScheduleSession {
-        let (preview, parse_error) = match self.text.as_ref().map(|t| &t.parsed) {
-            Some(Ok(schedule)) => (Some(schedule.preview()), None),
-            Some(Err(e)) => (None, Some(e.clone())),
-            None => (None, None),
-        };
+        let ok = |s: &Option<Slot>| s.as_ref().is_some_and(|s| s.error.is_none());
         ScheduleSession {
-            text_path: self.text.as_ref().map(|t| display(&t.path)),
-            xml_path: self.xml.as_deref().map(display),
-            can_apply: preview.as_ref().is_some_and(|p| !p.rows.is_empty()) && self.xml.is_some(),
-            preview,
-            parse_error,
+            text: self.text.as_ref().map(Slot::view),
+            xml: self.xml.as_ref().map(Slot::view),
+            can_apply: ok(&self.text) && ok(&self.xml),
         }
     }
 
-    /// Reads and parses `path`. A parse failure is kept in the session, not
-    /// returned; a file that cannot be read leaves the session unchanged.
-    pub fn open_text(&mut self, path: &Path) -> Result<(), ScheduleError> {
-        require_file(path)?;
-        let (text, _) = read_text(path, K::TextUnreadable)?;
-        let parsed = (self.hooks.parse)(&text).map_err(ScheduleError::from);
-        self.text = Some(Text {
-            path: path.to_path_buf(),
-            parsed,
-        });
+    /// Sets or clears (`None`) the schedule text file. It is checked to be a
+    /// readable UTF-8 file, not parsed.
+    pub fn set_text(&mut self, path: Option<&Path>) {
+        self.text = path.map(|p| Slot::check(p, K::TextUnreadable));
+    }
+
+    /// Sets or clears (`None`) the XML file. It is checked to be a readable
+    /// UTF-8 file, and read again when applying.
+    pub fn set_xml(&mut self, path: Option<&Path>) {
+        self.xml = path.map(|p| Slot::check(p, K::XmlUnreadable));
+    }
+
+    /// Sets the slots from dropped paths: a `.xml` file is the XML file,
+    /// anything else the schedule file. A slot with nothing dropped for it
+    /// is kept. More than one path for a slot changes nothing.
+    pub fn set_dropped(&mut self, paths: &[PathBuf]) -> Result<(), ScheduleError> {
+        let (xml, text): (Vec<&PathBuf>, Vec<&PathBuf>) = paths.iter().partition(|p| is_xml(p));
+        if xml.len() > 1 || text.len() > 1 {
+            return Err(ScheduleError::new(
+                K::DropAmbiguous,
+                format!(
+                    "{} XML and {} other files were dropped; drop at most one of each",
+                    xml.len(),
+                    text.len()
+                ),
+            ));
+        }
+        if let Some(p) = text.first() {
+            self.set_text(Some(p));
+        }
+        if let Some(p) = xml.first() {
+            self.set_xml(Some(p));
+        }
         Ok(())
     }
 
-    pub fn reload_text(&mut self) -> Result<(), ScheduleError> {
-        let path = match &self.text {
-            Some(t) => t.path.clone(),
-            None => return Err(ScheduleError::new(K::NoText, "no schedule file is open")),
-        };
-        self.open_text(&path)
-    }
-
-    /// Chooses the XML file to update. It is checked to be readable UTF-8
-    /// here, and read again when applying.
-    pub fn open_xml(&mut self, path: &Path) -> Result<(), ScheduleError> {
-        require_file(path)?;
-        read_text(path, K::XmlUnreadable)?;
-        self.xml = Some(path.to_path_buf());
-        Ok(())
-    }
-
-    /// Adds the previewed schedule to the XML file as it is on disk now: merges
-    /// in memory, saves a backup of the current file, then replaces the file
-    /// atomically. Nothing is written when the merge fails.
+    /// Reads and parses the schedule file, adds it to the XML file as it is on
+    /// disk now, saves a backup of the current XML, then replaces it
+    /// atomically. Nothing is written when parsing or merging fails.
     pub fn apply(&self) -> Result<ApplySummary, ScheduleError> {
-        let text = self
-            .text
-            .as_ref()
-            .ok_or_else(|| ScheduleError::new(K::NoText, "no schedule file is open"))?;
-        let schedule = text.parsed.as_ref().map_err(Clone::clone)?;
-        let xml_path = self
-            .xml
-            .as_deref()
-            .ok_or_else(|| ScheduleError::new(K::NoXml, "no XML file is chosen"))?;
+        let text_path = Slot::usable(&self.text, K::NoText, "schedule file")?;
+        let xml_path = Slot::usable(&self.xml, K::NoXml, "XML file")?;
+
+        let (text, _) = read_text(text_path, K::TextUnreadable)?;
+        let schedule = (self.hooks.parse)(&text)?;
 
         let (xml, bom) = read_text(xml_path, K::XmlUnreadable)?;
-        let outcome = (self.hooks.merge)(schedule, &xml)?;
+        let outcome = (self.hooks.merge)(&schedule, &xml)?;
         // The backup holds the original bytes; the new file keeps its BOM.
         let original = if bom { format!("{BOM}{xml}") } else { xml };
         let updated = if bom {

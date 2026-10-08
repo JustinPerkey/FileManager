@@ -5,12 +5,18 @@ import { call } from "./tauri";
 /** Typed client for the Schedule Creator. Every call but `apply` resolves to a full session snapshot. */
 
 export const session = () => call<ScheduleSession>("schedule_session");
-export const openText = (path: string) => call<ScheduleSession>("schedule_open_text", { path });
-export const reloadText = () => call<ScheduleSession>("schedule_reload_text");
-export const openXml = (path: string) => call<ScheduleSession>("schedule_open_xml", { path });
+
+/** Sets the schedule text file, or clears it with `null`. A bad path is kept, with its error. */
+export const setText = (path: string | null) => call<ScheduleSession>("schedule_set_text", { path });
+
+/** Sets the XML file, or clears it with `null`. A bad path is kept, with its error. */
+export const setXml = (path: string | null) => call<ScheduleSession>("schedule_set_xml", { path });
+
+/** Sets the files from a drop: a `.xml` file is the XML file, any other the schedule file. */
+export const setDropped = (paths: string[]) => call<ScheduleSession>("schedule_set_dropped", { paths });
 
 /**
- * Adds the previewed schedule to the chosen XML file, after saving a backup
+ * Parses the schedule file and adds it to the XML file, after saving a backup
  * of it. Confirm with the user first: this rewrites the file.
  */
 export const apply = () => call<ApplySummary>("schedule_apply");

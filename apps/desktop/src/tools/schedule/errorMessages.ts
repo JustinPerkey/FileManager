@@ -2,19 +2,23 @@ import type { ScheduleError } from "../../lib/generated/ScheduleError";
 import type { ScheduleErrorKind } from "../../lib/generated/ScheduleErrorKind";
 
 /** One message per kind. A `Record` over the closed union: a missing or extra kind fails the typecheck. */
+/** `text` ending in a full stop, unless it already ends in punctuation. */
+const sentence = (text: string) => (/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`);
+
 const messages: Record<ScheduleErrorKind, (e: ScheduleError) => string> = {
   NoText: () => "Choose a schedule text file first.",
   NoXml: () => "Choose the XML file to update first.",
-  NotAFile: () => "The file was not found, or the chosen path is not a file.",
+  NotAFile: () => "No file was found at this path.",
   TextUnreadable: () =>
     "The schedule file could not be read. Check that it still exists and is saved as UTF-8 text.",
   XmlUnreadable: () =>
     "The XML file could not be read. Check that it still exists and is saved as UTF-8 text.",
+  DropAmbiguous: () => "Drop one schedule file, one XML file, or one of each. Nothing was changed.",
   ParseFailed: (e) =>
     e.line !== undefined
-      ? `Line ${e.line} of the schedule file: ${e.message}`
-      : `The schedule file has a problem: ${e.message}`,
-  ParseNotImplemented: () => "Reading schedule files is not implemented yet.",
+      ? `Line ${e.line} of the schedule file: ${sentence(e.message)} Nothing was changed.`
+      : `The schedule file has a problem: ${sentence(e.message)} Nothing was changed.`,
+  ParseNotImplemented: () => "Reading schedule files is not implemented yet. Nothing was changed.",
   MergeFailed: () => "The schedule could not be added to the XML file. Nothing was changed.",
   MergeNotImplemented: () => "Updating the XML file is not implemented yet. Nothing was changed.",
   Io: () => "A backup or the updated XML file could not be written. The XML file was not changed.",

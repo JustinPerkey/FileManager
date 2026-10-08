@@ -18,7 +18,7 @@
 .schedule__steps {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-4);
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -31,6 +31,7 @@
 }
 .schedule__step-title {
   display: flex;
+  width: fit-content;
   align-items: center;
   gap: var(--space-2);
   margin: 0;
@@ -54,63 +55,34 @@
   align-items: center;
   gap: var(--space-2) var(--space-3);
 }
-.schedule__path {
-  flex: 1 1 20rem;
+.schedule__input {
+  flex: 1 1 24rem;
   min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  min-height: 2rem;
+  font-size: var(--font-size-md);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.schedule__input::placeholder {
+  color: var(--text-muted);
+}
+.schedule__input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.schedule__input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.schedule__input:disabled {
+  opacity: 0.6;
+}
+.schedule__field-error {
   margin: 0;
   font-size: var(--font-size-md);
-  overflow-wrap: anywhere;
-}
-.schedule__path--none {
-  color: var(--text-muted);
-  font-family: var(--font-ui);
-}
-.schedule__file-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.schedule__empty {
-  margin: 0;
-  color: var(--text-muted);
-}
-
-.schedule__preview {
-  max-height: 24rem;
-  overflow: auto;
-  border-top: 1px solid var(--border);
-}
-.schedule__table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  background: var(--surface);
-  font-size: var(--font-size-md);
-  text-align: left;
-}
-.schedule__caption {
-  padding: var(--space-2) 0;
-  caption-side: top;
-  text-align: left;
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-}
-.schedule__table th {
-  position: sticky;
-  top: 0;
-  padding: var(--space-2);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--text-muted);
-}
-.schedule__table td {
-  padding: var(--space-2);
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-  overflow-wrap: anywhere;
+  color: var(--danger);
 }
 
 .schedule__apply {

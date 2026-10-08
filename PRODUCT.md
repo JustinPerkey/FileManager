@@ -65,8 +65,9 @@ and a build that verifies the archive before anything replaces the output.
 - Paths are OS paths. The UI receives display strings, which may contain
   U+FFFD where a name is not valid UTF-8.
 - The second tool is the **Schedule Creator** (`schedule`): it reads a
-  schedule from a text file and adds it to an existing XML file, after a
-  confirmation and a backup. Its parsing and XML update are not written yet;
+  schedule from a text file and adds it to an existing XML file, both
+  specified by the user (typed path, Browse, or drop), after a confirmation
+  and a backup. Its parsing and XML update are not written yet;
   the UI says so. Further tools are undecided.
 
 ## Brand Commitments

@@ -37,8 +37,10 @@ impl std::error::Error for ParseError {}
 /// removed. Line endings are as in the file (`\r\n` or `\n`), so prefer
 /// `str::lines`, which handles both.
 ///
-/// Return [`ParseError::Invalid`] with the 1-based line number for a
-/// problem in the file; the UI shows it next to the file name.
+/// Called when the user confirms the update, before the XML is read. Return
+/// [`ParseError::Invalid`] with the 1-based line number for a problem in the
+/// file; the UI shows it as "Line N of the schedule file: message", and
+/// nothing is written.
 pub fn parse(text: &str) -> Result<Schedule, ParseError> {
     // TODO: parse `text` into a `Schedule`.
     let _ = text;
