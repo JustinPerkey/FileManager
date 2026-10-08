@@ -3,4 +3,4 @@
 /**
  * What went wrong. The UI switches over it exhaustively.
  */
-export type ScheduleErrorKind = "NoText" | "NoXml" | "NotAFile" | "TextUnreadable" | "XmlUnreadable" | "DropAmbiguous" | "ParseFailed" | "ParseNotImplemented" | "MergeFailed" | "MergeNotImplemented" | "Io";
+export type ScheduleErrorKind = "NoText" | "NoXml" | "NotAFile" | "NotAbsolute" | "FilesChanged" | "TextUnreadable" | "XmlUnreadable" | "DropAmbiguous" | "ParseFailed" | "ParseNotImplemented" | "MergeFailed" | "MergeNotImplemented" | "Io";

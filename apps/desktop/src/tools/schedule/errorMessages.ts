@@ -9,6 +9,9 @@ const messages: Record<ScheduleErrorKind, (e: ScheduleError) => string> = {
   NoText: () => "Choose a schedule text file first.",
   NoXml: () => "Choose the XML file to update first.",
   NotAFile: () => "No file was found at this path.",
+  NotAbsolute: () => "Enter the full path, starting with the drive letter, for example C:\\.",
+  FilesChanged: () =>
+    "The chosen files changed after you confirmed. Nothing was changed. Check the files and try again.",
   TextUnreadable: () =>
     "The schedule file could not be read. Check that it still exists and is saved as UTF-8 text.",
   XmlUnreadable: () =>

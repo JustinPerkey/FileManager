@@ -19,11 +19,15 @@ reports "not implemented yet" when the user clicks Add.
      of each; two of the same kind changes nothing and is reported.
 
    `schedule_set_text` / `schedule_set_xml` only check that the path is a
-   file of UTF-8 text. Nothing is parsed yet. A bad path stays in its field,
+   full (absolute) path to a file of UTF-8 text; a relative path is rejected,
+   since it would resolve against a working directory the user never sees. Nothing is parsed yet. A bad path stays in its field,
    marked invalid with its error, and blocks Add.
 2. **Add to XML…** is enabled once both files are set without errors. The
    user confirms (the dialog names both files, and warns if this schedule was
-   already added to this file in this session), then `schedule_apply`:
+   already added to this file in this session). Drops are ignored while the
+   dialog is open. Update calls `schedule_apply` with the two paths the
+   dialog showed; if the session holds different files, it fails with
+   `FilesChanged` and writes nothing. Otherwise it:
    - reads the schedule file as it is now (UTF-8, BOM dropped) and calls
      `fm_schedule::parse`;
    - reads the XML as it is now (UTF-8, BOM dropped) and calls

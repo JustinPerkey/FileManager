@@ -77,10 +77,13 @@ pub async fn schedule_set_dropped(
 }
 
 /// Parses the schedule file and adds it to the XML file. The UI confirms
-/// first; a backup of the current XML is always saved beside it.
+/// first and passes the display paths it showed; a mismatch writes nothing.
+/// A backup of the current XML is always saved beside it.
 #[tauri::command]
 pub async fn schedule_apply(
     state: State<'_, ScheduleState>,
+    expected_text: String,
+    expected_xml: String,
 ) -> Result<ApplySummary, ScheduleError> {
-    lock(&state.core).apply()
+    lock(&state.core).apply(&expected_text, &expected_xml)
 }

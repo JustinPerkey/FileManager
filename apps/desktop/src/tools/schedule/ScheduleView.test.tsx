@@ -163,6 +163,7 @@ test("adding confirms first, then reports the backup and moves focus to it", asy
   vi.mocked(sc.apply).mockResolvedValue({ xmlPath: XML, backupPath: `${XML}.bak`, added: 2 });
   await user.click(screen.getByRole("button", { name: "Update" }));
   expect(sc.apply).toHaveBeenCalledTimes(1);
+  expect(sc.apply).toHaveBeenCalledWith(TXT, XML);
   await waitFor(() => expect(document.activeElement).toHaveTextContent("Added 2 entries to schedule.xml."));
   expect(screen.getByText(`${XML}.bak`)).toBeInTheDocument();
   expect((await axe(container)).violations).toEqual([]);
@@ -226,4 +227,46 @@ test("a failed first load can be retried", async () => {
   await user.click(await screen.findByRole("button", { name: "Try again" }));
   expect(await screen.findByRole("textbox", { name: "Schedule file" })).toBeInTheDocument();
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("drops are ignored while the confirmation is open", async () => {
+  const user = userEvent.setup();
+  await load(ready);
+  await user.click(screen.getByRole("button", { name: "Add to XML…" }));
+  await screen.findByRole("dialog");
+  await act(async () => drag({ type: "drop", paths: ["C:\\other.xml"] }));
+  expect(sc.setDropped).not.toHaveBeenCalled();
+});
+
+test("a late response from an older command is ignored", async () => {
+  const user = userEvent.setup();
+  await load(empty);
+  let finishOld: (s: ScheduleSession) => void = () => undefined;
+  vi.mocked(sc.setText)
+    .mockReturnValueOnce(new Promise((r) => (finishOld = r)))
+    .mockResolvedValue({ ...empty, text: { path: "C:\\old.txt", error: null } });
+  await user.type(textBox(), "C:\\old.txt{Enter}");
+  vi.mocked(sc.setXml).mockResolvedValue({ ...empty, xml: { path: XML, error: null } });
+  await user.type(xmlBox(), `${XML}{Enter}`);
+  await waitFor(() => expect(xmlBox()).toHaveValue(XML));
+  await act(async () => finishOld({ ...empty, text: { path: "C:\\old.txt", error: null } }));
+  expect(xmlBox()).toHaveValue(XML);
+  expect(screen.getByRole("button", { name: "Add to XML…" })).toHaveAccessibleDescription(
+    "Choose a schedule file.",
+  );
+});
+
+test("a typed path's error is announced", async () => {
+  const user = userEvent.setup();
+  await load(empty);
+  vi.mocked(sc.setText).mockResolvedValue({
+    ...empty,
+    text: { path: "week.txt", error: { kind: "NotAbsolute", message: "week.txt is not a full path" } },
+  });
+  await user.type(textBox(), "week.txt{Enter}");
+  await waitFor(() =>
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Enter the full path, starting with the drive letter",
+    ),
+  );
 });

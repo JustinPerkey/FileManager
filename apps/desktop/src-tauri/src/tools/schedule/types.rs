@@ -14,7 +14,7 @@ use serde::Serialize;
 pub struct FileSlot {
     /// Display string.
     pub path: String,
-    /// `NotAFile`, `TextUnreadable` or `XmlUnreadable`.
+    /// `NotAbsolute`, `NotAFile`, `TextUnreadable` or `XmlUnreadable`.
     pub error: Option<ScheduleError>,
 }
 
@@ -50,6 +50,11 @@ pub enum ScheduleErrorKind {
     NoXml,
     /// The chosen path is not a file.
     NotAFile,
+    /// The path is not a full path (it does not start at a drive or share).
+    NotAbsolute,
+    /// The files changed between the confirmation and the update. Nothing
+    /// was written.
+    FilesChanged,
     /// The text file could not be read or is not UTF-8.
     TextUnreadable,
     /// The XML file could not be read or is not UTF-8.

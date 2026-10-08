@@ -108,16 +108,21 @@ export function ScheduleView() {
     } else addRef.current?.focus();
   }, [applying]);
 
+  // Only the newest session command's response is shown: an older one arriving
+  // late would show files the backend no longer holds.
+  const latest = useRef(0);
   const run = useCallback(
     async (fn: () => Promise<ScheduleSession>): Promise<ScheduleSession | null> => {
+      const id = ++latest.current;
       try {
         const next = await fn();
+        if (id !== latest.current) return null;
         setSession(next);
         setCommandError(null);
         setResult(null);
         return next;
       } catch (e) {
-        fail(e);
+        if (id === latest.current) fail(e);
         return null;
       }
     },
@@ -140,8 +145,31 @@ export function ScheduleView() {
       fail(e);
     }
   }, [run, fail]);
-  const typeText = useCallback((path: string | null) => void run(() => setText(path)), [run]);
-  const typeXml = useCallback((path: string | null) => void run(() => setXml(path)), [run]);
+  // A field already holding focus does not announce its new error, so say it.
+  const typed = useCallback(
+    async (fn: () => Promise<ScheduleSession>, slot: (s: ScheduleSession) => FileSlot | null) => {
+      const next = await run(fn);
+      const error = next && slot(next)?.error;
+      if (error) announce(errorMessage(error));
+    },
+    [run, announce],
+  );
+  const typeText = useCallback(
+    (path: string | null) =>
+      void typed(
+        () => setText(path),
+        (s) => s.text,
+      ),
+    [typed],
+  );
+  const typeXml = useCallback(
+    (path: string | null) =>
+      void typed(
+        () => setXml(path),
+        (s) => s.xml,
+      ),
+    [typed],
+  );
   const onDrop = useCallback(
     async (paths: string[]) => {
       const next = await run(() => setDropped(paths));
@@ -150,7 +178,11 @@ export function ScheduleView() {
     [run, announce],
   );
 
-  const applyKey = session ? `${session.text?.path ?? ""}\n${session.xml?.path ?? ""}` : null;
+  const textPath = session?.text?.path ?? "";
+  const xmlPath = session?.xml?.path ?? "";
+  const applyKey = session ? `${textPath}\n${xmlPath}` : null;
+  // The files named in the open confirmation: exactly these are updated.
+  const [confirmed, setConfirmed] = useState<[string, string]>(["", ""]);
   const onApply = useCallback(async () => {
     refocus.current = true;
     setConfirming(false);
@@ -158,7 +190,7 @@ export function ScheduleView() {
     setResult(null);
     setCommandError(null);
     try {
-      const summary = await apply();
+      const summary = await apply(...confirmed);
       setResult(summary);
       setApplied(applyKey);
       announce(resultSentence(summary));
@@ -167,7 +199,7 @@ export function ScheduleView() {
     } finally {
       setApplying(false);
     }
-  }, [announce, fail, applyKey]);
+  }, [announce, fail, applyKey, confirmed]);
 
   const loading = session === null && !restoreFailed;
   const reason = session ? applyReason(session) : null;
@@ -178,8 +210,14 @@ export function ScheduleView() {
         {announcement}
       </div>
       <DropZone
-        enabled={!!session && !applying}
-        disabledReason={applying ? "The XML file is being updated" : "Not ready yet"}
+        enabled={!!session && !applying && !confirming}
+        disabledReason={
+          applying
+            ? "The XML file is being updated"
+            : confirming
+              ? "Finish or cancel the update first"
+              : "Not ready yet"
+        }
         label="Drop a schedule file, an XML file, or both"
         onDrop={(paths) => void onDrop(paths)}
       />
@@ -249,7 +287,10 @@ export function ScheduleView() {
             busy={applying}
             disabled={!session.canApply}
             aria-describedby={reason ? reasonId : undefined}
-            onClick={() => setConfirming(true)}
+            onClick={() => {
+              setConfirmed([textPath, xmlPath]);
+              setConfirming(true);
+            }}
           >
             {applying ? "Adding…" : "Add to XML…"}
           </Button>
@@ -271,12 +312,12 @@ export function ScheduleView() {
       </div>
       <ConfirmDialog
         open={confirming}
-        title={`Update ${fileName(session?.xml?.path ?? "")}?`}
+        title={`Update ${fileName(confirmed[1])}?`}
         body={
           <>
-            The schedule in <span className="mono">{session?.text?.path ?? ""}</span> will be read and added
-            to <span className="mono">{session?.xml?.path ?? ""}</span>. A backup copy of the XML file is
-            saved next to it first.
+            The schedule in <span className="mono">{confirmed[0]}</span> will be read and added to{" "}
+            <span className="mono">{confirmed[1]}</span>. A backup copy of the XML file is saved next to it
+            first.
             {applied !== null && applied === applyKey && (
               <>
                 {" "}

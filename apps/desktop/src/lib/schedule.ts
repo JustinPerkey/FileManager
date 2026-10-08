@@ -17,6 +17,9 @@ export const setDropped = (paths: string[]) => call<ScheduleSession>("schedule_s
 
 /**
  * Parses the schedule file and adds it to the XML file, after saving a backup
- * of it. Confirm with the user first: this rewrites the file.
+ * of it. Confirm with the user first: this rewrites the file. Pass the two
+ * display paths the confirmation showed; if the session holds other files,
+ * nothing is written and the call fails with `FilesChanged`.
  */
-export const apply = () => call<ApplySummary>("schedule_apply");
+export const apply = (expectedText: string, expectedXml: string) =>
+  call<ApplySummary>("schedule_apply", { expectedText, expectedXml });

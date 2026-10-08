@@ -11,6 +11,6 @@ export type FileSlot = {
  */
 path: string, 
 /**
- * `NotAFile`, `TextUnreadable` or `XmlUnreadable`.
+ * `NotAbsolute`, `NotAFile`, `TextUnreadable` or `XmlUnreadable`.
  */
 error: ScheduleError | null, };

@@ -1,11 +1,11 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use fm_schedule::{MergeError, MergeOutcome, ParseError, Schedule};
 use tempfile::TempDir;
 
 use super::core::{Core, Hooks};
-use super::types::ScheduleErrorKind as K;
+use super::types::{ApplySummary, FileSlot, ScheduleError, ScheduleErrorKind as K};
 
 fn dir() -> TempDir {
     tempfile::tempdir().expect("tempdir")
@@ -58,6 +58,13 @@ fn core() -> Core {
         parse: fake_parse,
         merge: fake_merge,
     })
+}
+
+/// Applies with the session's own paths, as the UI does after confirming.
+fn apply(c: &Core) -> Result<ApplySummary, ScheduleError> {
+    let s = c.snapshot();
+    let path = |slot: Option<FileSlot>| slot.map(|f| f.path).unwrap_or_default();
+    c.apply(&path(s.text), &path(s.xml))
 }
 
 /// A core with `text` and `xml` written and chosen.
@@ -119,7 +126,7 @@ fn a_bad_path_is_kept_with_its_error() {
         Some(K::TextUnreadable)
     );
     assert!(!c.snapshot().can_apply);
-    assert_eq!(c.apply().unwrap_err().kind, K::TextUnreadable);
+    assert_eq!(apply(&c).unwrap_err().kind, K::TextUnreadable);
 }
 
 #[test]
@@ -128,7 +135,7 @@ fn none_clears_a_slot() {
     let (mut c, _) = ready(&d, "a\n", "<schedule></schedule>");
     c.set_text(None);
     assert_eq!(c.snapshot().text, None);
-    assert_eq!(c.apply().unwrap_err().kind, K::NoText);
+    assert_eq!(apply(&c).unwrap_err().kind, K::NoText);
     c.set_xml(None);
     assert_eq!(c.snapshot().xml, None);
 }
@@ -176,7 +183,7 @@ fn default_hooks_are_the_stubs() {
     c.set_text(Some(&write(&d, "s.txt", "a\n")));
     let xml = write(&d, "s.xml", "<schedule/>");
     c.set_xml(Some(&xml));
-    assert_eq!(c.apply().unwrap_err().kind, K::ParseNotImplemented);
+    assert_eq!(apply(&c).unwrap_err().kind, K::ParseNotImplemented);
     assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
 }
 
@@ -184,7 +191,7 @@ fn default_hooks_are_the_stubs() {
 fn parse_runs_on_apply_and_its_error_names_the_line() {
     let d = dir();
     let (c, xml) = ready(&d, "a\nb!\n", "<schedule></schedule>");
-    let e = c.apply().unwrap_err();
+    let e = apply(&c).unwrap_err();
     assert_eq!(e.kind, K::ParseFailed);
     assert_eq!(e.line, Some(2));
     assert_eq!(fs::read_to_string(&xml).unwrap(), "<schedule></schedule>");
@@ -196,7 +203,7 @@ fn apply_reads_the_text_as_it_is_now() {
     let d = dir();
     let (c, xml) = ready(&d, "a\n", "<schedule></schedule>");
     fs::write(d.path().join("s.txt"), "\u{feff}b\r\nc\r\n").unwrap();
-    assert_eq!(c.apply().unwrap().added, 2);
+    assert_eq!(apply(&c).unwrap().added, 2);
     assert_eq!(
         fs::read_to_string(&xml).unwrap(),
         "<schedule><item>b</item><item>c</item></schedule>"
@@ -208,7 +215,7 @@ fn apply_backs_up_then_writes_the_merged_xml() {
     let d = dir();
     let (c, xml) = ready(&d, "a\nb\n", "<schedule></schedule>");
 
-    let first = c.apply().unwrap();
+    let first = apply(&c).unwrap();
     assert_eq!(first.added, 2);
     assert_eq!(
         fs::read_to_string(&xml).unwrap(),
@@ -224,7 +231,7 @@ fn apply_backs_up_then_writes_the_merged_xml() {
     );
 
     // A second apply never replaces the first backup.
-    let second = c.apply().unwrap();
+    let second = apply(&c).unwrap();
     assert_eq!(
         PathBuf::from(&second.backup_path),
         d.path().join("s.xml.bak.1")
@@ -243,7 +250,7 @@ fn apply_backs_up_then_writes_the_merged_xml() {
 fn failed_merge_writes_nothing() {
     let d = dir();
     let (c, xml) = ready(&d, "a\n", "<other/>");
-    assert_eq!(c.apply().unwrap_err().kind, K::MergeFailed);
+    assert_eq!(apply(&c).unwrap_err().kind, K::MergeFailed);
     assert_eq!(fs::read_to_string(&xml).unwrap(), "<other/>");
     assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
 }
@@ -257,7 +264,7 @@ fn stub_merge_writes_nothing() {
     });
     c.set_text(Some(&write(&d, "s.txt", "a\n")));
     c.set_xml(Some(&write(&d, "s.xml", "<schedule/>")));
-    assert_eq!(c.apply().unwrap_err().kind, K::MergeNotImplemented);
+    assert_eq!(apply(&c).unwrap_err().kind, K::MergeNotImplemented);
     assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
 }
 
@@ -266,16 +273,16 @@ fn files_removed_after_choosing_are_reported() {
     let d = dir();
     let (c, xml) = ready(&d, "a\n", "<schedule></schedule>");
     fs::remove_file(&xml).unwrap();
-    assert_eq!(c.apply().unwrap_err().kind, K::XmlUnreadable);
+    assert_eq!(apply(&c).unwrap_err().kind, K::XmlUnreadable);
     fs::remove_file(d.path().join("s.txt")).unwrap();
-    assert_eq!(c.apply().unwrap_err().kind, K::TextUnreadable);
+    assert_eq!(apply(&c).unwrap_err().kind, K::TextUnreadable);
 }
 
 #[test]
 fn xml_bom_is_kept_and_backed_up() {
     let d = dir();
     let (c, xml) = ready(&d, "a\n", "\u{feff}<schedule></schedule>");
-    let summary = c.apply().unwrap();
+    let summary = apply(&c).unwrap();
     assert_eq!(
         fs::read_to_string(&xml).unwrap(),
         "\u{feff}<schedule><item>a</item></schedule>"
@@ -284,4 +291,45 @@ fn xml_bom_is_kept_and_backed_up() {
         fs::read_to_string(&summary.backup_path).unwrap(),
         "\u{feff}<schedule></schedule>"
     );
+}
+
+#[test]
+fn apply_refuses_files_other_than_the_confirmed_ones() {
+    let d = dir();
+    let (mut c, xml) = ready(&d, "a\n", "<schedule></schedule>");
+    let confirmed = (
+        c.snapshot().text.unwrap().path,
+        c.snapshot().xml.unwrap().path,
+    );
+    let other = write(&d, "other.xml", "<schedule></schedule>");
+    c.set_xml(Some(&other));
+    let e = c.apply(&confirmed.0, &confirmed.1).unwrap_err();
+    assert_eq!(e.kind, K::FilesChanged);
+    assert_eq!(fs::read_to_string(&other).unwrap(), "<schedule></schedule>");
+    assert_eq!(fs::read_to_string(&xml).unwrap(), "<schedule></schedule>");
+    assert_eq!(fs::read_dir(d.path()).unwrap().count(), 3);
+}
+
+#[test]
+fn relative_paths_are_rejected() {
+    let mut c = core();
+    c.set_text(Some(Path::new("schedule.txt")));
+    c.set_xml(Some(Path::new("sub/schedule.xml")));
+    let s = c.snapshot();
+    assert_eq!(s.text.unwrap().error.map(|e| e.kind), Some(K::NotAbsolute));
+    assert_eq!(s.xml.unwrap().error.map(|e| e.kind), Some(K::NotAbsolute));
+    assert!(!s.can_apply);
+}
+
+#[test]
+fn a_bad_slot_blocks_apply_after_a_drop_sets_the_other() {
+    let d = dir();
+    let mut c = core();
+    c.set_text(Some(&d.path().join("gone.txt")));
+    c.set_dropped(&[write(&d, "s.xml", "<schedule></schedule>")])
+        .unwrap();
+    let s = c.snapshot();
+    assert!(s.xml.unwrap().error.is_none());
+    assert!(!s.can_apply);
+    assert_eq!(apply(&c).unwrap_err().kind, K::NotAFile);
 }

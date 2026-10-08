@@ -22,7 +22,12 @@ describe("schedule client", () => {
     ["setXml", () => schedule.setXml("s.xml"), "schedule_set_xml", { path: "s.xml" }],
     ["setXml null", () => schedule.setXml(null), "schedule_set_xml", { path: null }],
     ["setDropped", () => schedule.setDropped(["a", "b"]), "schedule_set_dropped", { paths: ["a", "b"] }],
-    ["apply", () => schedule.apply(), "schedule_apply", undefined],
+    [
+      "apply",
+      () => schedule.apply("a.txt", "b.xml"),
+      "schedule_apply",
+      { expectedText: "a.txt", expectedXml: "b.xml" },
+    ],
   ])("%s invokes the right command", async (_name, run, command, args) => {
     await run();
     expect(invoke).toHaveBeenCalledTimes(1);

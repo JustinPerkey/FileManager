@@ -98,6 +98,14 @@ fn read_text(path: &Path, kind: K) -> Result<(String, bool), ScheduleError> {
 }
 
 fn require_file(path: &Path) -> Result<(), ScheduleError> {
+    // A relative path would resolve against the process's working directory,
+    // which the user never sees.
+    if !path.is_absolute() {
+        return Err(ScheduleError::new(
+            K::NotAbsolute,
+            format!("{} is not a full path", path.display()),
+        ));
+    }
     if path.is_file() {
         Ok(())
     } else {
@@ -205,9 +213,22 @@ impl Core {
     /// Reads and parses the schedule file, adds it to the XML file as it is on
     /// disk now, saves a backup of the current XML, then replaces it
     /// atomically. Nothing is written when parsing or merging fails.
-    pub fn apply(&self) -> Result<ApplySummary, ScheduleError> {
+    ///
+    /// `expected_text` and `expected_xml` are the display paths the user
+    /// confirmed; if the session holds other files, nothing is written.
+    pub fn apply(
+        &self,
+        expected_text: &str,
+        expected_xml: &str,
+    ) -> Result<ApplySummary, ScheduleError> {
         let text_path = Slot::usable(&self.text, K::NoText, "schedule file")?;
         let xml_path = Slot::usable(&self.xml, K::NoXml, "XML file")?;
+        if display(text_path) != expected_text || display(xml_path) != expected_xml {
+            return Err(ScheduleError::new(
+                K::FilesChanged,
+                "the chosen files changed after the update was confirmed",
+            ));
+        }
 
         let (text, _) = read_text(text_path, K::TextUnreadable)?;
         let schedule = (self.hooks.parse)(&text)?;
