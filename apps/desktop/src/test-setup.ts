@@ -20,9 +20,12 @@ if (typeof HTMLDialogElement !== "undefined" && !HTMLDialogElement.prototype.sho
 
 // jsdom has no Popover API: model popover="auto" by a data attribute, the
 // popovertarget button, and the toggle event, and hide closed popovers.
+// jsdom's own stylesheet hides [popover]:not(:popover-open) and its cascade
+// ranks that above author rules, so the open rule needs !important.
 if (typeof HTMLElement !== "undefined" && typeof HTMLElement.prototype.showPopover !== "function") {
   const style = document.createElement("style");
-  style.textContent = "[popover]:not([data-popover-open]){display:none}[popover][data-popover-open]{display:block}";
+  style.textContent =
+    "[popover]:not([data-popover-open]){display:none}[popover][data-popover-open]{display:block !important}";
   document.head.appendChild(style);
   const fire = (el: HTMLElement, newState: "open" | "closed") => {
     const ev = new Event("toggle") as Event & { newState: string };

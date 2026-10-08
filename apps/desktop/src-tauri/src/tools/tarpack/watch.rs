@@ -1,10 +1,13 @@
 //! Watches the loaded manifest file for edits made outside the app.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
+use notify_debouncer_mini::{
+    new_debouncer, DebounceEventResult, DebouncedEvent, DebouncedEventKind, Debouncer,
+};
 
 /// Quiet time after the last change before an event is sent.
 pub const DEBOUNCE: Duration = Duration::from_millis(300);
@@ -33,7 +36,7 @@ impl ManifestWatcher {
         };
         let mut debouncer = new_debouncer(DEBOUNCE, move |res: DebounceEventResult| {
             if let Ok(events) = res {
-                if events.iter().any(|e| e.path.file_name() == Some(&name)) {
+                if is_manifest_change(&events, &name) {
                     on_change();
                 }
             }
@@ -52,4 +55,13 @@ impl ManifestWatcher {
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+/// Whether a batch ends a burst of changes to the file named `name`.
+/// `AnyContinuous` reports a burst that is still going; the debouncer always
+/// follows it with an `Any` for the same path, so only `Any` counts.
+pub(crate) fn is_manifest_change(events: &[DebouncedEvent], name: &OsStr) -> bool {
+    events
+        .iter()
+        .any(|e| e.kind == DebouncedEventKind::Any && e.path.file_name() == Some(name))
 }

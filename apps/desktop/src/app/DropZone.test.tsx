@@ -70,3 +70,17 @@ test("does not steal focus, and unsubscribes on unmount", async () => {
   unmount();
   expect(unlisten).toHaveBeenCalled();
 });
+
+test("after a rerender, drops follow the latest enabled and onDrop", async () => {
+  const { onDrop: first, rerender } = await setup();
+  const second = vi.fn();
+  const props = { disabledReason: "Open a manifest first", label: LABEL };
+  rerender(<DropZone {...props} enabled={false} onDrop={second} />);
+  fire("drop", ["C:\\a.dll"]);
+  expect(first).not.toHaveBeenCalled();
+  expect(second).not.toHaveBeenCalled();
+  rerender(<DropZone {...props} enabled onDrop={second} />);
+  fire("drop", ["C:\\b.dll"]);
+  expect(first).not.toHaveBeenCalled();
+  expect(second).toHaveBeenCalledWith(["C:\\b.dll"]);
+});
