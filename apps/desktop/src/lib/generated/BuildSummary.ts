@@ -6,8 +6,10 @@ import type { NormalizedEntry } from "./NormalizedEntry";
 
 /**
  * The build's result and final report. `left_out`, `manifest_errors` and
- * `warnings` are copied from the parse report; `error_count == 0` means the
- * archive holds every entry the manifest lists.
+ * `warnings` are copied from the parse report; `error_count == 0` means every
+ * entry that passed validation is valid, and `not_loaded` names the passed
+ * entries deliberately left out for want of a source file. The archive holds
+ * every entry the manifest lists only when both are empty.
  */
 export type BuildSummary = { 
 /**
@@ -25,4 +27,8 @@ uncompressedBytes: number, sha256Hex: string, extractCommand: string, normalized
 /**
  * Ids of the file entries written, in archive order.
  */
-builtIds: Array<string>, leftOut: Array<EntryFailure>, manifestErrors: Array<Diagnostic>, warnings: Array<Diagnostic>, errorCount: number, };
+builtIds: Array<string>, leftOut: Array<EntryFailure>, 
+/**
+ * Ids of valid entries with no source file, left out of this partial archive.
+ */
+notLoaded: Array<string>, manifestErrors: Array<Diagnostic>, warnings: Array<Diagnostic>, errorCount: number, };

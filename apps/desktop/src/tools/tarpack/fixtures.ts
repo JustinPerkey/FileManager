@@ -106,6 +106,7 @@ export function summary(over: Partial<BuildSummary> = {}): BuildSummary {
     normalizedEntries: [],
     builtIds: ["gateway", "core"],
     leftOut: [],
+    notLoaded: [],
     manifestErrors: [],
     warnings: [],
     errorCount: 0,

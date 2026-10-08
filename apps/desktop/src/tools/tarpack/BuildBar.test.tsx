@@ -54,26 +54,38 @@ test.each([
     "This manifest lists no files",
   ],
   [
-    "one not ready",
-    session(manifest({ entries: [entry("a"), entry("b")] }), {
-      buildBlockedReason: "entriesNotReady",
-      readyCount: 1,
-      totalCount: 2,
-    }),
-    "1 file still needs a location",
-  ],
-  [
-    "two not ready",
-    session(manifest({ entries: [entry("a"), entry("b")] }), {
+    "one missing",
+    session(manifest({ entries: [{ ...entry("a"), status: "missing" }, entry("b")] }), {
       buildBlockedReason: "entriesNotReady",
       readyCount: 0,
       totalCount: 2,
     }),
-    "2 files still need a location",
+    "1 chosen file is missing from disk",
+  ],
+  [
+    "two missing",
+    session(
+      manifest({ entries: [{ ...entry("a"), status: "missing" }, { ...entry("b"), status: "missing" }] }),
+      { buildBlockedReason: "entriesNotReady", readyCount: 0, totalCount: 2 },
+    ),
+    "2 chosen files are missing from disk",
+  ],
+  [
+    "nothing loaded",
+    session(manifest({ entries: [entry("a"), entry("b")] }), {
+      buildBlockedReason: "nothingLoaded",
+      readyCount: 0,
+      totalCount: 2,
+    }),
+    "Add at least one file to build an archive",
   ],
   [
     "noOutput",
-    session(manifest(), { buildBlockedReason: "noOutput", readyCount: 1 }),
+    session(manifest({ entries: [{ ...entry("a"), status: "ready" }] }), {
+      buildBlockedReason: "noOutput",
+      readyCount: 1,
+      totalCount: 1,
+    }),
     "Choose where to save the archive",
   ],
 ])("disabled reason: %s", async (_n, s, text) => {
@@ -125,16 +137,28 @@ test("one manifest error", () => {
   expect(screen.getByText("Builds with 1 manifest error")).toBeInTheDocument();
 });
 
-test("entriesNotReady with errors shows reason and note", () => {
+test("nothingLoaded with errors shows reason and note", () => {
   const s = session(manifest({ entries: [entry("a")], failedEntries: [failure(1)] }), {
-    buildBlockedReason: "entriesNotReady",
+    buildBlockedReason: "nothingLoaded",
     readyCount: 0,
     totalCount: 1,
   });
   setup(s);
   expect(create()).toBeDisabled();
   expect(create()).toHaveAccessibleDescription(
-    "1 file still needs a location 1 file will be left out; errors will be listed after the build",
+    "Add at least one file to build an archive 1 file will be left out; errors will be listed after the build",
+  );
+});
+
+test("a partial build is enabled and says how many files are not included", () => {
+  const s = buildable(manifest({ entries: [{ ...entry("a"), status: "ready" }, entry("b"), entry("c")] }), {
+    readyCount: 1,
+    totalCount: 3,
+  });
+  setup(s);
+  expect(create()).toBeEnabled();
+  expect(create()).toHaveAccessibleDescription(
+    "Partial archive: 1 of 3 files; 2 without a file will be left out",
   );
 });
 

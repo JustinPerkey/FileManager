@@ -530,8 +530,10 @@ impl Core {
             .count() as u32;
         let reason = if entries.is_empty() {
             Some(BuildBlockedReason::NoEntries)
-        } else if ready != total {
+        } else if entries.iter().any(|e| e.status == EntryStatus::Missing) {
             Some(BuildBlockedReason::EntriesNotReady)
+        } else if ready == 0 {
+            Some(BuildBlockedReason::NothingLoaded)
         } else if l.output.is_none() {
             Some(BuildBlockedReason::NoOutput)
         } else {

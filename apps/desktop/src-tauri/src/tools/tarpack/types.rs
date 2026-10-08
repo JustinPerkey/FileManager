@@ -76,7 +76,10 @@ impl ArchiveFormatOption {
 pub enum BuildBlockedReason {
     NoManifest,
     NoEntries,
+    /// Entries are assigned, but a source file is missing from disk.
     EntriesNotReady,
+    /// No entry has a source file yet; a partial archive needs at least one.
+    NothingLoaded,
     NoOutput,
 }
 

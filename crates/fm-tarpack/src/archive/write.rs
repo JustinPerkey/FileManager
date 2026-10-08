@@ -53,8 +53,10 @@ pub struct NormalizedEntry {
 }
 
 /// The build's result and final report. `left_out`, `manifest_errors` and
-/// `warnings` are copied from the parse report; `error_count == 0` means the
-/// archive holds every entry the manifest lists.
+/// `warnings` are copied from the parse report; `error_count == 0` means every
+/// entry that passed validation is valid, and `not_loaded` names the passed
+/// entries deliberately left out for want of a source file. The archive holds
+/// every entry the manifest lists only when both are empty.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildSummary {
@@ -79,6 +81,8 @@ pub struct BuildSummary {
     /// Ids of the file entries written, in archive order.
     pub built_ids: Vec<String>,
     pub left_out: Vec<EntryFailure>,
+    /// Ids of valid entries with no source file, left out of this partial archive.
+    pub not_loaded: Vec<String>,
     pub manifest_errors: Vec<Diagnostic>,
     pub warnings: Vec<Diagnostic>,
     pub error_count: u32,
@@ -527,6 +531,7 @@ pub(crate) fn write_archive_with(
         normalized_entries,
         built_ids,
         left_out: plan.left_out().to_vec(),
+        not_loaded: plan.not_loaded().to_vec(),
         manifest_errors: plan.manifest_errors().to_vec(),
         warnings: plan.warnings().to_vec(),
         error_count: plan.error_count(),

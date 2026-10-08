@@ -81,7 +81,7 @@ export function BuildResult({ result, entries, onReveal, onDismiss }: BuildResul
   }
 
   const s = result.ok;
-  const clean = s.errorCount === 0;
+  const clean = s.errorCount === 0 && s.notLoaded.length === 0;
   const sourceOf = (id: string) => entries.find((e) => e.id === id)?.source ?? id;
   return (
     <section className="build-result" aria-labelledby="build-result-heading">
@@ -96,7 +96,23 @@ export function BuildResult({ result, entries, onReveal, onDismiss }: BuildResul
         </h2>
         <Button variant="quiet" icon="x" aria-label="Dismiss result" onClick={onDismiss} />
       </div>
-      {!clean && s.leftOut.length > 0 && (
+      {s.notLoaded.length > 0 && (
+        <div className="build-result__lede">
+          <p>
+            The archive holds <span className="num">{s.builtIds.length}</span> of the manifest&apos;s{" "}
+            <span className="num">{s.builtIds.length + s.leftOut.length + s.notLoaded.length}</span> files. No
+            file was chosen for:
+          </p>
+          <ul>
+            {s.notLoaded.map((id) => (
+              <li key={id} className="mono">
+                {sourceOf(id)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {s.errorCount > 0 && s.leftOut.length > 0 && (
         <p className="build-result__lede">
           The archive holds <span className="num">{s.builtIds.length}</span> of the manifest&apos;s{" "}
           <span className="num">{s.builtIds.length + s.leftOut.length}</span> files. The rest have errors,
