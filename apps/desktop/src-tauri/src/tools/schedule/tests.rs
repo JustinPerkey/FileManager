@@ -227,3 +227,42 @@ fn xml_removed_after_choosing_is_reported() {
     fs::remove_file(&xml).unwrap();
     assert_eq!(c.apply().unwrap_err().kind, K::XmlUnreadable);
 }
+
+#[test]
+fn xml_bom_is_kept_and_backed_up() {
+    let d = dir();
+    let mut c = core();
+    c.open_text(&write(&d, "s.txt", "a\n")).unwrap();
+    let xml = write(&d, "s.xml", "\u{feff}<schedule></schedule>");
+    c.open_xml(&xml).unwrap();
+    let summary = c.apply().unwrap();
+    assert_eq!(
+        fs::read_to_string(&xml).unwrap(),
+        "\u{feff}<schedule><item>a</item></schedule>"
+    );
+    assert_eq!(
+        fs::read_to_string(&summary.backup_path).unwrap(),
+        "\u{feff}<schedule></schedule>"
+    );
+}
+
+#[test]
+fn unreadable_xml_is_rejected_when_chosen() {
+    let d = dir();
+    let mut c = core();
+    let bad = d.path().join("utf16.xml");
+    fs::write(&bad, [0xff, 0xfe, 0x3c, 0x00]).unwrap();
+    assert_eq!(c.open_xml(&bad).unwrap_err().kind, K::XmlUnreadable);
+    assert_eq!(c.snapshot().xml_path, None);
+}
+
+#[test]
+fn an_empty_schedule_cannot_be_applied() {
+    let d = dir();
+    let mut c = core();
+    c.open_text(&write(&d, "s.txt", "\n")).unwrap();
+    c.open_xml(&write(&d, "s.xml", "<schedule></schedule>"))
+        .unwrap();
+    assert_eq!(c.snapshot().preview.unwrap().rows.len(), 0);
+    assert!(!c.snapshot().can_apply);
+}

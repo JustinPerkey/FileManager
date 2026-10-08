@@ -40,7 +40,8 @@ impl std::error::Error for MergeError {}
 /// document.
 ///
 /// `xml` is the file as it is on disk when the user confirms, decoded as
-/// UTF-8 with any byte-order mark removed. This function must not touch the
+/// UTF-8 with any byte-order mark removed (the shell writes it back, so do
+/// not add one). This function must not touch the
 /// filesystem: the shell owns the backup and the write, and writes nothing
 /// when this returns an error.
 pub fn merge(schedule: &Schedule, xml: &str) -> Result<MergeOutcome, MergeError> {

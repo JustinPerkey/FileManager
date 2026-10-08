@@ -23,7 +23,13 @@ const empty: ScheduleSession = {
   parseError: null,
   canApply: false,
 };
-const preview = { columns: ["When", "What"], rows: [["09:00", "Standup"], ["13:00", "Review"]] };
+const preview = {
+  columns: ["When", "What"],
+  rows: [
+    ["09:00", "Standup"],
+    ["13:00", "Review"],
+  ],
+};
 const ready: ScheduleSession = {
   textPath: "C:\\work\\week.txt",
   xmlPath: "C:\\work\\schedule.xml",
@@ -149,11 +155,71 @@ test("a failed update is reported with its detail", async () => {
   expect(screen.getByText("updating the XML is not implemented yet")).toBeInTheDocument();
 });
 
-test("an unknown rejection becomes an Io error", async () => {
+test("an unknown rejection claims nothing about the files", async () => {
   const user = userEvent.setup();
   await load(empty);
   vi.mocked(openFileDialog).mockResolvedValue("C:\\x.xml");
   vi.mocked(sc.openXml).mockRejectedValue(new Error("ipc down"));
   await user.click(screen.getByRole("button", { name: "Choose XML file…" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("A file could not be written.");
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Something went wrong. See Details.");
+  expect(alert).toHaveTextContent("ipc down");
+});
+
+test("the XML dialog also offers all files", async () => {
+  const user = userEvent.setup();
+  await load(empty);
+  vi.mocked(openFileDialog).mockResolvedValue(null);
+  await user.click(screen.getByRole("button", { name: "Choose XML file…" }));
+  expect(vi.mocked(openFileDialog).mock.calls[0][0]?.filters?.map((f) => f.extensions)).toEqual([
+    ["xml"],
+    ["*"],
+  ]);
+});
+
+test("focus moves to the result after Update, and a second add warns", async () => {
+  const user = userEvent.setup();
+  await load(ready);
+  vi.mocked(sc.apply).mockResolvedValue({
+    xmlPath: "C:\\work\\schedule.xml",
+    backupPath: "C:\\work\\schedule.xml.bak",
+    added: 2,
+  });
+  const add = screen.getByRole("button", { name: "Add to XML…" });
+  add.focus();
+  await user.keyboard("{Enter}");
+  expect(await screen.findByRole("dialog")).not.toHaveTextContent("already added");
+  await user.click(screen.getByRole("button", { name: "Update" }));
+  await waitFor(() => expect(document.activeElement).toHaveTextContent("Added 2 entries"));
+
+  await user.click(add);
+  expect(await screen.findByRole("dialog")).toHaveTextContent(
+    "This schedule was already added to this file.",
+  );
+});
+
+test("focus moves to the error after a failed Update", async () => {
+  const user = userEvent.setup();
+  await load(ready);
+  vi.mocked(sc.apply).mockRejectedValue({ kind: "Io", message: "disk full" });
+  await user.click(screen.getByRole("button", { name: "Add to XML…" }));
+  await user.click(await screen.findByRole("button", { name: "Update" }));
+  await waitFor(() => expect(document.activeElement).toHaveTextContent("disk full"));
+});
+
+test("an empty schedule cannot be added", async () => {
+  await load({ ...ready, preview: { columns: ["When"], rows: [] }, canApply: false });
+  expect(screen.getByText("The schedule file has no entries.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add to XML…" })).toHaveAccessibleDescription(
+    "The schedule file has no entries to add.",
+  );
+});
+
+test("a failed first load can be retried", async () => {
+  const user = userEvent.setup();
+  vi.mocked(sc.session).mockRejectedValueOnce(new Error("ipc down")).mockResolvedValue(empty);
+  render(<ScheduleView />);
+  await user.click(await screen.findByRole("button", { name: "Try again" }));
+  expect(await screen.findByRole("button", { name: "Choose schedule file…" })).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).toBeNull();
 });

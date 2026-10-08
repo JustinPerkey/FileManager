@@ -23,6 +23,6 @@ preview: SchedulePreview | null,
  */
 parseError: ScheduleError | null, 
 /**
- * A text file parsed and an XML file is chosen.
+ * A text file parsed into at least one row and an XML file is chosen.
  */
 canApply: boolean, };

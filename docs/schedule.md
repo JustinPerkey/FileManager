@@ -12,14 +12,22 @@ shows "not implemented yet" until they are written.
    UTF-8 (a BOM is dropped) and calls `fm_schedule::parse`. A parse error is
    kept in the session and shown under the file, with its line number;
    **Reload** (`schedule_reload_text`) reads the file again.
-2. **Choose XML file** (`schedule_open_xml`). Only checked to be a file here.
-3. **Add to XML…** is enabled once the text parsed and an XML file is chosen.
+2. **Choose XML file** (`schedule_open_xml`). Checked to be a readable UTF-8
+   file here, and read again when applying.
+3. **Add to XML…** is enabled once the text parsed into at least one row and
+   an XML file is chosen. If this schedule was already added to this file in
+   this session, the confirmation warns that adding it again may duplicate
+   entries.
    The user confirms, then `schedule_apply`:
    - reads the XML as it is on disk now (UTF-8, BOM dropped);
    - calls `fm_schedule::merge` with the schedule shown in the preview;
    - on success, copies the original bytes to the first free name of
      `<file>.bak`, `<file>.bak.1`, … (never replacing an existing file);
-   - replaces the XML atomically (`fm_core::atomic_write`).
+   - replaces the XML atomically (`fm_core::atomic_write`), writing back the
+     byte-order mark if the original had one.
+
+   The atomic replace creates a new file: the XML's ACLs and attributes are
+   not carried over, and a symlink is replaced by a plain file.
 
    Nothing is written when `merge` returns an error.
 

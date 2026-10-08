@@ -64,11 +64,15 @@ and a build that verifies the archive before anything replaces the output.
   is reported, not swallowed.
 - Paths are OS paths. The UI receives display strings, which may contain
   U+FFFD where a name is not valid UTF-8.
-- Undecided: the tools that come after the Tar Packager.
+- The second tool is the **Schedule Creator** (`schedule`): it reads a
+  schedule from a text file and adds it to an existing XML file, after a
+  confirmation and a backup. Its parsing and XML update are not written yet;
+  the UI says so. Further tools are undecided.
 
 ## Brand Commitments
 
-- The name is **FileManager**. The first tool is the **Tar Packager**.
+- The name is **FileManager**. The tools are the **Tar Packager** and the
+  **Schedule Creator**.
 - Voice: plain, short, and exact. Controls name their action. Errors name the
   problem and the recovery.
 - The theme follows the system. No manual toggle (decided 2026-09-29).

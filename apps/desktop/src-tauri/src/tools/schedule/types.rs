@@ -19,7 +19,7 @@ pub struct ScheduleSession {
     pub preview: Option<SchedulePreview>,
     /// Why the text file did not parse (`ParseFailed` or `ParseNotImplemented`).
     pub parse_error: Option<ScheduleError>,
-    /// A text file parsed and an XML file is chosen.
+    /// A text file parsed into at least one row and an XML file is chosen.
     pub can_apply: bool,
 }
 

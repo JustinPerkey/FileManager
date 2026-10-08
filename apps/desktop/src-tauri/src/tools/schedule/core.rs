@@ -46,15 +46,18 @@ fn display(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Reads `path` as UTF-8 text, dropping a leading byte-order mark.
-fn read_text(path: &Path, kind: K) -> Result<String, ScheduleError> {
+const BOM: &str = "\u{feff}";
+
+/// Reads `path` as UTF-8 text. Returns the text without a leading byte-order
+/// mark, and whether it had one.
+fn read_text(path: &Path, kind: K) -> Result<(String, bool), ScheduleError> {
     let bytes = fs::read(path)
         .map_err(|e| ScheduleError::new(kind, format!("reading {}: {e}", path.display())))?;
     let text = String::from_utf8(bytes)
         .map_err(|_| ScheduleError::new(kind, format!("{} is not UTF-8 text", path.display())))?;
-    Ok(match text.strip_prefix('\u{feff}') {
-        Some(rest) => rest.to_owned(),
-        None => text,
+    Ok(match text.strip_prefix(BOM) {
+        Some(rest) => (rest.to_owned(), true),
+        None => (text, false),
     })
 }
 
@@ -122,7 +125,7 @@ impl Core {
         ScheduleSession {
             text_path: self.text.as_ref().map(|t| display(&t.path)),
             xml_path: self.xml.as_deref().map(display),
-            can_apply: preview.is_some() && self.xml.is_some(),
+            can_apply: preview.as_ref().is_some_and(|p| !p.rows.is_empty()) && self.xml.is_some(),
             preview,
             parse_error,
         }
@@ -132,7 +135,7 @@ impl Core {
     /// returned; a file that cannot be read leaves the session unchanged.
     pub fn open_text(&mut self, path: &Path) -> Result<(), ScheduleError> {
         require_file(path)?;
-        let text = read_text(path, K::TextUnreadable)?;
+        let (text, _) = read_text(path, K::TextUnreadable)?;
         let parsed = (self.hooks.parse)(&text).map_err(ScheduleError::from);
         self.text = Some(Text {
             path: path.to_path_buf(),
@@ -149,9 +152,11 @@ impl Core {
         self.open_text(&path)
     }
 
-    /// Chooses the XML file to update. It is read only when applying.
+    /// Chooses the XML file to update. It is checked to be readable UTF-8
+    /// here, and read again when applying.
     pub fn open_xml(&mut self, path: &Path) -> Result<(), ScheduleError> {
         require_file(path)?;
+        read_text(path, K::XmlUnreadable)?;
         self.xml = Some(path.to_path_buf());
         Ok(())
     }
@@ -170,28 +175,23 @@ impl Core {
             .as_deref()
             .ok_or_else(|| ScheduleError::new(K::NoXml, "no XML file is chosen"))?;
 
-        let original = fs::read(xml_path).map_err(|e| {
-            ScheduleError::new(
-                K::XmlUnreadable,
-                format!("reading {}: {e}", xml_path.display()),
-            )
-        })?;
-        let xml = std::str::from_utf8(&original).map_err(|_| {
-            ScheduleError::new(
-                K::XmlUnreadable,
-                format!("{} is not UTF-8 text", xml_path.display()),
-            )
-        })?;
-        let xml = xml.strip_prefix('\u{feff}').unwrap_or(xml);
-        let outcome = (self.hooks.merge)(schedule, xml)?;
+        let (xml, bom) = read_text(xml_path, K::XmlUnreadable)?;
+        let outcome = (self.hooks.merge)(schedule, &xml)?;
+        // The backup holds the original bytes; the new file keeps its BOM.
+        let original = if bom { format!("{BOM}{xml}") } else { xml };
+        let updated = if bom {
+            format!("{BOM}{}", outcome.xml)
+        } else {
+            outcome.xml
+        };
 
-        let backup_path = backup(xml_path, &original).map_err(|e| {
+        let backup_path = backup(xml_path, original.as_bytes()).map_err(|e| {
             ScheduleError::new(
                 K::Io,
                 format!("saving a backup of {}: {e}", xml_path.display()),
             )
         })?;
-        fm_core::atomic_write(xml_path, outcome.xml.as_bytes()).map_err(|e| {
+        fm_core::atomic_write(xml_path, updated.as_bytes()).map_err(|e| {
             ScheduleError::new(
                 K::Io,
                 format!("{e}; the original is unchanged and backed up"),

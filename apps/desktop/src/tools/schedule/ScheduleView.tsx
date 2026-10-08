@@ -8,13 +8,16 @@ import type { SchedulePreview } from "../../lib/generated/SchedulePreview";
 import type { ScheduleSession } from "../../lib/generated/ScheduleSession";
 import { apply, openText, openXml, reloadText, session as fetchSession } from "../../lib/schedule";
 import { openFileDialog } from "../../lib/tauri";
-import { errorMessage, fileName, toScheduleError } from "./errorMessages";
+import { errorMessage, fileName, toScheduleError, type ViewError } from "./errorMessages";
 
 const TEXT = [
   { name: "Text", extensions: ["txt"] },
   { name: "All files", extensions: ["*"] },
 ];
-const XML = [{ name: "XML", extensions: ["xml"] }];
+const XML = [
+  { name: "XML", extensions: ["xml"] },
+  { name: "All files", extensions: ["*"] },
+];
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 /** What to announce after the text file is read. A failed parse needs none: its banner is an alert. */
@@ -30,6 +33,7 @@ function parsedSentence(s: ScheduleSession): string | null {
 function applyReason(s: ScheduleSession): string | null {
   if (!s.textPath) return "Choose a schedule text file.";
   if (!s.preview) return "The schedule file must be read without errors first.";
+  if (s.preview.rows.length === 0) return "The schedule file has no entries to add.";
   if (!s.xmlPath) return "Choose the XML file to update.";
   return null;
 }
@@ -41,11 +45,20 @@ function resultSentence(r: ApplySummary): string {
 export function ScheduleView() {
   const [session, setSession] = useState<ScheduleSession | null>(null);
   const [restoreFailed, setRestoreFailed] = useState(false);
-  const [commandError, setCommandError] = useState<ScheduleError | null>(null);
+  const [commandError, setCommandError] = useState<ViewError | null>(null);
   const [failureCount, setFailureCount] = useState(0);
   const [confirming, setConfirming] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<ApplySummary | null>(null);
+  // The text and XML of the last successful apply: adding them again would duplicate entries.
+  const [applied, setApplied] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  // After the confirm dialog closes, the Add button is disabled (busy), so the
+  // dialog cannot return focus to it; focus moves here once applying ends.
+  const refocus = useRef(false);
+  const addRef = useRef<HTMLButtonElement>(null);
+  const outcomeRef = useRef<HTMLDivElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
   const [announcement, setAnnouncement] = useState("");
   const frame = useRef(0);
   const reasonId = useId();
@@ -66,13 +79,29 @@ export function ScheduleView() {
   useEffect(() => {
     let live = true;
     fetchSession().then(
-      (s) => live && setSession(s),
+      (s) => {
+        if (!live) return;
+        setSession(s);
+        setCommandError(null);
+      },
       (e) => live && (setRestoreFailed(true), fail(e)),
     );
     return () => {
       live = false;
     };
-  }, [fail]);
+  }, [fail, loadAttempt]);
+
+  useEffect(() => {
+    if (applying || !refocus.current) return;
+    refocus.current = false;
+    const outcome =
+      outcomeRef.current?.querySelector<HTMLElement>(".banner") ??
+      errorRef.current?.querySelector<HTMLElement>(".banner");
+    if (outcome) {
+      outcome.tabIndex = -1;
+      outcome.focus();
+    } else addRef.current?.focus();
+  }, [applying]);
 
   /** Runs a session command. `parsed` announces the parse outcome (opening or reloading the text). */
   const run = useCallback(
@@ -82,6 +111,7 @@ export function ScheduleView() {
         setSession(next);
         setCommandError(null);
         setResult(null);
+        setApplied(null);
         const sentence = parsed ? parsedSentence(next) : null;
         if (sentence) announce(sentence);
       } catch (e) {
@@ -109,7 +139,9 @@ export function ScheduleView() {
     }
   }, [run, fail]);
 
+  const applyKey = session ? `${session.textPath ?? ""}\n${session.xmlPath ?? ""}` : null;
   const onApply = useCallback(async () => {
+    refocus.current = true;
     setConfirming(false);
     setApplying(true);
     setResult(null);
@@ -117,13 +149,14 @@ export function ScheduleView() {
     try {
       const summary = await apply();
       setResult(summary);
+      setApplied(applyKey);
       announce(resultSentence(summary));
     } catch (e) {
       fail(e);
     } finally {
       setApplying(false);
     }
-  }, [announce, fail]);
+  }, [announce, fail, applyKey]);
 
   const loading = session === null && !restoreFailed;
   const reason = session ? applyReason(session) : null;
@@ -136,22 +169,38 @@ export function ScheduleView() {
       </div>
       <header className="schedule__header">
         <h1>Schedule Creator</h1>
-        <p className="schedule__intro">Read a schedule from a text file and add it to an existing XML file.</p>
+        <p className="schedule__intro">
+          Read a schedule from a text file and add it to an existing XML file.
+        </p>
       </header>
       {loading && <span className="visually-hidden">Loading</span>}
-      {commandError && (
-        <Banner
-          key={failureCount}
-          tone="error"
-          message={errorMessage(commandError)}
-          onDismiss={() => setCommandError(null)}
-        >
-          <details className="banner__details">
-            <summary>Details</summary>
-            <p className="mono">{commandError.message}</p>
-          </details>
-        </Banner>
+      {restoreFailed && (
+        <div>
+          <Button
+            onClick={() => {
+              setRestoreFailed(false);
+              setLoadAttempt((n) => n + 1);
+            }}
+          >
+            Try again
+          </Button>
+        </div>
       )}
+      <div ref={errorRef}>
+        {commandError && (
+          <Banner
+            key={failureCount}
+            tone="error"
+            message={errorMessage(commandError)}
+            onDismiss={() => setCommandError(null)}
+          >
+            <details className="banner__details">
+              <summary>Details</summary>
+              <p className="mono">{commandError.message}</p>
+            </details>
+          </Banner>
+        )}
+      </div>
       {session && (
         <fieldset className="schedule__steps" disabled={applying}>
           <legend className="visually-hidden">Files</legend>
@@ -178,6 +227,7 @@ export function ScheduleView() {
       {session && (
         <div className="schedule__apply">
           <Button
+            ref={addRef}
             variant="primary"
             busy={applying}
             disabled={!session.canApply}
@@ -193,20 +243,29 @@ export function ScheduleView() {
           )}
         </div>
       )}
-      {result && (
-        <Banner tone="info" message={resultSentence(result)} onDismiss={() => setResult(null)}>
-          <p className="schedule__backup">
-            The previous version is saved as <span className="mono">{result.backupPath}</span>
-          </p>
-        </Banner>
-      )}
+      <div ref={outcomeRef}>
+        {result && (
+          <Banner tone="info" message={resultSentence(result)} onDismiss={() => setResult(null)}>
+            <p className="schedule__backup">
+              The previous version is saved as <span className="mono">{result.backupPath}</span>
+            </p>
+          </Banner>
+        )}
+      </div>
       <ConfirmDialog
         open={confirming}
         title={`Update ${xmlName}?`}
         body={
           <>
-            The schedule will be added to <span className="mono">{session?.xmlPath ?? ""}</span>. A
-            backup copy of the current file is saved next to it first.
+            The schedule will be added to <span className="mono">{session?.xmlPath ?? ""}</span>. A backup
+            copy of the current file is saved next to it first.
+            {applied !== null && applied === applyKey && (
+              <>
+                {" "}
+                <strong>This schedule was already added to this file.</strong> Adding it again may duplicate
+                its entries.
+              </>
+            )}
           </>
         }
         confirmLabel="Update"
