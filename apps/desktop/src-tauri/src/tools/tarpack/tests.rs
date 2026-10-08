@@ -17,7 +17,7 @@ use super::types::{
     ArchiveFormatOption, BuildBlockedReason as Blocked, TarpackError, TarpackErrorKind as K,
     TarpackSession,
 };
-use super::watch::ManifestWatcher;
+use super::watch::{is_manifest_change, ManifestWatcher};
 
 /// A temporary app-data dir plus a work dir for manifests, sources and outputs.
 struct Env {
@@ -1049,6 +1049,25 @@ fn watcher_emits_once_per_edit() {
     // Another file in the same directory is not this manifest.
     fs::write(env.work("other.toml"), "x").unwrap();
     assert!(rx.recv_timeout(Duration::from_millis(900)).is_err());
+}
+
+#[test]
+fn only_a_settled_change_to_the_manifest_counts() {
+    use notify_debouncer_mini::{DebouncedEvent, DebouncedEventKind as Kind};
+    use std::ffi::OsStr;
+
+    let ev = |p: &str, k| DebouncedEvent::new(PathBuf::from(p), k);
+    let name = OsStr::new("m.toml");
+    assert!(is_manifest_change(&[ev("/w/m.toml", Kind::Any)], name));
+    assert!(!is_manifest_change(
+        &[ev("/w/m.toml", Kind::AnyContinuous)],
+        name
+    ));
+    assert!(!is_manifest_change(&[ev("/w/other.toml", Kind::Any)], name));
+    assert!(is_manifest_change(
+        &[ev("/w/other.toml", Kind::Any), ev("/w/m.toml", Kind::Any)],
+        name
+    ));
 }
 
 #[test]
