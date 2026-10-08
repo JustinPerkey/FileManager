@@ -1,0 +1,104 @@
+.schedule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.schedule__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.schedule__intro {
+  margin: 0;
+  max-width: 65ch;
+  color: var(--text-muted);
+}
+
+.schedule__steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.schedule__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.schedule__step-title {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+.schedule__step-number {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+}
+
+.schedule__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.schedule__input {
+  flex: 1 1 24rem;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  min-height: 2rem;
+  font-size: var(--font-size-md);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.schedule__input::placeholder {
+  color: var(--text-muted);
+}
+.schedule__input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.schedule__input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.schedule__input:disabled {
+  opacity: 0.6;
+}
+.schedule__field-error {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--danger);
+}
+
+.schedule__apply {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.schedule__reason {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.schedule__backup {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}

@@ -1026,6 +1026,7 @@ name = "filemanager"
 version = "0.1.0"
 dependencies = [
  "fm-core",
+ "fm-schedule",
  "fm-tarpack",
  "notify-debouncer-mini",
  "serde",
@@ -1077,6 +1078,10 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
 ]
+
+[[package]]
+name = "fm-schedule"
+version = "0.1.0"
 
 [[package]]
 name = "fm-tarpack"
