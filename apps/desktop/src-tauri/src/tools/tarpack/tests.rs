@@ -196,26 +196,28 @@ fn can_build_reasons_in_order() {
 
     let m = env.write("m.toml", TWO_FILES);
     core.open(&m).unwrap();
-    // Not ready wins over no output.
+    // Nothing loaded yet: a partial archive needs at least one file.
     assert_eq!(
         core.snapshot().build_blocked_reason,
-        Some(Blocked::EntriesNotReady)
+        Some(Blocked::NothingLoaded)
     );
+    // One file of two is a valid partial archive.
     core.assign("a", &env.source("a.bin", b"a")).unwrap();
-    assert_eq!(
-        core.snapshot().build_blocked_reason,
-        Some(Blocked::EntriesNotReady)
-    );
-    let b = env.source("b.bin", b"b");
-    core.assign("b", &b).unwrap();
     assert_eq!(
         core.snapshot().build_blocked_reason,
         Some(Blocked::NoOutput)
     );
+    let b = env.source("b.bin", b"b");
+    core.assign("b", &b).unwrap();
     core.set_output(&env.out("o")).unwrap();
     let s = core.snapshot();
     assert!(s.can_build);
     assert_eq!(s.build_blocked_reason, None);
+
+    // Leaving one entry unassigned is a partial build, not a blocker.
+    core.clear("b").unwrap();
+    assert!(core.snapshot().can_build);
+    core.assign("b", &b).unwrap();
 
     // A source that vanished is missing, not ready.
     fs::remove_file(&b).unwrap();
@@ -240,7 +242,7 @@ fn invalid_manifest_session_carries_passed_and_failed_entries() {
     assert_eq!(mf.error_count, 2);
     assert_eq!(mf.name, "gateway");
     assert_eq!(s.total_count, 1);
-    assert_eq!(s.build_blocked_reason, Some(Blocked::EntriesNotReady));
+    assert_eq!(s.build_blocked_reason, Some(Blocked::NothingLoaded));
 
     core.assign("a", &env.source("a.bin", b"a")).unwrap();
     core.set_output(&env.out("o.tar")).unwrap();
@@ -429,7 +431,7 @@ fn session_manifest_serialises_failure_fields() {
     }
     assert_eq!(failed["id"], "b");
     assert_eq!(v["formats"].as_array().unwrap().len(), 4);
-    assert_eq!(v["buildBlockedReason"], "entriesNotReady");
+    assert_eq!(v["buildBlockedReason"], "nothingLoaded");
 }
 
 #[test]

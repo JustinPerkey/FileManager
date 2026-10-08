@@ -52,3 +52,9 @@ test("announcements", () => {
     "Created gateway.tar.zst with 2 manifest errors.",
   );
 });
+
+test("a partial build names the files with no source chosen", () => {
+  const s = summary({ notLoaded: ["gateway"], builtIds: ["core"] });
+  expect(resultHeading(s)).toBe("Created gateway.tar.zst with 1 file not included");
+  expect(reportText(s)).toContain("Not included (no file chosen):\n  gateway");
+});

@@ -28,7 +28,8 @@ pub enum PlanError {
     /// No entry passed validation: entries withheld, every entry failed, or
     /// the manifest lists none.
     NoEntries,
-    /// Passed entries with no source assigned.
+    /// Passed entries exist but none has a source assigned, so a partial
+    /// archive would be empty. Carries every passed entry's id.
     Unassigned(Vec<String>),
 }
 
@@ -40,7 +41,11 @@ impl fmt::Display for PlanError {
                 "no entry passed validation, so there is nothing to build"
             ),
             PlanError::Unassigned(ids) => {
-                write!(f, "no source file for: {}", ids.join(", "))
+                write!(
+                    f,
+                    "no source file chosen for any entry ({})",
+                    ids.join(", ")
+                )
             }
         }
     }
@@ -57,32 +62,37 @@ pub struct ArchivePlan {
     dir_mode: u32,
     dir_owner: Owner,
     left_out: Vec<EntryFailure>,
+    not_loaded: Vec<String>,
     manifest_errors: Vec<Diagnostic>,
     warnings: Vec<Diagnostic>,
     error_count: u32,
 }
 
 impl ArchivePlan {
-    /// Plans the passed entries of `report`. Errors in the report do not
-    /// refuse the plan; they are carried along.
+    /// Plans the passed entries of `report` that have a source assigned. The
+    /// manifest lists every file that could be packaged, so entries with no
+    /// source are a deliberate partial archive: they are left out and listed
+    /// in `not_loaded`. Errors in the report do not refuse the plan; they are
+    /// carried along.
     pub fn new(report: &ParseReport, assignments: &Assignments) -> Result<ArchivePlan, PlanError> {
         let manifest = &report.manifest;
         if manifest.entries().is_empty() {
             return Err(PlanError::NoEntries);
         }
-        let unassigned: Vec<String> = manifest
+        let (loaded, not_loaded): (Vec<_>, Vec<_>) = manifest
             .entries()
             .iter()
-            .filter(|e| assignments.get(e.id()).is_none())
-            .map(|e| e.id().to_string())
-            .collect();
-        if !unassigned.is_empty() {
-            return Err(PlanError::Unassigned(unassigned));
+            .partition(|e| assignments.get(e.id()).is_some());
+        if loaded.is_empty() {
+            return Err(PlanError::Unassigned(
+                not_loaded.iter().map(|e| e.id().to_string()).collect(),
+            ));
         }
+        let not_loaded: Vec<String> = not_loaded.iter().map(|e| e.id().to_string()).collect();
 
         let mut entries = Vec::new();
         let mut emitted: Vec<String> = Vec::new();
-        for e in manifest.entries() {
+        for e in loaded {
             let mut dir = String::from("/");
             for seg in e.target_dir().split('/').filter(|s| !s.is_empty()) {
                 dir.push_str(seg);
@@ -109,6 +119,7 @@ impl ArchivePlan {
             dir_mode: manifest.dir_mode(),
             dir_owner: manifest.default_owner().clone(),
             left_out: report.failures.clone(),
+            not_loaded,
             manifest_errors: report.errors.clone(),
             warnings: report.warnings.clone(),
             error_count: report.error_count(),
@@ -126,6 +137,10 @@ impl ArchivePlan {
     }
     pub fn left_out(&self) -> &[EntryFailure] {
         &self.left_out
+    }
+    /// Ids of passed entries with no source, left out on purpose.
+    pub fn not_loaded(&self) -> &[String] {
+        &self.not_loaded
     }
     pub fn manifest_errors(&self) -> &[Diagnostic] {
         &self.manifest_errors

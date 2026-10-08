@@ -7,6 +7,8 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 /** The result panel's heading, also the first line of the copied report. */
 export function resultHeading(s: BuildSummary): string {
   const name = fileName(s.path);
+  if (s.errorCount === 0 && s.notLoaded.length > 0)
+    return `Created ${name} with ${s.notLoaded.length} ${plural(s.notLoaded.length, "file", "files")} not included`;
   if (s.errorCount === 0) return `Created ${name}`;
   if (s.leftOut.length > 0)
     return `Created ${name} with ${s.leftOut.length} ${plural(s.leftOut.length, "file", "files")} left out`;
@@ -16,7 +18,11 @@ export function resultHeading(s: BuildSummary): string {
 /** The sentence announced once when a build resolves. */
 export function resultAnnouncement(s: BuildSummary): string {
   const name = fileName(s.path);
-  if (s.errorCount === 0) return `Created ${name}.`;
+  if (s.errorCount === 0 && s.notLoaded.length === 0) return `Created ${name}.`;
+  if (s.errorCount === 0) {
+    const n = s.notLoaded.length;
+    return `Created ${name}. ${n} ${n === 1 ? "file was" : "files were"} not included because no file was chosen.`;
+  }
   if (s.leftOut.length > 0) {
     const n = s.leftOut.length;
     return `Created ${name}. ${n} ${n === 1 ? "file was" : "files were"} left out because of errors.`;
@@ -31,6 +37,7 @@ const diagLines = (list: Diagnostic[], indent: string) =>
 /** Plain text of the final report, for Copy report. Empty sections are omitted. */
 export function reportText(s: BuildSummary): string {
   const out: string[] = [resultHeading(s)];
+  if (s.notLoaded.length > 0) out.push("", "Not included (no file chosen):", ...s.notLoaded.map((id) => `  ${id}`));
   if (s.leftOut.length > 0) {
     out.push("", "Left out of the archive:");
     for (const f of s.leftOut) {

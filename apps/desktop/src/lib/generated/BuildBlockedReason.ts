@@ -4,4 +4,4 @@
  * The first failing condition of a build, in this order. Errors in the
  * manifest never block a build.
  */
-export type BuildBlockedReason = "noManifest" | "noEntries" | "entriesNotReady" | "noOutput";
+export type BuildBlockedReason = "noManifest" | "noEntries" | "entriesNotReady" | "nothingLoaded" | "noOutput";

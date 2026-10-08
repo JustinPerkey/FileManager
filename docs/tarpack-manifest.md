@@ -166,6 +166,13 @@ about the errors is written into the archive or beside it. When no entry passed
 (entries hidden, every entry failed, or none listed) there is nothing to
 build. Warnings never block.
 
+**Partial archives.** A manifest lists every file that could be packaged; a
+build needs only some of them. Entries with no source file chosen are left out
+of the archive, and the result lists them as not included (these are not
+errors). At least one entry must have a source. A chosen source that has gone
+missing from disk still blocks the build, so a file is never dropped by
+accident.
+
 ## Archive layout
 
 - Names are stored **absolute** (`/opt/gateway/bin/gateway`).

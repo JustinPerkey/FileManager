@@ -42,9 +42,11 @@ function reasonText(s: TarpackSession): string | null {
       return "This manifest lists no files";
     }
     case "entriesNotReady": {
-      const n = s.totalCount - s.readyCount;
-      return `${n} ${plural(n, "file still needs", "files still need")} a location`;
+      const n = (s.manifest?.entries ?? []).filter((e) => e.status === "missing").length;
+      return `${n} chosen ${plural(n, "file is", "files are")} missing from disk`;
     }
+    case "nothingLoaded":
+      return "Add at least one file to build an archive";
     case "noOutput":
       return "Choose where to save the archive";
   }
@@ -52,7 +54,11 @@ function reasonText(s: TarpackSession): string | null {
 
 function leftOutNote(s: TarpackSession): string | null {
   const m = s.manifest;
-  if (!m || m.errorCount === 0 || m.entries.length === 0) return null;
+  if (!m || m.entries.length === 0) return null;
+  const notLoaded = m.entries.filter((e) => e.status === "unassigned").length;
+  if (s.readyCount > 0 && notLoaded > 0 && m.errorCount === 0)
+    return `Partial archive: ${s.readyCount} of ${s.totalCount} ${plural(s.totalCount, "file", "files")}; ${notLoaded} without a file will be left out`;
+  if (m.errorCount === 0) return null;
   const n = m.failedEntries.length;
   if (n > 0)
     return `${n} ${plural(n, "file", "files")} will be left out; errors will be listed after the build`;

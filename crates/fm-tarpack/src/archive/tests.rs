@@ -225,7 +225,7 @@ fn unassigned_ignores_failed_entries() {
 }
 
 #[test]
-fn unassigned_entries_listed() {
+fn all_unassigned_entries_refuse_the_plan() {
     let mut fx = simple();
     fx.assign.remove("a");
     fx.assign.remove("b");
@@ -233,6 +233,24 @@ fn unassigned_entries_listed() {
         ArchivePlan::new(&fx.report, &fx.assign).unwrap_err(),
         PlanError::Unassigned(vec!["a".into(), "b".into()])
     );
+}
+
+#[test]
+fn partial_build_writes_only_assigned_entries_and_reports_the_rest() {
+    let mut fx = simple();
+    fx.assign.remove("b");
+    let plan = ArchivePlan::new(&fx.report, &fx.assign).unwrap();
+    assert_eq!(plan.not_loaded(), ["b"]);
+    let (out, s) = fx.build(ArchiveFormat::Tar);
+    let recs = read_back(&out, ArchiveFormat::Tar);
+    assert!(
+        !names(&recs).iter().any(|n| n.ends_with("b.bin")),
+        "{:?}",
+        names(&recs)
+    );
+    assert_eq!(s.built_ids, ["a"]);
+    assert_eq!(s.not_loaded, ["b"]);
+    assert_eq!(s.error_count, 0);
 }
 
 #[test]
@@ -253,7 +271,7 @@ fn build_with_errors_writes_only_passed_entries_and_reports_them() {
 fn valid_build_reports_no_errors() {
     let fx = simple();
     let (_, s) = fx.build(ArchiveFormat::Tar);
-    assert!(s.left_out.is_empty() && s.manifest_errors.is_empty());
+    assert!(s.left_out.is_empty() && s.manifest_errors.is_empty() && s.not_loaded.is_empty());
     assert_eq!(s.error_count, 0);
     assert_eq!(s.built_ids, ["a", "b"]);
 }
