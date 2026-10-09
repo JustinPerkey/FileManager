@@ -18,6 +18,7 @@ vi.mock("../../lib/tarpack", () => ({
 vi.mock("../../lib/tauri", () => ({ openFileDialog: vi.fn(), saveFileDialog: vi.fn(), onDragDrop: vi.fn() }));
 import * as tp from "../../lib/tarpack";
 import { onDragDrop, openFileDialog } from "../../lib/tauri";
+import { DevOn } from "../../app/DevOn";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -35,7 +36,7 @@ const withErrors = buildable(
 
 async function mount(s: TarpackSession = ready) {
   vi.mocked(tp.session).mockResolvedValue(s);
-  const utils = render(<TarpackView />);
+  const utils = render(<TarpackView />, { wrapper: DevOn });
   await screen.findByRole("heading", { level: 1 });
   return utils;
 }
@@ -226,4 +227,24 @@ test("Escape while the shortcuts popover is open neither dismisses a result nor 
   await waitFor(() => expect(pop.dataset.open).toBe("false"));
   press("Escape");
   await waitFor(() => expect(screen.queryByRole("heading", { level: 2, name: /Created/ })).toBeNull());
+});
+
+test("without developer mode, Ctrl+E is claimed but opens nothing", async () => {
+  vi.mocked(tp.session).mockResolvedValue(ready);
+  render(<TarpackView />);
+  await screen.findByRole("heading", { level: 1 });
+  expect(press("e", { ctrlKey: true })).toBe(true);
+  await act(async () => undefined);
+  expect(tp.openInEditor).not.toHaveBeenCalled();
+});
+
+test("Reload clears the build result", async () => {
+  vi.mocked(tp.build).mockResolvedValue(summary());
+  vi.mocked(tp.reloadManifest).mockResolvedValue(ready);
+  await mount();
+  press("Enter", { ctrlKey: true });
+  await waitFor(() => expect(document.querySelector(".build-result")).not.toBeNull());
+  press("F5");
+  await waitFor(() => expect(tp.reloadManifest).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(document.querySelector(".build-result")).toBeNull());
 });

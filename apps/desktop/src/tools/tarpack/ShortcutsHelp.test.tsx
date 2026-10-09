@@ -3,12 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import { expect, test, vi } from "vitest";
 import { SHORTCUTS, ShortcutsHelp } from "./ShortcutsHelp";
+import { DevOn } from "../../app/DevOn";
 
 const button = () => screen.getByRole("button", { name: "Keyboard shortcuts" });
 
 test("opens from the button by keyboard and lists every shortcut, including F8", async () => {
   const user = userEvent.setup();
-  const { container } = render(<ShortcutsHelp />);
+  const { container } = render(<ShortcutsHelp />, { wrapper: DevOn });
   const pop = container.querySelector("[popover]") as HTMLElement;
   expect(pop).not.toBeVisible();
   await user.tab();
@@ -27,7 +28,7 @@ test("Escape closes it and returns focus to the button, without reaching the vie
   const user = userEvent.setup();
   const outer = vi.fn();
   window.addEventListener("keydown", outer);
-  const { container } = render(<ShortcutsHelp />);
+  const { container } = render(<ShortcutsHelp />, { wrapper: DevOn });
   await user.tab();
   await user.keyboard("{Enter}");
   await user.keyboard("{Escape}");
@@ -40,7 +41,7 @@ test("Escape closes it and returns focus to the button, without reaching the vie
 test("reports its open state, including false on unmount", async () => {
   const user = userEvent.setup();
   const onOpenChange = vi.fn();
-  const { unmount } = render(<ShortcutsHelp onOpenChange={onOpenChange} />);
+  const { unmount } = render(<ShortcutsHelp onOpenChange={onOpenChange} />, { wrapper: DevOn });
   await user.tab();
   await user.keyboard("{Enter}");
   expect(onOpenChange).toHaveBeenLastCalledWith(true);

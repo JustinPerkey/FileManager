@@ -7,6 +7,7 @@ import { manifest, session } from "./fixtures";
 
 vi.mock("../../lib/tarpack", () => ({ recentManifests: vi.fn() }));
 import { recentManifests } from "../../lib/tarpack";
+import { DevOn } from "../../app/DevOn";
 
 const handlers = () => ({ onOpen: vi.fn(), onOpenRecent: vi.fn(), onReload: vi.fn(), onEdit: vi.fn() });
 
@@ -17,7 +18,7 @@ beforeEach(() => {
 test("each action calls its handler", async () => {
   const user = userEvent.setup();
   const h = handlers();
-  render(<ManifestHeader session={session(manifest({ errors: [] }))} {...h} />);
+  render(<ManifestHeader session={session(manifest({ errors: [] }))} {...h} />, { wrapper: DevOn });
   await screen.findByRole("button", { name: "Recent" });
   await user.click(screen.getByRole("button", { name: "Open…" }));
   await user.click(screen.getByRole("button", { name: "Reload" }));
@@ -31,7 +32,7 @@ test("each action calls its handler", async () => {
 
 test("Recent is hidden when empty", async () => {
   vi.mocked(recentManifests).mockResolvedValue([]);
-  render(<ManifestHeader session={session(manifest())} {...handlers()} />);
+  render(<ManifestHeader session={session(manifest())} {...handlers()} />, { wrapper: DevOn });
   await screen.findByRole("button", { name: "Reload" });
   expect(screen.queryByRole("button", { name: "Recent" })).toBeNull();
 });
@@ -39,7 +40,7 @@ test("Recent is hidden when empty", async () => {
 test("Recent menu opens, moves, and closes with Escape returning focus", async () => {
   const user = userEvent.setup();
   const h = handlers();
-  const { container } = render(<ManifestHeader session={session(manifest())} {...h} />);
+  const { container } = render(<ManifestHeader session={session(manifest())} {...h} />, { wrapper: DevOn });
   const trigger = await screen.findByRole("button", { name: "Recent" });
   trigger.focus();
   await user.keyboard("{Enter}");
@@ -61,7 +62,7 @@ test("Recent menu opens, moves, and closes with Escape returning focus", async (
 
 test("Tab closes the menu and focus is not lost to body", async () => {
   const user = userEvent.setup();
-  render(<ManifestHeader session={session(manifest())} {...handlers()} />);
+  render(<ManifestHeader session={session(manifest())} {...handlers()} />, { wrapper: DevOn });
   const trigger = await screen.findByRole("button", { name: "Recent" });
   trigger.focus();
   await user.keyboard("{Enter}");

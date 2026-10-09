@@ -1021,6 +1021,21 @@ Added after the M7 review (2026-09-30):
     which still trusts a third party for one binary path). A loader DLL
     beside the exe would break the single-file portable exe, so the check
     fails on it like on the CRT, zstd, and liblzma DLLs.
+54. **Edit in editor and the extraction command are developer-mode only.**
+    A secret chord, Ctrl+Alt+Shift+D, toggles an app-wide developer mode
+    (`apps/desktop/src/app/devMode.tsx`). It is off on every launch and the
+    toggle is announced. Off, the UI hides Edit in editor (header and error
+    region), its Ctrl+E shortcut and shortcuts-list row, and the build
+    result's "Extract on the target" block. Ctrl+E is still claimed so the
+    webview never acts on it. The backend is unchanged.
+55. **The entry list sits outside the controls fieldset.** In Chromium
+    (WebView2), the `.entry-list` size container inside a `display: contents`
+    fieldset lost its layout boxes when its rows changed, so the list vanished
+    after a drop. `EntryTable` renders after the fieldset and disables its own
+    buttons during a build.
+56. **Reload clears the transient panels:** the drop result, the build result,
+    and the format notice. Focus inside one of them moves to Reload first.
+    The state warning stays: it is sticky in the backend and still true.
 
 ### 6.3 UI-facing contract changes (for the ui-designer)
 

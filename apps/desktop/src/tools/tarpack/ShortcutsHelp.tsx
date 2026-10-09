@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 import { Button } from "../../app/Button";
+import { useDevMode } from "../../app/devMode";
 
-export const SHORTCUTS: { keys: string[][]; action: string; when: string }[] = [
+/** `devOnly` rows are listed only in developer mode. */
+export const SHORTCUTS: { keys: string[][]; action: string; when: string; devOnly?: boolean }[] = [
   { keys: [["Ctrl", "O"]], action: "Open manifest…", when: "Always" },
   { keys: [["F5"], ["Ctrl", "R"]], action: "Reload manifest", when: "A manifest is open" },
-  { keys: [["Ctrl", "E"]], action: "Edit in editor", when: "A manifest is open" },
+  { keys: [["Ctrl", "E"]], action: "Edit in editor", when: "A manifest is open", devOnly: true },
   { keys: [["Ctrl", "Enter"]], action: "Create archive", when: "The archive can be built" },
   { keys: [["F8"]], action: "Show errors", when: "The manifest has errors" },
   { keys: [["Up"], ["Down"]], action: "Move between files", when: "Focus is in the table" },
@@ -26,6 +28,7 @@ function isOpen(el: HTMLElement): boolean {
 /** A quiet button that opens a non-modal popover listing every shortcut. */
 export function ShortcutsHelp({ onOpenChange }: { onOpenChange?: (open: boolean) => void } = {}) {
   const id = useId();
+  const devMode = useDevMode();
   const report = useRef(onOpenChange);
   useEffect(() => {
     report.current = onOpenChange;
@@ -84,7 +87,7 @@ export function ShortcutsHelp({ onOpenChange }: { onOpenChange?: (open: boolean)
             </tr>
           </thead>
           <tbody>
-            {SHORTCUTS.map((s) => (
+            {SHORTCUTS.filter((s) => devMode || !s.devOnly).map((s) => (
               <tr key={s.action}>
                 <td className="shortcuts__keys">
                   {s.keys.map((combo, i) => (

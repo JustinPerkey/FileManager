@@ -219,7 +219,9 @@ overlay border, and the 2 px focus outline with a 2 px offset.
 - **Quiet:** transparent, with no border until hover. Use it for row actions
   and dismiss.
 - **States:** hover, active, focus-visible (the global 2 px ring), disabled
-  (`--text-muted` on `--surface-sunken`, no pointer), and busy
+  (`--text-muted` on `--surface-sunken` at 55% opacity, `not-allowed` cursor;
+  a disabled quiet button stays transparent at 45% opacity, so it never reads
+  as more clickable than its enabled neighbours), and busy
   (`aria-busy="true"`, label unchanged).
 - **Menu trigger:** a chevron icon, never the `▾` glyph.
 

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref
 import { Banner } from "../../app/Banner";
 import { Button } from "../../app/Button";
 import { DropZone } from "../../app/DropZone";
+import { useDevMode } from "../../app/devMode";
 import { openFileDialog, saveFileDialog } from "../../lib/tauri";
 import type { ArchiveFormat } from "../../lib/generated/ArchiveFormat";
 import type { Progress } from "../../lib/generated/Progress";
@@ -121,6 +122,16 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
         setChanged(false);
         setDrop((d) => (d?.kind === "result" ? null : d));
         if ((next.manifest?.errorCount ?? 0) > 0) setExpanded(true);
+      }
+      if (origin === "reload") {
+        // Reload starts clean: the drop and build results and the format notice go.
+        // Focus inside one of them moves to Reload first, so it is not lost to <body>.
+        const root = rootRef.current;
+        if (root && document.activeElement?.closest(".drop-result, .build-result")) {
+          root.querySelector<HTMLElement>('.manifest-header [aria-keyshortcuts="F5 Control+R"]')?.focus();
+        }
+        setResult(null);
+        setFormatNotice("");
       }
       // One announce() call per result: a second call would lose the first.
       const parts: string[] = [];
@@ -358,10 +369,12 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
   }, []);
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const devMode = useDevMode();
   const pending = drop?.kind === "pending";
   useTarpackShortcuts({
     active: !building && !confirming,
     hasManifest: !!session?.manifest,
+    devMode,
     canBuild: !!session?.canBuild,
     errorCount: session?.manifest?.errorCount ?? 0,
     dropResultVisible: !!session?.manifest && drop?.kind === "result",
@@ -493,17 +506,20 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
             onDismiss={removeResult}
           />
         )}
-        {manifest && (
-          <EntryTable
-            entries={manifest.entries}
-            failedCount={manifest.failedEntries.length}
-            entriesWithheld={manifest.entriesWithheld}
-            onBrowse={onBrowse}
-            onClear={onClear}
-            disabled={building}
-          />
-        )}
       </fieldset>
+      {/* Outside the fieldset: in Chromium (WebView2), a size container inside a
+          display: contents fieldset loses its layout when its rows change, and
+          the whole list vanishes. EntryTable disables its own controls. */}
+      {manifest && (
+        <EntryTable
+          entries={manifest.entries}
+          failedCount={manifest.failedEntries.length}
+          entriesWithheld={manifest.entriesWithheld}
+          onBrowse={onBrowse}
+          onClear={onClear}
+          disabled={building}
+        />
+      )}
       <ConfirmDialog
         open={confirming}
         title={`Replace ${fileName(session?.outputPath ?? "")}?`}
