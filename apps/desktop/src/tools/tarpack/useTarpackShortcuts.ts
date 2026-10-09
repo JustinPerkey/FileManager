@@ -4,6 +4,8 @@ export interface TarpackShortcutOptions {
   /** False while the confirmation dialog is open or a build is running. */
   active: boolean;
   hasManifest: boolean;
+  /** Developer mode: Ctrl+E opens the manifest in an editor only then. */
+  devMode: boolean;
   canBuild: boolean;
   errorCount: number;
   dropResultVisible: boolean;
@@ -49,7 +51,7 @@ export function useTarpackShortcuts(options: TarpackShortcutOptions) {
 
       let run: (() => void) | null = null;
       if (ctrl && key === "o") run = o.onOpen;
-      else if (ctrl && key === "e") run = o.hasManifest ? o.onEdit : null;
+      else if (ctrl && key === "e") run = o.devMode && o.hasManifest ? o.onEdit : null;
       else if (ctrl && key === "Enter") run = o.canBuild ? o.onBuild : null;
       else if (bare && key === "F8") run = o.hasManifest && o.errorCount > 0 ? o.onShowErrors : null;
       else if (bare && key === "Escape") {

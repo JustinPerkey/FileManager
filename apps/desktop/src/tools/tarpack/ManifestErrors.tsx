@@ -1,4 +1,5 @@
 import { useId, type RefObject } from "react";
+import { useDevMode } from "../../app/devMode";
 import { Button } from "../../app/Button";
 import { Icon } from "../../app/icons";
 import type { SessionManifest } from "../../lib/generated/SessionManifest";
@@ -34,6 +35,7 @@ export function ManifestErrors({
   reportRef,
 }: ManifestErrorsProps) {
   const headingId = useId();
+  const devMode = useDevMode();
   const hasErrors = manifest.errorCount > 0;
   const warnings = manifest.warnings;
   if (!hasErrors && warnings.length === 0) return null;
@@ -64,7 +66,7 @@ export function ManifestErrors({
               >
                 {expanded ? "Hide errors" : "Show errors"}
               </Button>
-              <Button onClick={onEdit}>Edit in editor</Button>
+              {devMode && <Button onClick={onEdit}>Edit in editor</Button>}
             </div>
           </div>
           <div

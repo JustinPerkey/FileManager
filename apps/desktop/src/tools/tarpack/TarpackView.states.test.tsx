@@ -17,6 +17,7 @@ vi.mock("../../lib/tarpack", () => ({
 vi.mock("../../lib/tauri", () => ({ openFileDialog: vi.fn(), saveFileDialog: vi.fn(), onDragDrop: vi.fn() }));
 import * as tp from "../../lib/tarpack";
 import { openFileDialog, saveFileDialog, onDragDrop } from "../../lib/tauri";
+import { DevOn } from "../../app/DevOn";
 
 let changed: () => void = () => undefined;
 
@@ -32,7 +33,7 @@ beforeEach(() => {
 
 const load = async (s = session(manifest())) => {
   vi.mocked(tp.session).mockResolvedValue(s);
-  const utils = render(<TarpackView />);
+  const utils = render(<TarpackView />, { wrapper: DevOn });
   await screen.findByRole("heading", { level: 1 });
   return utils;
 };
@@ -40,7 +41,7 @@ const load = async (s = session(manifest())) => {
 test("loading: announcer mounted, hidden text, busy, skeleton delayed", async () => {
   vi.useFakeTimers();
   vi.mocked(tp.session).mockReturnValue(new Promise(() => undefined));
-  const { container } = render(<TarpackView />);
+  const { container } = render(<TarpackView />, { wrapper: DevOn });
   expect(screen.getByRole("status")).toBeInTheDocument();
   expect(screen.getByText("Loading manifest")).toBeInTheDocument();
   expect(container.querySelector("[aria-busy=true]")).not.toBeNull();
@@ -146,7 +147,7 @@ test("OpenerFailed from Edit in editor and state warning", async () => {
 test("a rejected first session() shows the no-manifest state with the banner", async () => {
   const user = userEvent.setup();
   vi.mocked(tp.session).mockRejectedValue({ kind: "Io", message: "disk" });
-  const { container } = render(<TarpackView />);
+  const { container } = render(<TarpackView />, { wrapper: DevOn });
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent("A file could not be read or written.");
   expect(container.querySelector("[aria-busy=true]")).toBeNull();
@@ -204,7 +205,7 @@ test("changed-on-disk banner has no axe violations", async () => {
 
 test("root section has the tarpack class in loading, no-manifest and loaded states", async () => {
   vi.mocked(tp.session).mockReturnValue(new Promise(() => undefined));
-  const a = render(<TarpackView />);
+  const a = render(<TarpackView />, { wrapper: DevOn });
   expect(a.container.firstElementChild).toHaveClass("tool-view", "tarpack");
   a.unmount();
   const b = await load(session(null));
@@ -217,7 +218,7 @@ test("root section has the tarpack class in loading, no-manifest and loaded stat
 test("skeleton has no axe violations after the delay", async () => {
   vi.useFakeTimers();
   vi.mocked(tp.session).mockReturnValue(new Promise(() => undefined));
-  const { container } = render(<TarpackView />);
+  const { container } = render(<TarpackView />, { wrapper: DevOn });
   await act(async () => {
     vi.advanceTimersByTime(200);
   });

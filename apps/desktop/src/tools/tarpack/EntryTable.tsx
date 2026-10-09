@@ -99,6 +99,8 @@ interface RowProps {
   onClear: (id: string) => void;
   /** The one row in the tab order (roving tabindex). */
   tabStop: boolean;
+  /** A build is running: both buttons are disabled. */
+  disabled: boolean;
 }
 
 function sameEntry(a: SessionEntry, b: SessionEntry) {
@@ -117,7 +119,7 @@ function sameEntry(a: SessionEntry, b: SessionEntry) {
 }
 
 const EntryRow = memo(
-  function EntryRow({ entry, onBrowse, onClear, tabStop }: RowProps) {
+  function EntryRow({ entry, onBrowse, onClear, tabStop, disabled }: RowProps) {
     return (
       // A row is a keyboard stop of its own: Up and Down move between rows, Enter browses, Delete clears.
       <tr data-entry-id={entry.id} tabIndex={tabStop ? 0 : -1}>
@@ -158,6 +160,7 @@ const EntryRow = memo(
             title="Shortcut: Enter"
             tabIndex={tabStop ? 0 : -1}
             aria-keyshortcuts="Enter"
+            disabled={disabled}
             onClick={() => onBrowse(entry.id)}
           >
             Browse…{" "}
@@ -165,7 +168,7 @@ const EntryRow = memo(
           </Button>
           <Button
             variant="quiet"
-            disabled={entry.status === "unassigned"}
+            disabled={disabled || entry.status === "unassigned"}
             title="Forget this file (nothing is deleted). Shortcut: Delete"
             aria-keyshortcuts="Delete"
             tabIndex={tabStop ? 0 : -1}
@@ -178,7 +181,7 @@ const EntryRow = memo(
       </tr>
     );
   },
-  (a, b) => sameEntry(a.entry, b.entry) && a.tabStop === b.tabStop && a.onBrowse === b.onBrowse && a.onClear === b.onClear,
+  (a, b) => sameEntry(a.entry, b.entry) && a.tabStop === b.tabStop && a.disabled === b.disabled && a.onBrowse === b.onBrowse && a.onClear === b.onClear,
 );
 
 function Empty({ failedCount, entriesWithheld }: Pick<EntryTableProps, "failedCount" | "entriesWithheld">) {
@@ -279,7 +282,7 @@ export function EntryTable({
         {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
         <tbody onFocus={onFocus} onKeyDown={onKeyDown}>
           {entries.map((e) => (
-            <EntryRow key={e.id} entry={e} onBrowse={onBrowse} onClear={onClear} tabStop={!disabled && e.id === tabId} />
+            <EntryRow key={e.id} entry={e} onBrowse={onBrowse} onClear={onClear} tabStop={!disabled && e.id === tabId} disabled={disabled} />
           ))}
         </tbody>
       </table>

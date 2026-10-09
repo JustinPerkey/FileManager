@@ -12,6 +12,7 @@ vi.mock("../../lib/tarpack", () => ({
   assign: vi.fn(),
   assignDropped: vi.fn(),
   clear: vi.fn(),
+  reloadManifest: vi.fn(),
   recentManifests: vi.fn(),
   onManifestChanged: vi.fn(),
 }));
@@ -317,4 +318,46 @@ test("view-level axe with the result visible and Full paths expanded", async () 
   await user().click(screen.getByText("Full paths"));
   expect(container.querySelector("details.drop-result__paths")).toHaveAttribute("open");
   expect((await axe(container)).violations).toEqual([]);
+});
+
+test("the file list stays outside the controls fieldset and survives a drop", async () => {
+  // Chromium drops the layout of a size container inside a display: contents fieldset.
+  const next = session(manifest({ entries: [assigned("app", "C:\\d\\app.bin"), entry("core")] }));
+  vi.mocked(tp.assignDropped).mockResolvedValue({ session: next, outcome });
+  const { container } = await mount();
+  await drop();
+  const list = container.querySelector(".entry-list");
+  expect(list).not.toBeNull();
+  expect(list!.closest("fieldset")).toBeNull();
+});
+
+test("during a build the row buttons are disabled", async () => {
+  vi.mocked(tp.session).mockResolvedValue(session(manifest({ entries: [assigned("app", "C:\\d\\app.bin")] })));
+  render(<TarpackView building />);
+  await screen.findByRole("heading", { level: 1 });
+  expect(screen.getByRole("button", { name: /^Browse/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^Clear/ })).toBeDisabled();
+});
+
+test("Reload clears the drop result", async () => {
+  const next = session(manifest({ entries: [assigned("app", "C:\\d\\app.bin"), entry("core")] }));
+  vi.mocked(tp.assignDropped).mockResolvedValue({ session: next, outcome });
+  vi.mocked(tp.reloadManifest).mockResolvedValue(next);
+  await mount();
+  await drop();
+  await user().click(screen.getByRole("button", { name: "Reload" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Drop result" })).toBeNull());
+  expect(screen.getByText("C:\\d\\app.bin", { exact: false, selector: "td *" })).toBeInTheDocument();
+});
+
+test("Reload with focus in the drop result moves focus to Reload", async () => {
+  const next = session(manifest({ entries: [assigned("app", "C:\\d\\app.bin"), entry("core")] }));
+  vi.mocked(tp.assignDropped).mockResolvedValue({ session: next, outcome });
+  vi.mocked(tp.reloadManifest).mockResolvedValue(next);
+  await mount();
+  await drop();
+  screen.getByRole("button", { name: "Dismiss drop result" }).focus();
+  act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", cancelable: true })));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Drop result" })).toBeNull());
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Reload" }));
 });

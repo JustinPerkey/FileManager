@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../app/Button";
+import { useDevMode } from "../../app/devMode";
 import { Icon } from "../../app/icons";
 import type { BuildSummary } from "../../lib/generated/BuildSummary";
 import type { SessionEntry } from "../../lib/generated/SessionEntry";
@@ -59,6 +60,7 @@ function CopyButton({ label, text, visible }: { label: string; text: string; vis
 }
 
 export function BuildResult({ result, entries, onReveal, onDismiss }: BuildResultProps) {
+  const devMode = useDevMode();
   if ("err" in result) {
     const { err } = result;
     return (
@@ -140,16 +142,18 @@ export function BuildResult({ result, entries, onReveal, onDismiss }: BuildResul
           <CopyButton label="Copy SHA-256" text={s.sha256Hex} />
         </div>
       </div>
-      <div className="build-result__block">
-        <h3 className="build-result__label">Extract on the target</h3>
-        <div className="build-result__row">
-          <p className="build-result__code build-result__code--block mono">{s.extractCommand}</p>
-          <CopyButton label="Copy extraction command" text={s.extractCommand} />
+      {devMode && (
+        <div className="build-result__block">
+          <h3 className="build-result__label">Extract on the target</h3>
+          <div className="build-result__row">
+            <p className="build-result__code build-result__code--block mono">{s.extractCommand}</p>
+            <CopyButton label="Copy extraction command" text={s.extractCommand} />
+          </div>
+          <p className="build-result__hint">
+            Run this in the folder that holds the file. -P keeps the absolute paths.
+          </p>
         </div>
-        <p className="build-result__hint">
-          Run this in the folder that holds the file. -P keeps the absolute paths.
-        </p>
-      </div>
+      )}
       {s.normalizedEntries.length > 0 && (
         <div className="build-result__block">
           <h3 className="build-result__label">Line endings converted</h3>

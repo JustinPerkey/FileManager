@@ -6,6 +6,7 @@ import { expect, test, vi } from "vitest";
 import { ManifestErrors } from "./ManifestErrors";
 import { diag, failure, manifest } from "./fixtures";
 import type { SessionManifest } from "../../lib/generated/SessionManifest";
+import { DevOn } from "../../app/DevOn";
 
 function setup(m: SessionManifest, expanded = true) {
   const onExpandedChange = vi.fn();
@@ -18,6 +19,7 @@ function setup(m: SessionManifest, expanded = true) {
       onEdit={onEdit}
       reportRef={createRef()}
     />,
+    { wrapper: DevOn },
   );
   return { ...utils, onExpandedChange, onEdit };
 }

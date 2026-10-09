@@ -24,12 +24,15 @@ deployment. Never on a developer's own Linux machine.
    errors, and the entry with `normalize_eol` is marked.
 3. Drop a folder containing some of the listed files. The matched, unmatched,
    and ambiguous results are correct.
+   After the drop, the file list stays visible, with the matched files marked
+   ready.
 4. Assign one remaining file with Browse. Give the `normalize_eol` entry a file
    saved with CRLF line endings.
 5. The default format follows the example's `output_name` (`.tar.zst`). Choose
    an output path and create the archive. The summary shows the entry count, the
    on-disk and uncompressed sizes, and the SHA-256; the extraction command with
-   `-P`; and the normalised entry with its CRLF count. Press both Copy buttons
+   `-P` (shown only in developer mode: press Ctrl+Alt+Shift+D first, which also
+   shows Edit in editor and its Ctrl+E shortcut); and the normalised entry with its CRLF count. Press both Copy buttons
    and paste into Notepad: the hash and the command arrive exactly. The UI uses
    `navigator.clipboard.writeText` with no clipboard plugin. If Copy fails in
    the packaged exe, record the failure and report it (a separate backend task).

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ToolEntry } from "../tools/registry";
+import { DevModeProvider } from "./devMode";
 import { ToolNav } from "./ToolNav";
 
 interface AppShellProps {
@@ -12,11 +13,13 @@ export function AppShell({ tools }: AppShellProps) {
   const View = active?.view;
 
   return (
-    <div className="app-shell">
-      <ToolNav tools={tools} activeId={active?.id ?? null} onSelect={setSelectedId} />
-      <main className="app-shell__main">
-        {View ? <View /> : <p className="app-shell__empty">No tools available.</p>}
-      </main>
-    </div>
+    <DevModeProvider>
+      <div className="app-shell">
+        <ToolNav tools={tools} activeId={active?.id ?? null} onSelect={setSelectedId} />
+        <main className="app-shell__main">
+          {View ? <View /> : <p className="app-shell__empty">No tools available.</p>}
+        </main>
+      </div>
+    </DevModeProvider>
   );
 }

@@ -21,7 +21,9 @@ no native control vocabulary of its own.
 - **Primary:** a developer or tester who rebuilds the same deployment package
   many times a day for a low-power armv7 Linux target. They know the file set.
   They want to confirm that everything is present and correct, pick the
-  archive format, build, and copy the command that extracts it on the target.
+  archive format, and build. The extraction command and Edit in editor are
+  behind a developer mode (Ctrl+Alt+Shift+D) for the people who maintain
+  manifests.
 - They use the app at a desk, alongside an editor and a terminal, in short
   repeated visits. The next visit is minutes away. *(inferred)*
 

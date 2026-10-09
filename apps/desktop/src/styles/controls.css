@@ -44,8 +44,21 @@
   color: var(--text-muted);
   background: var(--surface-sunken);
   border-color: var(--border);
-  cursor: default;
+  cursor: not-allowed;
   translate: none;
+  opacity: 0.55;
+}
+
+/* Busy is working, not unavailable: it keeps full strength. */
+.btn[aria-busy="true"]:disabled {
+  opacity: 1;
+}
+
+/* A disabled quiet button must not gain a fill: it would read as more clickable than its enabled neighbours. */
+.btn--quiet:disabled {
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.45;
 }
 
 .icon {

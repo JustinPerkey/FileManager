@@ -4,6 +4,7 @@ import { axe } from "vitest-axe";
 import { beforeEach, expect, test, vi } from "vitest";
 import { BuildResult } from "./BuildResult";
 import { diag, entry, failure, summary } from "./fixtures";
+import { DevOn } from "../../app/DevOn";
 
 // user-event installs its own clipboard on setup(), so the spy goes on after it.
 function userWithClipboard() {
@@ -21,6 +22,7 @@ const show = (s = summary(), onReveal = () => undefined) =>
       onReveal={onReveal}
       onDismiss={() => undefined}
     />,
+    { wrapper: DevOn },
   );
 
 test("shows every field and copies exact text", async () => {
@@ -113,6 +115,7 @@ test("error result uses errorMessage and collapsed details", async () => {
       onReveal={() => undefined}
       onDismiss={() => undefined}
     />,
+    { wrapper: DevOn },
   );
   expect(
     screen.getByRole("heading", { level: 2, name: "A file is no longer at its assigned location." }),

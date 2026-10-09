@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "../../app/Button";
+import { useDevMode } from "../../app/devMode";
 import type { TarpackSession } from "../../lib/generated/TarpackSession";
 import { recentManifests } from "../../lib/tarpack";
 import { ShortcutsHelp } from "./ShortcutsHelp";
@@ -29,6 +30,7 @@ export function ManifestHeader({
   onEdit,
   onShortcutsOpenChange,
 }: ManifestHeaderProps) {
+  const devMode = useDevMode();
   const manifest = session.manifest;
   const [recent, setRecent] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -155,9 +157,11 @@ export function ManifestHeader({
         <Button title="Shortcut: F5 or Ctrl+R" aria-keyshortcuts="F5 Control+R" onClick={onReload}>
           Reload
         </Button>
-        <Button title="Shortcut: Ctrl+E" aria-keyshortcuts="Control+E" onClick={onEdit}>
-          Edit in editor
-        </Button>
+        {devMode && (
+          <Button title="Shortcut: Ctrl+E" aria-keyshortcuts="Control+E" onClick={onEdit}>
+            Edit in editor
+          </Button>
+        )}
         <ShortcutsHelp onOpenChange={onShortcutsOpenChange} />
       </div>
     </header>

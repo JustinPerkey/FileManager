@@ -22,6 +22,7 @@ vi.mock("../../lib/tarpack", () => ({
 vi.mock("../../lib/tauri", () => ({ openFileDialog: vi.fn(), saveFileDialog: vi.fn(), onDragDrop: vi.fn() }));
 import * as tp from "../../lib/tarpack";
 import { onDragDrop, openFileDialog, saveFileDialog } from "../../lib/tauri";
+import { DevOn } from "../../app/DevOn";
 
 let emit: (p: Progress) => void = () => undefined;
 const unlisten = vi.fn();
@@ -44,7 +45,7 @@ const create = () => screen.getByRole("button", { name: "Create archive" });
 
 async function mount(s: TarpackSession = ready) {
   vi.mocked(tp.session).mockResolvedValue(s);
-  const utils = render(<TarpackView />);
+  const utils = render(<TarpackView />, { wrapper: DevOn });
   await screen.findByRole("heading", { level: 1 });
   return utils;
 }
