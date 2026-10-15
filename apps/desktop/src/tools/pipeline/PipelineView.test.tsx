@@ -18,34 +18,39 @@ import { openDirectoryDialog } from "../../lib/tauri";
 
 const DIR = "C:\\jobs";
 const IDS: StepId[] = ["Verify", "RunBatch", "Schedule", "Tarpack"];
-const notRun = (id: StepId): StepView => ({ id, report: null, error: null });
-const empty: PipelineSession = {
+const notRun = (id: StepId): StepView => ({ id, report: null, error: null, unlocked: false });
+/** Fills in `unlocked` and `nextStep` the way the backend does. */
+const derive = (s: PipelineSession): PipelineSession => {
+  const n = s.steps.findIndex((v) => !v.report?.passed);
+  return {
+    ...s,
+    steps: s.steps.map((v, i) => ({ ...v, unlocked: n === -1 || i <= n })),
+    nextStep: n === -1 ? null : s.steps[n].id,
+  };
+};
+const empty: PipelineSession = derive({
   directory: null,
   steps: IDS.map(notRun),
+  nextStep: null,
   running: null,
   canRun: false,
-};
+});
 const ready: PipelineSession = {
   ...empty,
   directory: { path: DIR, error: null, subdirectories: 3 },
   canRun: true,
 };
-const withStep = (s: PipelineSession, view: StepView): PipelineSession => ({
-  ...s,
-  steps: s.steps.map((v) => (v.id === view.id ? view : v)),
-});
-const passed = (id: StepId): StepView => ({
+const withStep = (s: PipelineSession, view: Omit<StepView, "unlocked">): PipelineSession =>
+  derive({ ...s, steps: s.steps.map((v) => (v.id === view.id ? { ...view, unlocked: false } : v)) });
+const passed = (id: StepId) => ({
   id,
   report: { summary: "3 folders checked", issues: [], passed: true },
   error: null,
 });
-const notImplemented = (id: StepId): StepView => ({
+const notImplemented = (id: StepId) => ({
   id,
   report: null,
-  error: {
-    kind: "StepNotImplemented",
-    message: "this step is not implemented yet",
-  },
+  error: { kind: "StepNotImplemented" as const, message: "this step is not implemented yet" },
 });
 
 beforeEach(() => {
@@ -140,14 +145,16 @@ test("issues are listed with their subfolder", async () => {
 });
 
 test("the batch step asks first, and cancelling runs nothing", async () => {
-  await load(ready);
+  await load(withStep(ready, passed("Verify")));
   await userEvent.click(screen.getByRole("button", { name: "Run Run batch files" }));
   const dialog = screen.getByRole("dialog", { name: "Run Run batch files?" });
   expect(dialog).toHaveTextContent(DIR);
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(pl.runStep).not.toHaveBeenCalled();
 
-  vi.mocked(pl.runStep).mockResolvedValue(withStep(ready, notImplemented("RunBatch")));
+  vi.mocked(pl.runStep).mockResolvedValue(
+    withStep(withStep(ready, passed("Verify")), notImplemented("RunBatch")),
+  );
   await userEvent.click(screen.getByRole("button", { name: "Run Run batch files" }));
   await userEvent.click(
     within(screen.getByRole("dialog", { name: "Run Run batch files?" })).getByRole("button", { name: "Run" }),
@@ -172,7 +179,8 @@ test("run all goes in order and stops at the first step that does not pass", asy
     ["Verify", DIR],
     ["RunBatch", DIR],
   ]);
-  expect(within(step("Schedule")).getByText("Not run")).toBeInTheDocument();
+  expect(within(step("Schedule")).getByText("Waiting")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Run Schedule" })).toBeDisabled();
 });
 
 test("a step that cannot start shows an error banner", async () => {
@@ -241,4 +249,45 @@ test("a failed poll is reported once and retried", async () => {
   const item = await screen.findByRole("listitem", { name: "Run batch files" });
   expect(await screen.findByRole("alert", {}, { timeout: 3000 })).toBeInTheDocument();
   expect(await within(item).findByText("Not implemented", {}, { timeout: 3000 })).toBeInTheDocument();
+});
+
+test("later steps are locked until the one before passes", async () => {
+  await load(ready);
+  expect(screen.getByRole("button", { name: "Run Check required files" })).toBeEnabled();
+  for (const title of ["Run batch files", "Schedule", "Pack archives"]) {
+    expect(screen.getByRole("button", { name: `Run ${title}` })).toBeDisabled();
+  }
+  expect(screen.getByRole("button", { name: "Run Run batch files" })).toHaveAccessibleDescription(
+    "Runs after Check required files passes.",
+  );
+});
+
+test("run next step walks through the steps one at a time", async () => {
+  await load(ready);
+  let s = ready;
+  vi.mocked(pl.runStep).mockImplementation(async (id) => (s = withStep(s, passed(id))));
+
+  await userEvent.click(screen.getByRole("button", { name: "Run next: Check required files" }));
+  expect(pl.runStep).toHaveBeenLastCalledWith("Verify", DIR);
+  expect(await within(step("Check required files")).findByText("Passed")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Run Run batch files" })).toBeEnabled();
+
+  // The batch step asks first.
+  await userEvent.click(screen.getByRole("button", { name: "Run next: Run batch files…" }));
+  await userEvent.click(
+    within(screen.getByRole("dialog", { name: "Run Run batch files?" })).getByRole("button", { name: "Run" }),
+  );
+  expect(await within(step("Run batch files")).findByText("Passed")).toBeInTheDocument();
+  expect(pl.runStep).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("button", { name: "Run next: Schedule…" })).toBeEnabled();
+});
+
+test("when every step has passed, run next is disabled and says why", async () => {
+  let s = ready;
+  for (const id of IDS) s = withStep(s, passed(id));
+  await load(s);
+  const next = screen.getByRole("button", { name: "Run next step" });
+  expect(next).toBeDisabled();
+  expect(next).toHaveAccessibleDescription("All steps passed.");
+  expect(screen.getByRole("button", { name: "Run all…" })).toBeEnabled();
 });

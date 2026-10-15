@@ -10,6 +10,7 @@ const messages: Record<PipelineErrorKind, string> = {
     "The folder's contents could not be listed. Check that it still exists and you can open it.",
   DirectoryChanged: "The chosen folder changed before the step started. Nothing ran.",
   StepInProgress: "A step is still running. Wait for it to finish.",
+  PreviousStepNotPassed: "An earlier step has not passed yet. Run the steps in order. Nothing ran.",
   StepNotImplemented: "This step is not implemented yet.",
   StepFailed: "The step stopped before it finished. See Details.",
 };

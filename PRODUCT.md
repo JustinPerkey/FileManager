@@ -74,9 +74,10 @@ and a build that verifies the archive before anything replaces the output.
 - The third tool, and the first in the navigation, is the **Pipeline**
   (`pipeline`): the user chooses one folder, and four steps run over its
   subfolders in order: check required files, run each subfolder's batch file,
-  the schedule step, and tar packing. Steps run one at a time or all together
-  (stopping at the first that does not pass); the ones that change things ask
-  first. The steps themselves are not written yet; the UI says so.
+  the schedule step, and tar packing. The user goes step by step ("Run
+  next"; each step unlocks once the one before it passes) or runs them all at
+  once (stopping at the first that does not pass); the ones that change
+  things ask first. The steps themselves are not written yet; the UI says so.
 
 ## Brand Commitments
 

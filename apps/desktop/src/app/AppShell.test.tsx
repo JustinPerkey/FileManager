@@ -14,7 +14,13 @@ vi.mock("../lib/tarpack", () => ({
 vi.mock("../lib/pipeline", () => ({
   session: vi.fn(async () => ({
     directory: null,
-    steps: ["Verify", "RunBatch", "Schedule", "Tarpack"].map((id) => ({ id, report: null, error: null })),
+    steps: ["Verify", "RunBatch", "Schedule", "Tarpack"].map((id, i) => ({
+      id,
+      report: null,
+      error: null,
+      unlocked: i === 0,
+    })),
+    nextStep: "Verify",
     running: null,
     canRun: false,
   })),

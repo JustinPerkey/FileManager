@@ -12,6 +12,11 @@ export type PipelineSession = { directory: DirectorySlot | null,
  */
 steps: Array<StepView>, 
 /**
+ * The first step that has not passed, which "Run next step" runs;
+ * `null` when every step has passed.
+ */
+nextStep: StepId | null, 
+/**
  * The step running now, if any.
  */
 running: StepId | null, 

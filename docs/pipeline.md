@@ -16,7 +16,18 @@ The UI, the commands, and the sequencing are done. The four steps are stubs in
    contents can be listed, and counts its subfolders. A bad path stays in the
    field with its error and blocks running. Choosing a folder forgets every
    step's result. It is refused while a step runs.
-2. **Run a step**, or **Run all…**. Each step has its own Run button.
+2. **Step by step**, or **all at once**.
+   - **Run next: <step>** runs the first step that has not passed
+     (`session.nextStep`). Pressing it repeatedly walks through the process.
+     When every step has passed it is disabled ("All steps passed.").
+   - Each step also has its own Run button, enabled only once every step
+     before it has passed (`StepView.unlocked`); a locked step shows
+     "Waiting" and "Runs after <previous step> passes." The backend enforces
+     the same order: starting a locked step fails with
+     `PreviousStepNotPassed` and runs nothing.
+   - Running a step again (for example after fixing a subfolder) forgets its
+     own result and those of every later step, which then have to run again.
+   - **Run all…** runs every step from the first, in order.
    - Steps with a confirmation (`confirm` in
      `apps/desktop/src/tools/pipeline/steps.ts`: the batch, schedule and tar
      steps) ask first, naming the folder. Run all asks once, listing every
@@ -40,8 +51,8 @@ The UI, the commands, and the sequencing are done. The four steps are stubs in
      message under Details). The command itself fails only when the step could
      not start.
    - **Run all** is the UI calling `pipeline_run_step` for each step in order,
-     stopping at the first step that does not pass (issues, error, or could not
-     start).
+     starting from the first, and stopping at the first step that does not pass
+     (issues, error, or could not start). The steps after it stay locked.
 
 ## Where the work goes
 

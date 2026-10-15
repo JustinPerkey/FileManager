@@ -6,6 +6,10 @@ import type { StepReport } from "./StepReport";
 /**
  * A step and its last result in this session. `report` and `error` are
  * never both set; both `null` means the step has not run since the directory
- * was chosen.
+ * was chosen or an earlier step was run again.
  */
-export type StepView = { id: StepId, report: StepReport | null, error: PipelineError | null, };
+export type StepView = { id: StepId, report: StepReport | null, error: PipelineError | null, 
+/**
+ * Every step before this one has passed, so it may run.
+ */
+unlocked: boolean, };

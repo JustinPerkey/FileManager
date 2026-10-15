@@ -113,6 +113,11 @@
   margin: 0;
   color: var(--text-muted);
 }
+.pipeline__lock {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
 .pipeline__status {
   display: inline-flex;
   align-items: center;
@@ -146,7 +151,7 @@
   overflow-wrap: anywhere;
 }
 
-.pipeline__run-all {
+.pipeline__run-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

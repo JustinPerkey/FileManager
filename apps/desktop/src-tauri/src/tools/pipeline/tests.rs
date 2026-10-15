@@ -52,6 +52,19 @@ fn fakes(step: Step) -> StepFn {
     }
 }
 
+/// Every step passes.
+fn all_pass(_: Step) -> StepFn {
+    pass
+}
+
+/// Verify and RunBatch pass; Schedule stops part way.
+fn schedule_breaks(step: Step) -> StepFn {
+    match step {
+        Step::Schedule => broken,
+        _ => pass,
+    }
+}
+
 fn display(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
@@ -159,6 +172,7 @@ fn issues_name_the_subdirectory() {
     let d = dir_with(&["one", "two"]);
     let mut c = Core::with_hooks(fakes);
     c.set_directory(Some(Dir::check(d.path()))).unwrap();
+    run(&mut c, Step::Verify, d.path());
     run(&mut c, Step::RunBatch, d.path());
     let report = c.snapshot().steps[1].report.clone().unwrap();
     assert!(!report.passed);
@@ -174,20 +188,15 @@ fn issues_name_the_subdirectory() {
 #[test]
 fn step_errors_are_recorded_not_returned() {
     let d = dir_with(&["a"]);
-    let mut c = Core::with_hooks(fakes);
+    let mut c = Core::with_hooks(schedule_breaks);
     c.set_directory(Some(Dir::check(d.path()))).unwrap();
+    run(&mut c, Step::Verify, d.path());
+    run(&mut c, Step::RunBatch, d.path());
     run(&mut c, Step::Schedule, d.path());
-    run(&mut c, Step::Tarpack, d.path());
     let s = c.snapshot();
-    assert_eq!(
-        s.steps[2].error.as_ref().map(|e| e.kind),
-        Some(K::StepFailed)
-    );
-    assert_eq!(s.steps[2].error.as_ref().unwrap().message, "disk went away");
-    assert_eq!(
-        s.steps[3].error.as_ref().map(|e| e.kind),
-        Some(K::StepNotImplemented)
-    );
+    let error = s.steps[2].error.as_ref().unwrap();
+    assert_eq!(error.kind, K::StepFailed);
+    assert_eq!(error.message, "disk went away");
     assert!(s.steps[2].report.is_none());
 }
 
@@ -244,14 +253,69 @@ fn default_hooks_are_the_fm_pipeline_stubs() {
     let d = dir_with(&["a"]);
     let mut c = Core::default();
     c.set_directory(Some(Dir::check(d.path()))).unwrap();
+    run(&mut c, Step::Verify, d.path());
+    let s = c.snapshot();
+    assert_eq!(
+        s.steps[0].error.as_ref().map(|e| e.kind),
+        Some(K::StepNotImplemented)
+    );
+    assert_eq!(s.next_step, Some(StepId::Verify));
+}
+
+#[test]
+fn steps_unlock_in_order() {
+    let d = dir_with(&["a"]);
+    let mut c = Core::with_hooks(all_pass);
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
+    let unlocked =
+        |c: &Core| -> Vec<bool> { c.snapshot().steps.iter().map(|v| v.unlocked).collect() };
+    assert_eq!(unlocked(&c), [true, false, false, false]);
+    assert_eq!(c.snapshot().next_step, Some(StepId::Verify));
+    assert_eq!(
+        c.begin(Step::Schedule, &display(d.path()))
+            .err()
+            .map(|e| e.kind),
+        Some(K::PreviousStepNotPassed)
+    );
+    assert_eq!(c.snapshot().running, None);
+
+    run(&mut c, Step::Verify, d.path());
+    assert_eq!(unlocked(&c), [true, true, false, false]);
+    assert_eq!(c.snapshot().next_step, Some(StepId::RunBatch));
+    for step in [Step::RunBatch, Step::Schedule, Step::Tarpack] {
+        run(&mut c, step, d.path());
+    }
+    assert_eq!(unlocked(&c), [true; 4]);
+    assert_eq!(c.snapshot().next_step, None);
+}
+
+#[test]
+fn a_step_with_problems_keeps_the_next_locked() {
+    let d = dir_with(&["a"]);
+    let mut c = Core::with_hooks(fakes);
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
+    run(&mut c, Step::Verify, d.path());
+    run(&mut c, Step::RunBatch, d.path());
+    let s = c.snapshot();
+    assert_eq!(s.next_step, Some(StepId::RunBatch));
+    assert!(s.steps[1].unlocked);
+    assert!(!s.steps[2].unlocked);
+}
+
+#[test]
+fn running_a_step_again_forgets_the_later_results() {
+    let d = dir_with(&["a"]);
+    let mut c = Core::with_hooks(all_pass);
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     for step in Step::ALL {
         run(&mut c, step, d.path());
     }
+    let job = c.begin(Step::RunBatch, &display(d.path())).unwrap();
     let s = c.snapshot();
-    assert!(s
-        .steps
-        .iter()
-        .all(|v| v.error.as_ref().map(|e| e.kind) == Some(K::StepNotImplemented)));
+    assert!(s.steps[0].report.is_some());
+    assert!(s.steps[1..].iter().all(|v| v.report.is_none()));
+    c.finish(Step::RunBatch, job.run());
+    assert_eq!(c.snapshot().next_step, Some(StepId::Schedule));
 }
 
 #[test]

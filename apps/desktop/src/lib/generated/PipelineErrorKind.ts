@@ -3,4 +3,4 @@
 /**
  * What went wrong. The UI switches over it exhaustively.
  */
-export type PipelineErrorKind = "NoDirectory" | "NotAbsolute" | "NotADirectory" | "DirectoryUnreadable" | "DirectoryChanged" | "StepInProgress" | "StepNotImplemented" | "StepFailed";
+export type PipelineErrorKind = "NoDirectory" | "NotAbsolute" | "NotADirectory" | "DirectoryUnreadable" | "DirectoryChanged" | "StepInProgress" | "PreviousStepNotPassed" | "StepNotImplemented" | "StepFailed";

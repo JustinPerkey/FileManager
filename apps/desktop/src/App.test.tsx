@@ -6,6 +6,7 @@ vi.mock("./lib/pipeline", () => ({
   session: vi.fn(async () => ({
     directory: null,
     steps: [],
+    nextStep: null,
     running: null,
     canRun: false,
   })),

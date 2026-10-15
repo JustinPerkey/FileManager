@@ -170,8 +170,18 @@ impl Core {
         }
     }
 
+    fn passed(&self, i: usize) -> bool {
+        matches!(&self.results[i], Some(Ok(r)) if r.passed)
+    }
+
+    /// The first step that has not passed; `None` when every step has.
+    fn next_step(&self) -> Option<usize> {
+        (0..Step::ALL.len()).find(|&i| !self.passed(i))
+    }
+
     pub fn snapshot(&self) -> PipelineSession {
         let usable = self.directory.as_ref().is_some_and(|d| d.error.is_none());
+        let next = self.next_step();
         PipelineSession {
             directory: self.directory.as_ref().map(|d| DirectorySlot {
                 path: display(&d.path),
@@ -181,12 +191,15 @@ impl Core {
             steps: Step::ALL
                 .iter()
                 .zip(&self.results)
-                .map(|(step, result)| StepView {
+                .enumerate()
+                .map(|(i, (step, result))| StepView {
                     id: (*step).into(),
                     report: result.as_ref().and_then(|r| r.as_ref().ok()).cloned(),
                     error: result.as_ref().and_then(|r| r.as_ref().err()).cloned(),
+                    unlocked: next.is_none_or(|n| i <= n),
                 })
                 .collect(),
+            next_step: next.map(|i| Step::ALL[i].into()),
             running: self.running.map(Into::into),
             can_run: usable && self.running.is_none(),
         }
@@ -215,6 +228,10 @@ impl Core {
     /// Marks `step` running and returns the work to do. `expected` is the
     /// display path of the directory the UI showed; if the session holds
     /// another, nothing runs.
+    ///
+    /// Steps run in order: a step can start only once every step before it
+    /// has passed. Starting a step forgets its result and those of every later
+    /// step, since they were produced from what this step is about to redo.
     pub fn begin(&mut self, step: Step, expected: &str) -> Result<Job, PipelineError> {
         self.not_running()?;
         let dir = match &self.directory {
@@ -228,12 +245,25 @@ impl Core {
                 "the chosen folder changed before the step started",
             ));
         }
+        let i = index(step);
+        if let Some(blocking) = (0..i).find(|&j| !self.passed(j)) {
+            return Err(PipelineError::new(
+                K::PreviousStepNotPassed,
+                format!(
+                    "{:?} cannot start until {:?} has passed",
+                    step,
+                    Step::ALL[blocking]
+                ),
+            ));
+        }
         let job = Job {
             root: dir.path.clone(),
             hook: (self.hook_for)(step),
         };
         self.running = Some(step);
-        self.results[index(step)] = None;
+        for result in &mut self.results[i..] {
+            *result = None;
+        }
         Ok(job)
     }
 

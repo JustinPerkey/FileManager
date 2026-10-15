@@ -43,6 +43,7 @@ export function stepStatus(view: StepView, running: boolean): Status {
       tone: "error",
     };
   }
+  if (!view.unlocked) return { label: "Waiting", icon: "circle", tone: "muted" };
   return { label: "Not run", icon: "circle", tone: "muted" };
 }
 
@@ -255,6 +256,8 @@ export function PipelineView() {
   const loading = session === null && !restoreFailed;
   const reason = session ? runReason(session, busy) : null;
   const canRun = !!session?.canRun && !busy;
+  const next = session?.nextStep ?? null;
+  const runBarNote = reason ?? (session && next === null ? "All steps passed." : null);
 
   return (
     <section className="tool-view pipeline" aria-busy={loading ? true : undefined}>
@@ -297,6 +300,32 @@ export function PipelineView() {
       {session && (
         <>
           <DirectoryField slot={session.directory} disabled={busy} onBrowse={browse} onCommit={choose} />
+          <div className="pipeline__run-bar">
+            <Button
+              variant="primary"
+              busy={running !== null && running === next && !runningAll}
+              disabled={!canRun || next === null}
+              aria-describedby={runBarNote ? reasonId : undefined}
+              onClick={() => next && start({ kind: "step", id: next })}
+            >
+              {next === null
+                ? "Run next step"
+                : `Run next: ${stepCopy[next].title}${stepCopy[next].confirm ? "…" : ""}`}
+            </Button>
+            <Button
+              busy={runningAll}
+              disabled={!canRun}
+              aria-describedby={runBarNote ? reasonId : undefined}
+              onClick={() => start({ kind: "all" })}
+            >
+              {runningAll ? "Running all…" : "Run all…"}
+            </Button>
+            {runBarNote && (
+              <p id={reasonId} className="pipeline__reason">
+                {runBarNote}
+              </p>
+            )}
+          </div>
           <ol className="pipeline__steps" aria-label="Steps">
             {session.steps.map((view, i) => (
               <StepItem
@@ -309,26 +338,11 @@ export function PipelineView() {
                 view={view}
                 running={running === view.id}
                 canRun={canRun}
+                waitingFor={i > 0 ? stepCopy[session.steps[i - 1].id].title : null}
                 onRun={() => start({ kind: "step", id: view.id })}
               />
             ))}
           </ol>
-          <div className="pipeline__run-all">
-            <Button
-              variant="primary"
-              busy={runningAll}
-              disabled={!canRun}
-              aria-describedby={reason ? reasonId : undefined}
-              onClick={() => start({ kind: "all" })}
-            >
-              {runningAll ? "Running…" : "Run all…"}
-            </Button>
-            {reason && (
-              <p id={reasonId} className="pipeline__reason">
-                {reason}
-              </p>
-            )}
-          </div>
         </>
       )}
       <ConfirmDialog
@@ -441,13 +455,17 @@ interface StepItemProps {
   view: StepView;
   running: boolean;
   canRun: boolean;
+  /** The previous step's title, shown while this step is locked. */
+  waitingFor: string | null;
   onRun: () => void;
   ref: (el: HTMLElement | null) => void;
 }
 
-function StepItem({ number, view, running, canRun, onRun, ref }: StepItemProps) {
+function StepItem({ number, view, running, canRun, waitingFor, onRun, ref }: StepItemProps) {
   const copy = stepCopy[view.id];
   const titleId = useId();
+  const lockId = useId();
+  const locked = !view.unlocked;
   const status = stepStatus(view, running);
   return (
     <li className="pipeline__step" ref={ref} tabIndex={-1} aria-labelledby={titleId}>
@@ -460,12 +478,23 @@ function StepItem({ number, view, running, canRun, onRun, ref }: StepItemProps) 
             {copy.title}
           </h2>
           <p className="pipeline__step-description">{copy.description}</p>
+          {locked && waitingFor && (
+            <p id={lockId} className="pipeline__lock">
+              Runs after {waitingFor} passes.
+            </p>
+          )}
         </div>
         <span className={`pipeline__status pipeline__status--${status.tone}`}>
           <Icon name={status.icon} />
           {status.label}
         </span>
-        <Button busy={running} disabled={!canRun} onClick={onRun} aria-label={`Run ${copy.title}`}>
+        <Button
+          busy={running}
+          disabled={!canRun || locked}
+          onClick={onRun}
+          aria-label={`Run ${copy.title}`}
+          aria-describedby={locked && waitingFor ? lockId : undefined}
+        >
           {running ? "Running…" : copy.confirm ? "Run…" : "Run"}
         </Button>
       </div>

@@ -78,13 +78,15 @@ pub struct StepReport {
 
 /// A step and its last result in this session. `report` and `error` are
 /// never both set; both `null` means the step has not run since the directory
-/// was chosen.
+/// was chosen or an earlier step was run again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct StepView {
     pub id: StepId,
     pub report: Option<StepReport>,
     pub error: Option<PipelineError>,
+    /// Every step before this one has passed, so it may run.
+    pub unlocked: bool,
 }
 
 /// Everything the UI shows. Every command returns one.
@@ -94,6 +96,9 @@ pub struct PipelineSession {
     pub directory: Option<DirectorySlot>,
     /// Every step, in run order.
     pub steps: Vec<StepView>,
+    /// The first step that has not passed, which "Run next step" runs;
+    /// `null` when every step has passed.
+    pub next_step: Option<StepId>,
     /// The step running now, if any.
     pub running: Option<StepId>,
     /// A directory is chosen without an error and no step is running.
@@ -115,6 +120,8 @@ pub enum PipelineErrorKind {
     DirectoryChanged,
     /// A step is already running.
     StepInProgress,
+    /// An earlier step has not passed yet. Nothing ran.
+    PreviousStepNotPassed,
     /// The step's hook is still a stub.
     StepNotImplemented,
     /// The step stopped part way; `message` says why.
