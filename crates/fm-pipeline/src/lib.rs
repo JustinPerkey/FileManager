@@ -131,9 +131,9 @@ mod tests {
         );
     }
 
-    /// `Step::ALL` lists every variant, once. Adding a variant without adding
-    /// it to `ALL` fails here (the match below stops compiling, or the
-    /// assertion fails).
+    /// `Step::ALL` lists every variant, once. The match stops compiling when a
+    /// variant is added; when fixing it, add the variant to the loop's array
+    /// too (keep the two in sync), and the assertion then checks `ALL`.
     #[test]
     fn all_lists_every_step() {
         let position = |step: Step| match step {

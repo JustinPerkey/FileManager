@@ -231,3 +231,14 @@ test("results, problems, failures and the confirmation have no axe violations", 
   expect(screen.getByRole("dialog", { name: "Run all steps?" })).toBeInTheDocument();
   expect((await axe(container)).violations).toEqual([]);
 });
+
+test("a failed poll is reported once and retried", async () => {
+  vi.mocked(pl.session)
+    .mockResolvedValueOnce({ ...ready, running: "RunBatch", canRun: false })
+    .mockRejectedValueOnce({ kind: "Unexpected", message: "ipc down" })
+    .mockResolvedValue(withStep(ready, notImplemented("RunBatch")));
+  render(<PipelineView />);
+  const item = await screen.findByRole("listitem", { name: "Run batch files" });
+  expect(await screen.findByRole("alert", {}, { timeout: 3000 })).toBeInTheDocument();
+  expect(await within(item).findByText("Not implemented", {}, { timeout: 3000 })).toBeInTheDocument();
+});

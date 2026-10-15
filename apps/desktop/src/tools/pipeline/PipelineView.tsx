@@ -114,21 +114,31 @@ export function PipelineView() {
 
   // A step started before this view mounted (the user left and came back):
   // nothing here is awaiting it, so poll until the backend says it is done.
+  // A failed poll is reported once and retried; the counter re-runs the effect.
   const orphan = active === null && !!session?.running;
+  const [pollFailures, setPollFailures] = useState(0);
   useEffect(() => {
     if (!orphan) return;
     let live = true;
     const timer = setTimeout(() => {
       fetchSession().then(
-        (s) => live && setSession(s),
-        (e) => live && fail(e),
+        (s) => {
+          if (!live) return;
+          setSession(s);
+          setPollFailures(0);
+        },
+        (e) => {
+          if (!live) return;
+          if (pollFailures === 0) fail(e);
+          setPollFailures((n) => n + 1);
+        },
       );
     }, 1000);
     return () => {
       live = false;
       clearTimeout(timer);
     };
-  }, [orphan, session, fail]);
+  }, [orphan, session, fail, pollFailures]);
 
   // Only the newest folder change is shown: an older response arriving late
   // would show a folder the backend no longer holds.
