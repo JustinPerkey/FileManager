@@ -95,6 +95,27 @@ test("browsing sets the folder and shows its subfolder count", async () => {
   expect(screen.getByRole("button", { name: "Run all…" })).toBeEnabled();
 });
 
+test("after run next, focus returns to run next for the following step", async () => {
+  await load(ready);
+  vi.mocked(pl.runStep).mockResolvedValue(withStep(ready, passed("Verify")));
+  await userEvent.click(screen.getByRole("button", { name: "Run next: Check required files" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Run next: Run batch files…" })).toHaveFocus(),
+  );
+});
+
+test("a step started from its own button does not show run next as busy", async () => {
+  await load(ready);
+  let finish: (s: PipelineSession) => void = () => undefined;
+  vi.mocked(pl.runStep).mockReturnValue(new Promise((r) => (finish = r)));
+  await userEvent.click(screen.getByRole("button", { name: "Run Check required files" }));
+  expect(screen.getByRole("button", { name: "Run next: Check required files" })).not.toHaveAttribute(
+    "aria-busy",
+  );
+  finish(withStep(ready, passed("Verify")));
+  expect(await within(step("Check required files")).findByText("Passed")).toBeInTheDocument();
+});
+
 test("a typed bad path is shown with its error", async () => {
   await load(empty);
   vi.mocked(pl.setDirectory).mockResolvedValue({
@@ -289,5 +310,7 @@ test("when every step has passed, run next is disabled and says why", async () =
   const next = screen.getByRole("button", { name: "Run next step" });
   expect(next).toBeDisabled();
   expect(next).toHaveAccessibleDescription("All steps passed.");
-  expect(screen.getByRole("button", { name: "Run all…" })).toBeEnabled();
+  const all = screen.getByRole("button", { name: "Run all…" });
+  expect(all).toBeEnabled();
+  expect(all).not.toHaveAccessibleDescription();
 });

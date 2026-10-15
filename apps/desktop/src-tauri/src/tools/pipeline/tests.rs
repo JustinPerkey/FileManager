@@ -260,6 +260,15 @@ fn default_hooks_are_the_fm_pipeline_stubs() {
         Some(K::StepNotImplemented)
     );
     assert_eq!(s.next_step, Some(StepId::Verify));
+    // The later steps are locked behind Verify; check their hooks directly.
+    let subdirectories = [d.path().join("a")];
+    let input = StepInput {
+        root: d.path(),
+        subdirectories: &subdirectories,
+    };
+    for step in Step::ALL {
+        assert_eq!((Step::hook(step))(input), Err(StepError::NotImplemented));
+    }
 }
 
 #[test]
@@ -300,6 +309,15 @@ fn a_step_with_problems_keeps_the_next_locked() {
     assert_eq!(s.next_step, Some(StepId::RunBatch));
     assert!(s.steps[1].unlocked);
     assert!(!s.steps[2].unlocked);
+
+    // A refused start changes nothing.
+    assert_eq!(
+        c.begin(Step::Schedule, &display(d.path()))
+            .err()
+            .map(|e| e.kind),
+        Some(K::PreviousStepNotPassed)
+    );
+    assert_eq!(c.snapshot(), s);
 }
 
 #[test]

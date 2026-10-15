@@ -77,7 +77,8 @@ and a build that verifies the archive before anything replaces the output.
   the schedule step, and tar packing. The user goes step by step ("Run
   next"; each step unlocks once the one before it passes) or runs them all at
   once (stopping at the first that does not pass); the ones that change
-  things ask first. The steps themselves are not written yet; the UI says so.
+  things ask first. The steps themselves are not written yet; the UI says so,
+  and until the first one is, the later steps stay locked.
 
 ## Brand Commitments
 

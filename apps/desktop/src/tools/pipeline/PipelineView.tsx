@@ -57,7 +57,7 @@ function runReason(s: PipelineSession, running: boolean): string | null {
 }
 
 /** What a confirmation is for: one step, or every step in order. */
-type Pending = { kind: "step"; id: StepId } | { kind: "all" };
+type Pending = { kind: "step"; id: StepId; viaNext?: boolean } | { kind: "all" };
 
 export function PipelineView() {
   const [session, setSession] = useState<PipelineSession | null>(null);
@@ -75,7 +75,14 @@ export function PipelineView() {
   const [announcement, setAnnouncement] = useState("");
   const frame = useRef(0);
   const stepRefs = useRef(new Map<StepId, HTMLElement>());
+  const nextRef = useRef<HTMLButtonElement>(null);
+  // The step "Run next" started, so only that button shows busy for it.
+  const [viaNext, setViaNext] = useState<StepId | null>(null);
+  // After a "Run next" step, focus returns to "Run next" once it is enabled
+  // again, so keyboard users can keep walking through the steps.
+  const refocusNext = useRef(false);
   const reasonId = useId();
+  const allPassedId = useId();
   // Run all stops starting steps once the view is gone.
   const mounted = useRef(true);
   useEffect(() => {
@@ -198,12 +205,15 @@ export function PipelineView() {
   }, [active]);
 
   const runSingle = useCallback(
-    async (id: StepId, dir: string) => {
+    async (id: StepId, dir: string, fromNext: boolean) => {
+      if (fromNext) setViaNext(id);
       const next = await runOne(id, dir);
+      setViaNext(null);
       if (!next) return;
       const view = next.steps.find((v) => v.id === id);
       if (view) announce(`${stepCopy[id].title}: ${stepStatus(view, false).label}.`);
-      focusStep(id);
+      if (fromNext && next.nextStep !== null && next.canRun) refocusNext.current = true;
+      else focusStep(id);
     },
     [runOne, announce],
   );
@@ -241,14 +251,14 @@ export function PipelineView() {
       setConfirmedDir(dir);
       setPending(p);
     } else if (p.kind === "all") void runAll(dir);
-    else void runSingle(p.id, dir);
+    else void runSingle(p.id, dir, !!p.viaNext);
   };
   const onConfirm = () => {
     const p = pending;
     setPending(null);
     if (!p) return;
     if (p.kind === "all") void runAll(confirmedDir);
-    else void runSingle(p.id, confirmedDir);
+    else void runSingle(p.id, confirmedDir, !!p.viaNext);
   };
 
   const running = active ?? session?.running ?? null;
@@ -257,7 +267,13 @@ export function PipelineView() {
   const reason = session ? runReason(session, busy) : null;
   const canRun = !!session?.canRun && !busy;
   const next = session?.nextStep ?? null;
-  const runBarNote = reason ?? (session && next === null ? "All steps passed." : null);
+  const allPassed = !!session && next === null;
+  useEffect(() => {
+    if (refocusNext.current && canRun && next !== null) {
+      refocusNext.current = false;
+      nextRef.current?.focus();
+    }
+  }, [canRun, next]);
 
   return (
     <section className="tool-view pipeline" aria-busy={loading ? true : undefined}>
@@ -303,10 +319,11 @@ export function PipelineView() {
           <div className="pipeline__run-bar">
             <Button
               variant="primary"
-              busy={running !== null && running === next && !runningAll}
+              ref={nextRef}
+              busy={viaNext !== null && running === viaNext}
               disabled={!canRun || next === null}
-              aria-describedby={runBarNote ? reasonId : undefined}
-              onClick={() => next && start({ kind: "step", id: next })}
+              aria-describedby={reason ? reasonId : allPassed ? allPassedId : undefined}
+              onClick={() => next && start({ kind: "step", id: next, viaNext: true })}
             >
               {next === null
                 ? "Run next step"
@@ -315,15 +332,21 @@ export function PipelineView() {
             <Button
               busy={runningAll}
               disabled={!canRun}
-              aria-describedby={runBarNote ? reasonId : undefined}
+              aria-describedby={reason ? reasonId : undefined}
               onClick={() => start({ kind: "all" })}
             >
               {runningAll ? "Running all…" : "Run all…"}
             </Button>
-            {runBarNote && (
+            {reason ? (
               <p id={reasonId} className="pipeline__reason">
-                {runBarNote}
+                {reason}
               </p>
+            ) : (
+              allPassed && (
+                <p id={allPassedId} className="pipeline__reason">
+                  All steps passed.
+                </p>
+              )
             )}
           </div>
           <ol className="pipeline__steps" aria-label="Steps">

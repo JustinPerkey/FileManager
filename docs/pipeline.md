@@ -5,7 +5,10 @@ immediate subfolder of that folder is one unit of work.
 
 The UI, the commands, and the sequencing are done. The four steps are stubs in
 `crates/fm-pipeline` that return `StepError::NotImplemented`; the UI shows
-"Not implemented" on a step when it is run.
+"Not implemented" on a step when it is run. "Not implemented" does not count
+as passing, so until `verify` is implemented only step 1 can run: steps 2–4
+stay locked ("Waiting"). Implement the hooks in order, or temporarily return
+an empty `StepOutcome` from the earlier ones to reach a later step.
 
 ## Flow
 
