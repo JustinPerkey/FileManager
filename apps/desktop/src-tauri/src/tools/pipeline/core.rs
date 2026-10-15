@@ -1,10 +1,11 @@
 //! The Pipeline's session logic as plain functions, with no Tauri types.
 //!
-//! A run is split so the step's work happens without the session lock held:
+//! No filesystem work happens with the session lock held. The directory is
+//! checked by [`Dir::check`] before the lock is taken, and a run is split:
 //! [`Core::begin`] checks the request and marks the step running,
-//! [`Job::run`] lists the subdirectories and calls the step's hook (on a worker
-//! thread), and [`Core::finish`] records the result. The hooks default to
-//! `fm_pipeline::Step::hook`; tests swap in fakes.
+//! [`Job::run`] lists the subdirectories, calls the step's hook and checks the
+//! directory again (on a worker thread), and [`Core::finish`] records the
+//! result. The hooks default to `fm_pipeline::Step::hook`; tests swap in fakes.
 
 use std::path::{Path, PathBuf};
 
@@ -19,14 +20,16 @@ use super::types::{
 pub(super) type HookFor = fn(Step) -> StepFn;
 
 /// The chosen directory and, if it cannot be used, why.
-struct Dir {
+pub(super) struct Dir {
     path: PathBuf,
     error: Option<PipelineError>,
     subdirectories: u32,
 }
 
 impl Dir {
-    fn check(path: &Path) -> Dir {
+    /// Checks `path` is a full path to a listable directory and counts its
+    /// subdirectories. A problem is kept, not returned. Touches the disk.
+    pub fn check(path: &Path) -> Dir {
         let (error, subdirectories) = match count_subdirectories(path) {
             Ok(n) => (None, n),
             Err(e) => (Some(e), 0),
@@ -39,7 +42,15 @@ impl Dir {
     }
 }
 
-type StepResult = Result<StepReport, PipelineError>;
+pub(super) type StepResult = Result<StepReport, PipelineError>;
+
+/// What a finished [`Job`] hands back to [`Core::finish`].
+pub(super) struct Finished {
+    pub result: StepResult,
+    /// The directory checked again after the step, or `None` when the step
+    /// did not finish normally (the worker panicked).
+    pub directory: Option<Dir>,
+}
 
 pub(super) struct Core {
     hook_for: HookFor,
@@ -127,8 +138,18 @@ fn report(outcome: StepOutcome) -> StepReport {
 }
 
 impl Job {
-    /// Lists the subdirectories and runs the step. May block for a long time.
-    pub fn run(self) -> StepResult {
+    /// Lists the subdirectories and runs the step, then checks the directory
+    /// again: the step may have added or removed folders, or the folder may
+    /// have gone. May block for a long time.
+    pub fn run(self) -> Finished {
+        let result = self.step();
+        Finished {
+            result,
+            directory: Some(Dir::check(&self.root)),
+        }
+    }
+
+    fn step(&self) -> StepResult {
         // Listed again now: folders may have been added since the directory
         // was chosen.
         let subdirectories = list(&self.root)?;
@@ -181,11 +202,12 @@ impl Core {
         }
     }
 
-    /// Sets or clears (`None`) the directory and forgets every step's result.
-    /// It is checked to be a readable directory. Refused while a step runs.
-    pub fn set_directory(&mut self, path: Option<&Path>) -> Result<(), PipelineError> {
+    /// Sets or clears (`None`) the directory, already checked with
+    /// [`Dir::check`], and forgets every step's result. Refused while a step
+    /// runs.
+    pub fn set_directory(&mut self, directory: Option<Dir>) -> Result<(), PipelineError> {
         self.not_running()?;
-        self.directory = path.map(Dir::check);
+        self.directory = directory;
         self.results = Default::default();
         Ok(())
     }
@@ -216,15 +238,14 @@ impl Core {
     }
 
     /// Records the result of the step [`Core::begin`] started.
-    pub fn finish(&mut self, step: Step, result: StepResult) {
+    pub fn finish(&mut self, step: Step, finished: Finished) {
         debug_assert_eq!(self.running, Some(step));
         self.running = None;
-        // The folder may have gained or lost subdirectories during the step.
-        if let Some(dir) = &mut self.directory {
-            if let Ok(subdirectories) = list(&dir.path) {
-                dir.subdirectories = count(&subdirectories);
-            }
+        // The directory cannot change while a step runs, so this is the one
+        // the job ran over.
+        if let Some(dir) = finished.directory {
+            self.directory = Some(dir);
         }
-        self.results[index(step)] = Some(result);
+        self.results[index(step)] = Some(finished.result);
     }
 }

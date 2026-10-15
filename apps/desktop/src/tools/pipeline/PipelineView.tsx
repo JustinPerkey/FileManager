@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Banner } from "../../app/Banner";
 import { Button } from "../../app/Button";
 import { ConfirmDialog } from "../../app/ConfirmDialog";
@@ -14,11 +7,7 @@ import type { DirectorySlot } from "../../lib/generated/DirectorySlot";
 import type { PipelineSession } from "../../lib/generated/PipelineSession";
 import type { StepId } from "../../lib/generated/StepId";
 import type { StepView } from "../../lib/generated/StepView";
-import {
-  runStep,
-  session as fetchSession,
-  setDirectory,
-} from "../../lib/pipeline";
+import { runStep, session as fetchSession, setDirectory } from "../../lib/pipeline";
 import { openDirectoryDialog } from "../../lib/tauri";
 import { errorMessage, toPipelineError, type ViewError } from "./errorMessages";
 import { stepCopy } from "./steps";
@@ -45,8 +34,7 @@ export function stepStatus(view: StepView, running: boolean): Status {
   if (view.error?.kind === "StepNotImplemented")
     return { label: "Not implemented", icon: "info", tone: "warn" };
   if (view.error) return { label: "Failed", icon: "x-circle", tone: "error" };
-  if (view.report?.passed)
-    return { label: "Passed", icon: "check-circle", tone: "ok" };
+  if (view.report?.passed) return { label: "Passed", icon: "check-circle", tone: "ok" };
   if (view.report) {
     const n = view.report.issues.length;
     return {
@@ -58,10 +46,10 @@ export function stepStatus(view: StepView, running: boolean): Status {
   return { label: "Not run", icon: "circle", tone: "muted" };
 }
 
-const passed = (s: PipelineSession, id: StepId) =>
-  !!s.steps.find((v) => v.id === id)?.report?.passed;
+const passed = (s: PipelineSession, id: StepId) => !!s.steps.find((v) => v.id === id)?.report?.passed;
 
-function runReason(s: PipelineSession): string | null {
+function runReason(s: PipelineSession, running: boolean): string | null {
+  if (running) return "A step is running.";
   if (!s.directory) return "Choose a folder.";
   if (s.directory.error) return "Fix the folder path above first.";
   return null;
@@ -76,7 +64,8 @@ export function PipelineView() {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [commandError, setCommandError] = useState<ViewError | null>(null);
   const [failureCount, setFailureCount] = useState(0);
-  // The step running now. The session only reports it after the run returns.
+  // The step this view started and is waiting for. A step started before the
+  // view was last mounted shows only as `session.running`.
   const [active, setActive] = useState<StepId | null>(null);
   const [runningAll, setRunningAll] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -86,6 +75,14 @@ export function PipelineView() {
   const frame = useRef(0);
   const stepRefs = useRef(new Map<StepId, HTMLElement>());
   const reasonId = useId();
+  // Run all stops starting steps once the view is gone.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const announce = useCallback((text: string) => {
     cancelAnimationFrame(frame.current);
@@ -114,6 +111,24 @@ export function PipelineView() {
       live = false;
     };
   }, [fail, loadAttempt]);
+
+  // A step started before this view mounted (the user left and came back):
+  // nothing here is awaiting it, so poll until the backend says it is done.
+  const orphan = active === null && !!session?.running;
+  useEffect(() => {
+    if (!orphan) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      fetchSession().then(
+        (s) => live && setSession(s),
+        (e) => live && fail(e),
+      );
+    }, 1000);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [orphan, session, fail]);
 
   // Only the newest folder change is shown: an older response arriving late
   // would show a folder the backend no longer holds.
@@ -164,14 +179,19 @@ export function PipelineView() {
   );
 
   const focusStep = (id: StepId) => stepRefs.current.get(id)?.focus();
+  // The clicked Run button is disabled while its step runs, so focus moves to
+  // the step instead of falling to the page. An effect, so it runs after the
+  // confirmation dialog has returned focus to its opener.
+  useEffect(() => {
+    if (active) stepRefs.current.get(active)?.focus();
+  }, [active]);
 
   const runSingle = useCallback(
     async (id: StepId, dir: string) => {
       const next = await runOne(id, dir);
       if (!next) return;
       const view = next.steps.find((v) => v.id === id);
-      if (view)
-        announce(`${stepCopy[id].title}: ${stepStatus(view, false).label}.`);
+      if (view) announce(`${stepCopy[id].title}: ${stepStatus(view, false).label}.`);
       focusStep(id);
     },
     [runOne, announce],
@@ -185,16 +205,16 @@ export function PipelineView() {
       let last: StepId | null = null;
       let current: PipelineSession | null = session;
       for (const { id } of session.steps) {
+        if (!mounted.current) return;
         last = id;
         current = await runOne(id, dir);
         if (!current || !passed(current, id)) break;
       }
+      if (!mounted.current) return;
       setRunningAll(false);
       if (current && last) {
         const all = current.steps.every((v) => v.report?.passed);
-        announce(
-          all ? "All steps passed." : `Stopped at ${stepCopy[last].title}.`,
-        );
+        announce(all ? "All steps passed." : `Stopped at ${stepCopy[last].title}.`);
         focusStep(last);
       }
     },
@@ -205,9 +225,7 @@ export function PipelineView() {
     if (!session?.directory) return;
     const dir = session.directory.path;
     const needsConfirm =
-      p.kind === "all"
-        ? session.steps.some((v) => stepCopy[v.id].confirm)
-        : stepCopy[p.id].confirm;
+      p.kind === "all" ? session.steps.some((v) => stepCopy[v.id].confirm) : stepCopy[p.id].confirm;
     if (needsConfirm) {
       setConfirmedDir(dir);
       setPending(p);
@@ -222,24 +240,22 @@ export function PipelineView() {
     else void runSingle(p.id, confirmedDir);
   };
 
-  const busy = active !== null;
+  const running = active ?? session?.running ?? null;
+  const busy = running !== null || runningAll;
   const loading = session === null && !restoreFailed;
-  const reason = session ? runReason(session) : null;
+  const reason = session ? runReason(session, busy) : null;
   const canRun = !!session?.canRun && !busy;
 
   return (
-    <section
-      className="tool-view pipeline"
-      aria-busy={loading ? true : undefined}
-    >
+    <section className="tool-view pipeline" aria-busy={loading ? true : undefined}>
       <div className="visually-hidden" role="status" aria-live="polite">
         {announcement}
       </div>
       <header className="pipeline__header">
         <h1>Pipeline</h1>
         <p className="pipeline__intro">
-          Choose a folder. Each subfolder is processed by the steps below, in
-          order. Run one step at a time, or run them all.
+          Choose a folder. Each subfolder is processed by the steps below, in order. Run one step at a time,
+          or run them all.
         </p>
       </header>
       {loading && <span className="visually-hidden">Loading</span>}
@@ -270,12 +286,7 @@ export function PipelineView() {
       )}
       {session && (
         <>
-          <DirectoryField
-            slot={session.directory}
-            disabled={busy}
-            onBrowse={browse}
-            onCommit={choose}
-          />
+          <DirectoryField slot={session.directory} disabled={busy} onBrowse={browse} onCommit={choose} />
           <ol className="pipeline__steps" aria-label="Steps">
             {session.steps.map((view, i) => (
               <StepItem
@@ -286,7 +297,7 @@ export function PipelineView() {
                 }}
                 number={i + 1}
                 view={view}
-                running={active === view.id}
+                running={running === view.id}
                 canRun={canRun}
                 onRun={() => start({ kind: "step", id: view.id })}
               />
@@ -312,21 +323,15 @@ export function PipelineView() {
       )}
       <ConfirmDialog
         open={pending !== null}
-        title={
-          pending?.kind === "step"
-            ? `Run ${stepCopy[pending.id].title}?`
-            : "Run all steps?"
-        }
+        title={pending?.kind === "step" ? `Run ${stepCopy[pending.id].title}?` : "Run all steps?"}
         body={
           pending?.kind === "step" ? (
             <>
-              {stepCopy[pending.id].confirm} Folder:{" "}
-              <span className="mono">{confirmedDir}</span>
+              {stepCopy[pending.id].confirm} Folder: <span className="mono">{confirmedDir}</span>
             </>
           ) : (
             <>
-              Every step runs in order over{" "}
-              <span className="mono">{confirmedDir}</span>, stopping at the
+              Every step runs in order over <span className="mono">{confirmedDir}</span>, stopping at the
               first that does not pass.{" "}
               {session?.steps
                 .map((v) => stepCopy[v.id].confirm)
@@ -351,12 +356,7 @@ interface DirectoryFieldProps {
   onCommit: (path: string | null) => void;
 }
 
-function DirectoryField({
-  slot,
-  disabled,
-  onBrowse,
-  onCommit,
-}: DirectoryFieldProps) {
+function DirectoryField({ slot, disabled, onBrowse, onCommit }: DirectoryFieldProps) {
   const inputId = useId();
   const noteId = useId();
   const current = slot?.path ?? "";
@@ -407,11 +407,7 @@ function DirectoryField({
           onBlur={commit}
           onKeyDown={onKeyDown}
         />
-        <Button
-          onClick={onBrowse}
-          disabled={disabled}
-          aria-label="Browse for the folder"
-        >
+        <Button onClick={onBrowse} disabled={disabled} aria-label="Browse for the folder">
           Browse…
         </Button>
       </div>
@@ -422,8 +418,7 @@ function DirectoryField({
       ) : (
         slot && (
           <p id={noteId} className="pipeline__note">
-            {slot.subdirectories}{" "}
-            {plural(slot.subdirectories, "subfolder", "subfolders")}
+            {slot.subdirectories} {plural(slot.subdirectories, "subfolder", "subfolders")}
           </p>
         )
       )}
@@ -440,24 +435,12 @@ interface StepItemProps {
   ref: (el: HTMLElement | null) => void;
 }
 
-function StepItem({
-  number,
-  view,
-  running,
-  canRun,
-  onRun,
-  ref,
-}: StepItemProps) {
+function StepItem({ number, view, running, canRun, onRun, ref }: StepItemProps) {
   const copy = stepCopy[view.id];
   const titleId = useId();
   const status = stepStatus(view, running);
   return (
-    <li
-      className="pipeline__step"
-      ref={ref}
-      tabIndex={-1}
-      aria-labelledby={titleId}
-    >
+    <li className="pipeline__step" ref={ref} tabIndex={-1} aria-labelledby={titleId}>
       <div className="pipeline__step-head">
         <span className="pipeline__step-number" aria-hidden="true">
           {number}
@@ -472,30 +455,18 @@ function StepItem({
           <Icon name={status.icon} />
           {status.label}
         </span>
-        <Button
-          busy={running}
-          disabled={!canRun}
-          onClick={onRun}
-          aria-label={`Run ${copy.title}`}
-        >
+        <Button busy={running} disabled={!canRun} onClick={onRun} aria-label={`Run ${copy.title}`}>
           {running ? "Running…" : copy.confirm ? "Run…" : "Run"}
         </Button>
       </div>
       {view.report && (
         <div className="pipeline__step-result">
-          {view.report.summary && (
-            <p className="pipeline__summary">{view.report.summary}</p>
-          )}
+          {view.report.summary && <p className="pipeline__summary">{view.report.summary}</p>}
           {view.report.issues.length > 0 && (
-            <ul
-              className="pipeline__issues"
-              aria-label={`${copy.title} problems`}
-            >
+            <ul className="pipeline__issues" aria-label={`${copy.title} problems`}>
               {view.report.issues.map((issue, i) => (
                 <li key={i}>
-                  {issue.subdirectory !== null && (
-                    <span className="mono">{issue.subdirectory}: </span>
-                  )}
+                  {issue.subdirectory !== null && <span className="mono">{issue.subdirectory}: </span>}
                   {issue.message}
                 </li>
               ))}
@@ -506,11 +477,7 @@ function StepItem({
       {view.error && (
         <div className="pipeline__step-result">
           <p
-            className={
-              view.error.kind === "StepNotImplemented"
-                ? "pipeline__note"
-                : "pipeline__field-error"
-            }
+            className={view.error.kind === "StepNotImplemented" ? "pipeline__note" : "pipeline__field-error"}
           >
             {errorMessage(view.error)}
           </p>

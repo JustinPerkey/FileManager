@@ -15,6 +15,7 @@ path: string,
  */
 error: PipelineError | null, 
 /**
- * How many subdirectories it had when it was chosen.
+ * How many subdirectories it had when it was chosen or a step last
+ * finished.
  */
 subdirectories: number, };

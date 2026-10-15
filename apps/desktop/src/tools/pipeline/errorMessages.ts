@@ -4,13 +4,11 @@ import type { PipelineErrorKind } from "../../lib/generated/PipelineErrorKind";
 /** One message per kind. A `Record` over the closed union: a missing or extra kind fails the typecheck. */
 const messages: Record<PipelineErrorKind, string> = {
   NoDirectory: "Choose a folder first.",
-  NotAbsolute:
-    "Enter the full path, starting with the drive letter, for example C:\\.",
+  NotAbsolute: "Enter the full path, starting with the drive letter, for example C:\\.",
   NotADirectory: "No folder was found at this path.",
   DirectoryUnreadable:
     "The folder's contents could not be listed. Check that it still exists and you can open it.",
-  DirectoryChanged:
-    "The chosen folder changed before the step started. Nothing ran.",
+  DirectoryChanged: "The chosen folder changed before the step started. Nothing ran.",
   StepInProgress: "A step is still running. Wait for it to finish.",
   StepNotImplemented: "This step is not implemented yet.",
   StepFailed: "The step stopped before it finished. See Details.",
@@ -36,11 +34,7 @@ export function errorMessage(error: ViewError): string {
 export function toPipelineError(e: unknown): ViewError {
   if (typeof e === "object" && e !== null) {
     const o = e as Record<string, unknown>;
-    if (
-      typeof o.kind === "string" &&
-      Object.hasOwn(messages, o.kind) &&
-      typeof o.message === "string"
-    )
+    if (typeof o.kind === "string" && Object.hasOwn(messages, o.kind) && typeof o.message === "string")
       return e as PipelineError;
   }
   return {

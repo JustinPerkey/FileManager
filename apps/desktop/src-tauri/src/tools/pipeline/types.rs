@@ -51,7 +51,8 @@ pub struct DirectorySlot {
     pub path: String,
     /// `NotAbsolute`, `NotADirectory` or `DirectoryUnreadable`.
     pub error: Option<PipelineError>,
-    /// How many subdirectories it had when it was chosen.
+    /// How many subdirectories it had when it was chosen or a step last
+    /// finished.
     pub subdirectories: u32,
 }
 

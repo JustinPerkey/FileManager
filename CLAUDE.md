@@ -90,8 +90,9 @@ apps/desktop/
                               types.rs, tests.rs
     src/tools/pipeline/       mod.rs (the pipeline_* commands; a step runs on a
                               blocking worker), core.rs (directory check,
-                              begin/Job::run/finish, per-step results; calls the
-                              fm-pipeline hooks), types.rs, tests.rs
+                              begin/Job::run/finish with no disk I/O under the
+                              lock, per-step results; calls the fm-pipeline
+                              hooks), types.rs, tests.rs
     src/generated_types.rs    #[cfg(test)] ts-rs export and currency test
   src/
     main.tsx, App.tsx

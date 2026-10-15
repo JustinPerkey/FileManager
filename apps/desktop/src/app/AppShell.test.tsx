@@ -14,11 +14,7 @@ vi.mock("../lib/tarpack", () => ({
 vi.mock("../lib/pipeline", () => ({
   session: vi.fn(async () => ({
     directory: null,
-    steps: ["Verify", "RunBatch", "Schedule", "Tarpack"].map((id) => ({
-      id,
-      report: null,
-      error: null,
-    })),
+    steps: ["Verify", "RunBatch", "Schedule", "Tarpack"].map((id) => ({ id, report: null, error: null })),
     running: null,
     canRun: false,
   })),
@@ -31,29 +27,17 @@ const tools = [
 
 test("renders registry entries", () => {
   render(<AppShell tools={registry} />);
-  expect(screen.getByRole("button", { name: "Pipeline" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  expect(
-    screen.getByRole("button", { name: "Tar Packager" }),
-  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Pipeline" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("button", { name: "Tar Packager" })).toBeInTheDocument();
 });
 
 test("selecting a tool renders its view", async () => {
   const user = userEvent.setup();
   render(<AppShell tools={tools} />);
-  expect(
-    screen.getByRole("heading", { name: "Alpha view" }),
-  ).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Alpha view" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Beta" }));
-  expect(
-    screen.getByRole("heading", { name: "Beta view" }),
-  ).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Beta" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
+  expect(screen.getByRole("heading", { name: "Beta view" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Beta" })).toHaveAttribute("aria-current", "page");
 });
 
 test("shows an empty state with no tools", () => {

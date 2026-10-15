@@ -4,18 +4,12 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 /** Thin typed wrapper over `invoke`. Tool APIs (`lib/<tool>.ts`) build on it. */
-export function call<T>(
-  command: string,
-  args?: Record<string, unknown>,
-): Promise<T> {
+export function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   return invoke<T>(command, args);
 }
 
 /** Thin typed wrapper over `listen`. */
-export function on<T>(
-  event: string,
-  handler: (payload: T) => void,
-): Promise<UnlistenFn> {
+export function on<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
   return listen<T>(event, (e) => handler(e.payload));
 }
 
@@ -42,14 +36,8 @@ export function openFileDialog(
 }
 
 /** The native Open dialog for one folder. Resolves to `null` when cancelled. */
-export function openDirectoryDialog(
-  options: { defaultPath?: string } = {},
-): Promise<string | null> {
-  return open({
-    multiple: false,
-    directory: true,
-    defaultPath: options.defaultPath,
-  });
+export function openDirectoryDialog(options: { defaultPath?: string } = {}): Promise<string | null> {
+  return open({ multiple: false, directory: true, defaultPath: options.defaultPath });
 }
 
 /** The native Save dialog. Resolves to `null` when cancelled. */
@@ -67,9 +55,7 @@ export interface DragDrop {
 }
 
 /** Subscribes to files dragged over the window. */
-export function onDragDrop(
-  handler: (event: DragDrop) => void,
-): Promise<UnlistenFn> {
+export function onDragDrop(handler: (event: DragDrop) => void): Promise<UnlistenFn> {
   return getCurrentWebview().onDragDropEvent((e) => {
     const p = e.payload;
     handler({ type: p.type, paths: "paths" in p ? p.paths : [] });

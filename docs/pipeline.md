@@ -23,9 +23,17 @@ The UI, the commands, and the sequencing are done. The four steps are stubs in
      step's confirmation.
    - `pipeline_run_step(step, expectedDirectory)` refuses to start if another
      step is running (`StepInProgress`) or the session holds a different folder
-     than the one confirmed (`DirectoryChanged`). Otherwise it lists the
-     subfolders again, then calls the step's hook on a blocking worker thread,
-     so the hook may take as long as it needs.
+     than the one the UI showed (and confirmed, for steps that ask)
+     (`DirectoryChanged`). Otherwise it lists the subfolders again, then calls
+     the step's hook on a blocking worker thread, so the hook may take as long
+     as it needs. Afterwards the folder is checked again: its subfolder count
+     is updated, and if it has gone, the folder field shows why and running is
+     blocked.
+   - While a step runs, the folder field and every Run button are disabled and
+     focus moves to the running step. If the user leaves the Pipeline and comes
+     back mid-step, the view shows the step as running (from
+     `session.running`) and polls `pipeline_session` until it finishes. Run all
+     stops starting further steps once the user leaves the view.
    - The result is recorded on the step and returned in the session: a
      `report` (summary line, issues per subfolder, `passed` when there are no
      issues) or an `error` (`StepNotImplemented`, or `StepFailed` with its
@@ -54,7 +62,8 @@ fn(StepInput<'_>) -> Result<StepOutcome, StepError>
   immediate subfolders, sorted, listed just before the step started.
 - `StepOutcome { summary, issues }`: `summary` is one line shown under the
   step ("12 folders checked"). Each `Issue { subdirectory, message }` is a
-  problem found; the UI shows the subfolder's name and the message. No issues
+  problem found; `subdirectory` must be one of `input.subdirectories` (the UI
+  shows its name; name a file inside it in the message). No issues
   means the step passed, and Run all goes on to the next step.
 - `StepError::Failed(message)`: the step could not go on. Say how far it got.
 - To use the existing domain libraries, add `fm-schedule` / `fm-tarpack` to
@@ -68,7 +77,11 @@ fn(StepInput<'_>) -> Result<StepOutcome, StepError>
   `crates/fm-pipeline/src/lib.rs`, `StepId` in
   `apps/desktop/src-tauri/src/tools/pipeline/types.rs` (then regenerate
   `lib/generated/`), and `stepCopy` in
-  `apps/desktop/src/tools/pipeline/steps.ts`. The typecheck fails until all
-  three agree.
+  `apps/desktop/src/tools/pipeline/steps.ts`. A test in `fm-pipeline` fails if
+  a `Step` variant is missing from `Step::ALL`; the Rust `From` impls fail to
+  compile if `StepId` and `Step` differ; the typecheck fails if `stepCopy`
+  does not cover `StepId`.
+- The batch hook's doc comment has two Windows notes (`CREATE_NO_WINDOW`, and
+  how `cmd.exe` parses `.bat` arguments).
 - The steps' copy (titles, descriptions, confirmations) lives in `steps.ts`;
   adjust it once the steps do real work.

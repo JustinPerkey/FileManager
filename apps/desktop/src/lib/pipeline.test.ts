@@ -19,18 +19,8 @@ beforeEach(() => {
 describe("pipeline client", () => {
   it.each([
     ["session", () => pipeline.session(), "pipeline_session", undefined],
-    [
-      "setDirectory",
-      () => pipeline.setDirectory("C:\\jobs"),
-      "pipeline_set_directory",
-      { path: "C:\\jobs" },
-    ],
-    [
-      "setDirectory null",
-      () => pipeline.setDirectory(null),
-      "pipeline_set_directory",
-      { path: null },
-    ],
+    ["setDirectory", () => pipeline.setDirectory("C:\\jobs"), "pipeline_set_directory", { path: "C:\\jobs" }],
+    ["setDirectory null", () => pipeline.setDirectory(null), "pipeline_set_directory", { path: null }],
     [
       "runStep",
       () => pipeline.runStep("RunBatch", "C:\\jobs"),

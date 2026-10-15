@@ -73,7 +73,9 @@ pub struct StepOutcome {
 /// One problem a step found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Issue {
-    /// The subdirectory it concerns, or `None` for the directory as a whole.
+    /// The subdirectory it concerns: one of [`StepInput::subdirectories`],
+    /// not a path inside it (the UI shows only its last component). Name a
+    /// file inside it in `message`. `None` for the directory as a whole.
     pub subdirectory: Option<PathBuf>,
     pub message: String,
 }
@@ -127,6 +129,26 @@ mod tests {
             subdirectories(dir.path()).unwrap(),
             [dir.path().join("a"), dir.path().join("b")]
         );
+    }
+
+    /// `Step::ALL` lists every variant, once. Adding a variant without adding
+    /// it to `ALL` fails here (the match below stops compiling, or the
+    /// assertion fails).
+    #[test]
+    fn all_lists_every_step() {
+        let position = |step: Step| match step {
+            Step::Verify | Step::RunBatch | Step::Schedule | Step::Tarpack => {
+                Step::ALL.iter().position(|s| *s == step)
+            }
+        };
+        for step in [Step::Verify, Step::RunBatch, Step::Schedule, Step::Tarpack] {
+            assert!(
+                position(step).is_some(),
+                "{step:?} is missing from Step::ALL"
+            );
+        }
+        let unique: std::collections::HashSet<Step> = Step::ALL.into_iter().collect();
+        assert_eq!(unique.len(), Step::ALL.len());
     }
 
     #[test]

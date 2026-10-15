@@ -4,7 +4,7 @@ use std::path::Path;
 use fm_pipeline::{Issue, Step, StepError, StepFn, StepInput, StepOutcome};
 use tempfile::TempDir;
 
-use super::core::Core;
+use super::core::{Core, Dir};
 use super::types::{PipelineErrorKind as K, StepId, StepIssue, StepReport};
 
 fn dir_with(subdirs: &[&str]) -> TempDir {
@@ -59,8 +59,8 @@ fn display(p: &Path) -> String {
 /// Runs `step` the way the command does, without the worker thread.
 fn run(c: &mut Core, step: Step, root: &Path) {
     let job = c.begin(step, &display(root)).expect("begin");
-    let result = job.run();
-    c.finish(step, result);
+    let finished = job.run();
+    c.finish(step, finished);
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn empty_session_lists_every_step_in_order() {
 fn set_directory_counts_subdirectories() {
     let d = dir_with(&["a", "b"]);
     let mut c = Core::default();
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     let s = c.snapshot();
     let slot = s.directory.unwrap();
     assert_eq!(slot.path, display(d.path()));
@@ -107,7 +107,7 @@ fn bad_directories_are_kept_with_their_error() {
         (d.path().join("loose.txt"), K::NotADirectory),
         (d.path().join("missing"), K::NotADirectory),
     ] {
-        c.set_directory(Some(&path)).unwrap();
+        c.set_directory(Some(Dir::check(&path))).unwrap();
         let s = c.snapshot();
         let slot = s.directory.unwrap();
         assert_eq!(slot.path, display(&path));
@@ -124,9 +124,10 @@ fn begin_needs_a_usable_matching_directory() {
     let mut c = Core::with_hooks(fakes);
     let err = |r: Result<_, super::types::PipelineError>| r.err().map(|e| e.kind);
     assert_eq!(err(c.begin(Step::Verify, "")), Some(K::NoDirectory));
-    c.set_directory(Some(&d.path().join("loose.txt"))).unwrap();
+    c.set_directory(Some(Dir::check(&d.path().join("loose.txt"))))
+        .unwrap();
     assert_eq!(err(c.begin(Step::Verify, "")), Some(K::NotADirectory));
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     assert_eq!(
         err(c.begin(Step::Verify, "C:\\elsewhere")),
         Some(K::DirectoryChanged)
@@ -138,7 +139,7 @@ fn begin_needs_a_usable_matching_directory() {
 fn passing_step_is_recorded() {
     let d = dir_with(&["a", "b", "c"]);
     let mut c = Core::with_hooks(fakes);
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     run(&mut c, Step::Verify, d.path());
     let s = c.snapshot();
     assert_eq!(
@@ -157,7 +158,7 @@ fn passing_step_is_recorded() {
 fn issues_name_the_subdirectory() {
     let d = dir_with(&["one", "two"]);
     let mut c = Core::with_hooks(fakes);
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     run(&mut c, Step::RunBatch, d.path());
     let report = c.snapshot().steps[1].report.clone().unwrap();
     assert!(!report.passed);
@@ -174,7 +175,7 @@ fn issues_name_the_subdirectory() {
 fn step_errors_are_recorded_not_returned() {
     let d = dir_with(&["a"]);
     let mut c = Core::with_hooks(fakes);
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     run(&mut c, Step::Schedule, d.path());
     run(&mut c, Step::Tarpack, d.path());
     let s = c.snapshot();
@@ -194,7 +195,7 @@ fn step_errors_are_recorded_not_returned() {
 fn one_step_at_a_time_and_no_directory_change_while_running() {
     let d = dir_with(&[]);
     let mut c = Core::with_hooks(fakes);
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     let job = c.begin(Step::Verify, &display(d.path())).unwrap();
     let s = c.snapshot();
     assert_eq!(s.running, Some(StepId::Verify));
@@ -217,7 +218,7 @@ fn one_step_at_a_time_and_no_directory_change_while_running() {
 fn subdirectories_are_listed_when_the_step_runs() {
     let d = dir_with(&["a"]);
     let mut c = Core::with_hooks(fakes);
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     fs::create_dir(d.path().join("b")).unwrap();
     run(&mut c, Step::Verify, d.path());
     let s = c.snapshot();
@@ -232,9 +233,9 @@ fn subdirectories_are_listed_when_the_step_runs() {
 fn changing_the_directory_forgets_results() {
     let d = dir_with(&["a"]);
     let mut c = Core::with_hooks(fakes);
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     run(&mut c, Step::Verify, d.path());
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     assert!(c.snapshot().steps[0].report.is_none());
 }
 
@@ -242,7 +243,7 @@ fn changing_the_directory_forgets_results() {
 fn default_hooks_are_the_fm_pipeline_stubs() {
     let d = dir_with(&["a"]);
     let mut c = Core::default();
-    c.set_directory(Some(d.path())).unwrap();
+    c.set_directory(Some(Dir::check(d.path()))).unwrap();
     for step in Step::ALL {
         run(&mut c, step, d.path());
     }
@@ -251,4 +252,22 @@ fn default_hooks_are_the_fm_pipeline_stubs() {
         .steps
         .iter()
         .all(|v| v.error.as_ref().map(|e| e.kind) == Some(K::StepNotImplemented)));
+}
+
+#[test]
+fn a_folder_that_goes_away_during_a_step_blocks_the_next_run() {
+    let d = dir_with(&["a"]);
+    let root = d.path().join("jobs");
+    fs::create_dir(&root).unwrap();
+    let mut c = Core::with_hooks(fakes);
+    c.set_directory(Some(Dir::check(&root))).unwrap();
+    let job = c.begin(Step::Verify, &display(&root)).unwrap();
+    fs::remove_dir(&root).unwrap();
+    c.finish(Step::Verify, job.run());
+    let s = c.snapshot();
+    assert_eq!(
+        s.directory.unwrap().error.map(|e| e.kind),
+        Some(K::NotADirectory)
+    );
+    assert!(!s.can_run);
 }

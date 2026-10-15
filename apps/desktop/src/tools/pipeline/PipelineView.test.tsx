@@ -67,12 +67,8 @@ test("cleanPath trims and drops Explorer's quotes", () => {
 
 test("lists the four steps in order and blocks running without a folder", async () => {
   const { container } = await load(empty);
-  const items = within(
-    screen.getByRole("list", { name: "Steps" }),
-  ).getAllByRole("listitem");
-  expect(
-    items.map((li) => within(li).getByRole("heading").textContent),
-  ).toEqual([
+  const items = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem");
+  expect(items.map((li) => within(li).getByRole("heading").textContent)).toEqual([
     "Check required files",
     "Run batch files",
     "Schedule",
@@ -87,9 +83,7 @@ test("browsing sets the folder and shows its subfolder count", async () => {
   await load(empty);
   vi.mocked(openDirectoryDialog).mockResolvedValue(DIR);
   vi.mocked(pl.setDirectory).mockResolvedValue(ready);
-  await userEvent.click(
-    screen.getByRole("button", { name: "Browse for the folder" }),
-  );
+  await userEvent.click(screen.getByRole("button", { name: "Browse for the folder" }));
   expect(pl.setDirectory).toHaveBeenCalledWith(DIR);
   expect(await screen.findByText("3 subfolders")).toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "Folder" })).toHaveValue(DIR);
@@ -106,10 +100,7 @@ test("a typed bad path is shown with its error", async () => {
       subdirectories: 0,
     },
   });
-  await userEvent.type(
-    screen.getByRole("textbox", { name: "Folder" }),
-    "jobs{Enter}",
-  );
+  await userEvent.type(screen.getByRole("textbox", { name: "Folder" }), "jobs{Enter}");
   expect(pl.setDirectory).toHaveBeenCalledWith("jobs");
   const box = screen.getByRole("textbox", { name: "Folder" });
   await waitFor(() => expect(box).toHaveAttribute("aria-invalid", "true"));
@@ -119,9 +110,7 @@ test("a typed bad path is shown with its error", async () => {
 test("the check step runs without confirming and shows its result", async () => {
   await load(ready);
   vi.mocked(pl.runStep).mockResolvedValue(withStep(ready, passed("Verify")));
-  await userEvent.click(
-    screen.getByRole("button", { name: "Run Check required files" }),
-  );
+  await userEvent.click(screen.getByRole("button", { name: "Run Check required files" }));
   expect(pl.runStep).toHaveBeenCalledWith("Verify", DIR);
   const item = step("Check required files");
   expect(await within(item).findByText("Passed")).toBeInTheDocument();
@@ -142,43 +131,29 @@ test("issues are listed with their subfolder", async () => {
       error: null,
     }),
   );
-  await userEvent.click(
-    screen.getByRole("button", { name: "Run Check required files" }),
-  );
+  await userEvent.click(screen.getByRole("button", { name: "Run Check required files" }));
   const issues = await screen.findByRole("list", {
     name: "Check required files problems",
   });
   expect(issues).toHaveTextContent("job-2: run.bat is missing");
-  expect(
-    within(step("Check required files")).getByText("1 problem"),
-  ).toBeInTheDocument();
+  expect(within(step("Check required files")).getByText("1 problem")).toBeInTheDocument();
 });
 
 test("the batch step asks first, and cancelling runs nothing", async () => {
   await load(ready);
-  await userEvent.click(
-    screen.getByRole("button", { name: "Run Run batch files" }),
-  );
+  await userEvent.click(screen.getByRole("button", { name: "Run Run batch files" }));
   const dialog = screen.getByRole("dialog", { name: "Run Run batch files?" });
   expect(dialog).toHaveTextContent(DIR);
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(pl.runStep).not.toHaveBeenCalled();
 
-  vi.mocked(pl.runStep).mockResolvedValue(
-    withStep(ready, notImplemented("RunBatch")),
-  );
+  vi.mocked(pl.runStep).mockResolvedValue(withStep(ready, notImplemented("RunBatch")));
+  await userEvent.click(screen.getByRole("button", { name: "Run Run batch files" }));
   await userEvent.click(
-    screen.getByRole("button", { name: "Run Run batch files" }),
-  );
-  await userEvent.click(
-    within(
-      screen.getByRole("dialog", { name: "Run Run batch files?" }),
-    ).getByRole("button", { name: "Run" }),
+    within(screen.getByRole("dialog", { name: "Run Run batch files?" })).getByRole("button", { name: "Run" }),
   );
   expect(pl.runStep).toHaveBeenCalledWith("RunBatch", DIR);
-  expect(
-    await within(step("Run batch files")).findByText("Not implemented"),
-  ).toBeInTheDocument();
+  expect(await within(step("Run batch files")).findByText("Not implemented")).toBeInTheDocument();
 });
 
 test("run all goes in order and stops at the first step that does not pass", async () => {
@@ -190,10 +165,7 @@ test("run all goes in order and stops at the first step that does not pass", asy
   });
   await userEvent.click(screen.getByRole("button", { name: "Run all…" }));
   await userEvent.click(
-    within(screen.getByRole("dialog", { name: "Run all steps?" })).getByRole(
-      "button",
-      { name: "Run" },
-    ),
+    within(screen.getByRole("dialog", { name: "Run all steps?" })).getByRole("button", { name: "Run" }),
   );
   await waitFor(() => expect(step("Run batch files")).toHaveFocus());
   expect(vi.mocked(pl.runStep).mock.calls).toEqual([
@@ -209,10 +181,53 @@ test("a step that cannot start shows an error banner", async () => {
     kind: "DirectoryChanged",
     message: "changed",
   });
-  await userEvent.click(
-    screen.getByRole("button", { name: "Run Check required files" }),
-  );
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "The chosen folder changed",
-  );
+  await userEvent.click(screen.getByRole("button", { name: "Run Check required files" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("The chosen folder changed");
+});
+
+test("focus moves to the step while it runs, not to the page", async () => {
+  await load(ready);
+  let finish: (s: PipelineSession) => void = () => undefined;
+  vi.mocked(pl.runStep).mockReturnValue(new Promise((r) => (finish = r)));
+  await userEvent.click(screen.getByRole("button", { name: "Run Check required files" }));
+  await waitFor(() => expect(step("Check required files")).toHaveFocus());
+  expect(
+    within(step("Check required files")).getByText("Running…", { selector: "span" }),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "Folder" })).toBeDisabled();
+  expect(screen.getByText("A step is running.")).toBeInTheDocument();
+  finish(withStep(ready, passed("Verify")));
+  expect(await within(step("Check required files")).findByText("Passed")).toBeInTheDocument();
+});
+
+test("a step started before the view mounted is shown and followed until it ends", async () => {
+  vi.mocked(pl.session)
+    .mockResolvedValueOnce({ ...ready, running: "RunBatch", canRun: false })
+    .mockResolvedValue(withStep(ready, notImplemented("RunBatch")));
+  render(<PipelineView />);
+  const item = await screen.findByRole("listitem", { name: "Run batch files" });
+  expect(within(item).getByText("Running…", { selector: "span" })).toBeInTheDocument();
+  expect(screen.getByText("A step is running.")).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "Folder" })).toBeDisabled();
+  expect(await within(item).findByText("Not implemented", {}, { timeout: 3000 })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Run all…" })).toBeEnabled();
+});
+
+test("results, problems, failures and the confirmation have no axe violations", async () => {
+  let s = withStep(ready, {
+    id: "Verify",
+    report: {
+      summary: "3 folders checked",
+      issues: [{ subdirectory: "job-2", message: "run.bat is missing" }],
+      passed: false,
+    },
+    error: null,
+  });
+  s = withStep(s, { id: "RunBatch", report: null, error: { kind: "StepFailed", message: "disk went away" } });
+  s = withStep(s, notImplemented("Schedule"));
+  const { container } = await load(s);
+  expect((await axe(container)).violations).toEqual([]);
+  await userEvent.click(screen.getByRole("button", { name: "Run all…" }));
+  expect(screen.getByRole("dialog", { name: "Run all steps?" })).toBeInTheDocument();
+  expect((await axe(container)).violations).toEqual([]);
 });

@@ -11,14 +11,12 @@ export interface StepCopy {
 export const stepCopy: Record<StepId, StepCopy> = {
   Verify: {
     title: "Check required files",
-    description:
-      "Checks that every subfolder has the files it needs. Nothing is changed.",
+    description: "Checks that every subfolder has the files it needs. Nothing is changed.",
     confirm: null,
   },
   RunBatch: {
     title: "Run batch files",
-    description:
-      "Runs the batch file in each subfolder and reports the ones that fail.",
+    description: "Runs the batch file in each subfolder and reports the ones that fail.",
     confirm: "The batch file in each subfolder will be run.",
   },
   Schedule: {

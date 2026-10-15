@@ -19,7 +19,7 @@ use tauri::State;
 
 use types::{PipelineError, PipelineErrorKind, PipelineSession, StepId};
 
-use self::core::Core;
+use self::core::{Core, Dir, Finished};
 
 /// Tauri-managed state: the session.
 pub struct PipelineState {
@@ -50,8 +50,11 @@ pub async fn pipeline_set_directory(
     state: State<'_, PipelineState>,
     path: Option<PathBuf>,
 ) -> Result<PipelineSession, PipelineError> {
+    // Checked before locking: a slow or unreachable share must not block the
+    // session.
+    let directory = path.as_deref().map(Dir::check);
     let mut core = lock(&state.core);
-    core.set_directory(path.as_deref())?;
+    core.set_directory(directory)?;
     Ok(core.snapshot())
 }
 
@@ -70,15 +73,16 @@ pub async fn pipeline_run_step(
     expected_directory: String,
 ) -> Result<PipelineSession, PipelineError> {
     let job = lock(&state.core).begin(step.into(), &expected_directory)?;
-    let result = tauri::async_runtime::spawn_blocking(move || job.run())
+    let finished = tauri::async_runtime::spawn_blocking(move || job.run())
         .await
-        .unwrap_or_else(|e| {
-            Err(PipelineError::new(
+        .unwrap_or_else(|e| Finished {
+            result: Err(PipelineError::new(
                 PipelineErrorKind::StepFailed,
                 format!("the step stopped unexpectedly: {e}"),
-            ))
+            )),
+            directory: None,
         });
     let mut core = lock(&state.core);
-    core.finish(step.into(), result);
+    core.finish(step.into(), finished);
     Ok(core.snapshot())
 }
