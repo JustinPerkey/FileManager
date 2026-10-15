@@ -243,6 +243,8 @@ export function PipelineView() {
   );
 
   const start = (p: Pending) => {
+    // A refocus left over from an earlier run must not fire on this one.
+    refocusNext.current = false;
     if (!session?.directory) return;
     const dir = session.directory.path;
     const needsConfirm =
