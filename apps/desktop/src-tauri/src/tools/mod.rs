@@ -30,6 +30,7 @@
 //! The Tar Packager needs no `setup`: its watcher takes an `AppHandle` from
 //! the commands that open or reload a manifest.
 
+pub(crate) mod pipeline;
 pub(crate) mod schedule;
 pub(crate) mod tarpack;
 
@@ -40,6 +41,7 @@ pub fn register(builder: Builder<Wry>) -> Builder<Wry> {
     builder
         .manage(tarpack::state())
         .manage(schedule::state())
+        .manage(pipeline::state())
         .invoke_handler(tauri::generate_handler![
             tarpack::tarpack_session,
             tarpack::tarpack_open_manifest,
@@ -59,6 +61,9 @@ pub fn register(builder: Builder<Wry>) -> Builder<Wry> {
             schedule::schedule_set_xml,
             schedule::schedule_set_dropped,
             schedule::schedule_apply,
+            pipeline::pipeline_session,
+            pipeline::pipeline_set_directory,
+            pipeline::pipeline_run_step,
         ])
 }
 

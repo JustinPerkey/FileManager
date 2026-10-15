@@ -19,6 +19,7 @@ tauri-plugin-opener = "2"
 fm-core = { path = "../../../crates/fm-core" }
 fm-tarpack = { path = "../../../crates/fm-tarpack" }
 fm-schedule = { path = "../../../crates/fm-schedule" }
+fm-pipeline = { path = "../../../crates/fm-pipeline" }
 ts-rs = { workspace = true }
 notify-debouncer-mini = "0.7.0"
 serde = { version = "1", features = ["derive"] }

@@ -8,8 +8,10 @@ chain.
 Stack chosen: a Tauri v2 shell, Rust workspace crates for domain logic, a
 React + TypeScript + Vite frontend, npm workspaces at the root. FileManager is
 a Windows-only desktop app distributed as a portable `.exe` (no installer). It
-hosts several independent tools: the Tar Packager (`tarpack`) and the Schedule
-Creator (`schedule`, UI and plumbing only: its parse and merge hooks are stubs).
+hosts several independent tools: the Pipeline (`pipeline`, UI and plumbing
+only: its four step hooks are stubs), the Tar Packager (`tarpack`) and the
+Schedule Creator (`schedule`, UI and plumbing only: its parse and merge hooks
+are stubs).
 
 ## Layout
 
@@ -56,10 +58,15 @@ crates/
                               parse (text -> Schedule) and merge (Schedule + XML -> XML)
                               are the hooks, run only on apply; both are stubs
                               returning NotImplemented
+  fm-pipeline/                Pipeline domain library. No tauri dependency.
+                              subdirectories() lists the units of work; one hook
+                              per step (verify, batch, schedule, tarpack), all
+                              stubs returning StepError::NotImplemented
 examples/tarpack/             example manifests, valid, used by tests through include_str!
 docs/tarpack-manifest.md      the manifest, archive-layout, and extraction reference
 docs/tarpack-e2e.md           manual end-to-end release checklist (Windows exe to Linux target)
 docs/schedule.md              the Schedule Creator's flow and where its hooks go
+docs/pipeline.md              the Pipeline's flow and where its step hooks go
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, eslint.config.js, index.html
   src-tauri/                  package and binary name: filemanager
@@ -81,6 +88,10 @@ apps/desktop/
                               chosen files, drop sorting, backup, atomic write;
                               calls the fm-schedule hooks),
                               types.rs, tests.rs
+    src/tools/pipeline/       mod.rs (the pipeline_* commands; a step runs on a
+                              blocking worker), core.rs (directory check,
+                              begin/Job::run/finish, per-step results; calls the
+                              fm-pipeline hooks), types.rs, tests.rs
     src/generated_types.rs    #[cfg(test)] ts-rs export and currency test
   src/
     main.tsx, App.tsx
@@ -90,6 +101,7 @@ apps/desktop/
     lib/tarpack.ts            typed client: one function per tarpack_* command,
                               onManifestChanged, onBuildProgress
     lib/schedule.ts           typed client: one function per schedule_* command
+    lib/pipeline.ts           typed client: one function per pipeline_* command
     lib/generated/            TS types generated from Rust (ts-rs)
     tools/registry.ts         export const tools: ToolEntry[]
 .github/workflows/ci.yml      linux and windows jobs, both run cargo test --workspace;
