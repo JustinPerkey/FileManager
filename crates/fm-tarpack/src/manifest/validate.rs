@@ -34,7 +34,8 @@ impl<'a> LineIndex<'a> {
         let line = before.bytes().filter(|&b| b == b'\n').count() + 1;
         let line_start = before.rfind('\n').map_or(0, |i| i + 1);
         let col = before[line_start..].chars().count() + 1;
-        (line as u32, col as u32)
+        let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        (to_u32(line), to_u32(col))
     }
 }
 
@@ -172,16 +173,15 @@ fn bad_dir(dir: &str) -> Option<&'static str> {
 }
 
 fn to_u32(ctx: &mut Ctx, scope: Scope, field: &str, v: &Spanned<i64>) -> Option<u32> {
-    match u32::try_from(*v.get_ref()) {
-        Ok(n) => Some(n),
-        Err(_) => {
-            ctx.error(
-                scope,
-                v.span().start,
-                format!("{field} `{}` does not fit in u32", v.get_ref()),
-            );
-            None
-        }
+    if let Ok(n) = u32::try_from(*v.get_ref()) {
+        Some(n)
+    } else {
+        ctx.error(
+            scope,
+            v.span().start,
+            format!("{field} `{}` does not fit in u32", v.get_ref()),
+        );
+        None
     }
 }
 
@@ -384,7 +384,7 @@ impl Resolved<'_> {
         self.file
             .name
             .as_ref()
-            .map_or_else(|| self.file.dir.span(), |n| n.span())
+            .map_or_else(|| self.file.dir.span(), toml::Spanned::span)
             .start
     }
     fn scope(&self, raw: &RawDoc) -> Scope<'_> {
@@ -392,7 +392,9 @@ impl Resolved<'_> {
     }
 }
 
-pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
+/// Checks `version`, `name` and `output_name`. Returns whether `output_name`
+/// may be used.
+fn check_header(ctx: &mut Ctx, raw: &RawDoc) -> bool {
     let hard = Scope::Top { withholds: true };
     let soft = Scope::Top { withholds: false };
     if let Some(v) = &raw.version {
@@ -424,13 +426,18 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
             );
         }
     }
+    output_name_ok
+}
 
-    let defaults = resolve_defaults(&mut ctx, raw.defaults.as_ref());
-
+/// Resolves every `[[file]]` table that deserialized. A table that failed on
+/// its own takes no part in the cross-entry checks. (Duplicate-id errors are
+/// pushed after this, so a table failing only through a duplicate id still
+/// takes part.)
+fn resolve_all<'r>(ctx: &mut Ctx, raw: &'r RawDoc, defaults: &Defaults) -> Vec<Resolved<'r>> {
     let mut resolved: Vec<Resolved> = Vec::new();
     for (i, slot) in raw.files.iter().enumerate() {
         let Some(file) = &slot.file else { continue };
-        if let Some(entry) = resolve_entry(&mut ctx, file, &defaults, slot.index) {
+        if let Some(entry) = resolve_entry(ctx, file, defaults, slot.index) {
             resolved.push(Resolved {
                 slot: i,
                 entry,
@@ -439,9 +446,6 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
         }
     }
 
-    // A table that failed on its own takes no part in the cross-entry checks.
-    // (Duplicate-id errors are pushed after this, so a table failing only
-    // through a duplicate id still takes part.)
     let own_failed: HashSet<usize> = ctx
         .diags
         .iter()
@@ -451,9 +455,12 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
         })
         .collect();
     resolved.retain(|r| !own_failed.contains(&raw.files[r.slot].index));
+    resolved
+}
 
-    // Duplicate ids, from the raw id, so tables that failed to deserialize
-    // take part. Every table sharing an id is reported.
+/// Duplicate ids, from the raw id, so tables that failed to deserialize take
+/// part. Every table sharing an id is reported.
+fn check_duplicate_ids(ctx: &mut Ctx, raw: &RawDoc) {
     let mut by_id: HashMap<&str, Vec<&super::raw::RawFileSlot>> = HashMap::new();
     for slot in &raw.files {
         if let Some(i) = &slot.id {
@@ -490,8 +497,10 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
         let at = slots[0].id.as_ref().map_or(0, |i| i.span().start);
         ctx.error(Scope::file(id, slots[0].index), at, msg);
     }
+}
 
-    // Duplicate targets, reported on both entries of each pair.
+/// Duplicate targets, reported on both entries of each pair.
+fn check_duplicate_targets(ctx: &mut Ctx, raw: &RawDoc, resolved: &[Resolved<'_>]) {
     let mut targets: HashMap<String, Vec<usize>> = HashMap::new();
     for (k, r) in resolved.iter().enumerate() {
         let path = r.entry.target_path();
@@ -499,7 +508,7 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
         for &p in prev.iter() {
             let p = &resolved[p];
             ctx.error(
-                r.scope(&raw),
+                r.scope(raw),
                 r.target_at(),
                 format!(
                     "target path `{path}` is already used by file `{}`",
@@ -507,7 +516,7 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
                 ),
             );
             ctx.error(
-                p.scope(&raw),
+                p.scope(raw),
                 p.target_at(),
                 format!(
                     "target path `{path}` is also used by file `{}`",
@@ -517,14 +526,16 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
         }
         prev.push(k);
     }
+}
 
-    // Long names and shared sources are warnings.
+/// Long names and shared sources are warnings.
+fn warn_long_names_and_shared_sources(ctx: &mut Ctx, raw: &RawDoc, resolved: &[Resolved<'_>]) {
     let mut sources: HashMap<String, &str> = HashMap::new();
-    for r in &resolved {
+    for r in resolved {
         let path = r.entry.target_path();
         if path.len() >= LONG_NAME_BYTES {
             ctx.warn(
-                r.scope(&raw),
+                r.scope(raw),
                 r.file.dir.span().start,
                 format!(
                     "stored path `{path}` is 100 bytes or longer ({} bytes); \
@@ -536,7 +547,7 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
         let key = r.entry.source().to_lowercase();
         if let Some(prev) = sources.get(&key) {
             ctx.warn(
-                r.scope(&raw),
+                r.scope(raw),
                 r.file.source.span().start,
                 format!(
                     "source `{}` matches file `{prev}` (compared case-insensitively); \
@@ -548,14 +559,16 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
             sources.insert(key, r.entry.id());
         }
     }
+}
 
-    // A file's stored path must not also be a directory another entry needs.
+/// A file's stored path must not also be a directory another entry needs.
+fn check_dir_conflicts(ctx: &mut Ctx, raw: &RawDoc, resolved: &[Resolved<'_>]) {
     for (i, a) in resolved.iter().enumerate() {
         let path = a.entry.target_path();
         for (j, b) in resolved.iter().enumerate() {
             if i != j && needed_dirs(b.entry.target_dir()).contains(&path.as_str()) {
                 ctx.error(
-                    a.scope(&raw),
+                    a.scope(raw),
                     a.target_at(),
                     format!(
                         "target path `{path}` is also a directory of file `{}`",
@@ -563,7 +576,7 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
                     ),
                 );
                 ctx.error(
-                    b.scope(&raw),
+                    b.scope(raw),
                     b.file.dir.span().start,
                     format!(
                         "dir needs `{path}`, which is the target path of file `{}`",
@@ -573,6 +586,18 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
             }
         }
     }
+}
+
+pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
+    let soft = Scope::Top { withholds: false };
+    let output_name_ok = check_header(&mut ctx, &raw);
+    let defaults = resolve_defaults(&mut ctx, raw.defaults.as_ref());
+    let resolved = resolve_all(&mut ctx, &raw, &defaults);
+
+    check_duplicate_ids(&mut ctx, &raw);
+    check_duplicate_targets(&mut ctx, &raw, &resolved);
+    warn_long_names_and_shared_sources(&mut ctx, &raw, &resolved);
+    check_dir_conflicts(&mut ctx, &raw, &resolved);
 
     if raw.files.is_empty() {
         ctx.warn(soft, 0, "the manifest has no [[file]] entries".into());
@@ -606,7 +631,7 @@ pub(super) fn validate(mut ctx: Ctx, raw: RawDoc) -> ParseReport {
             errs.sort_by_key(by_pos);
             let slot = &raw.files[n - 1];
             EntryFailure {
-                index: n as u32,
+                index: u32::try_from(n).unwrap_or(u32::MAX),
                 id: slot
                     .id
                     .as_ref()

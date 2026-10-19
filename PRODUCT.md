@@ -70,12 +70,20 @@ and a build that verifies the archive before anything replaces the output.
   schedule from a text file and adds it to an existing XML file, both
   specified by the user (typed path, Browse, or drop), after a confirmation
   and a backup. Its parsing and XML update are not written yet;
-  the UI says so. Further tools are undecided.
+  the UI says so.
+- The third tool, and the first in the navigation, is the **Pipeline**
+  (`pipeline`): the user chooses one folder, and four steps run over its
+  subfolders in order: check required files, run each subfolder's batch file,
+  the schedule step, and tar packing. The user goes step by step ("Run
+  next"; each step unlocks once the one before it passes) or runs them all at
+  once (stopping at the first that does not pass); the ones that change
+  things ask first. The steps themselves are not written yet; the UI says so,
+  and until the first one is, the later steps stay locked.
 
 ## Brand Commitments
 
-- The name is **FileManager**. The tools are the **Tar Packager** and the
-  **Schedule Creator**.
+- The name is **FileManager**. The tools are the **Pipeline**, the **Tar
+  Packager**, and the **Schedule Creator**.
 - Voice: plain, short, and exact. Controls name their action. Errors name the
   problem and the recovery.
 - The theme follows the system. No manual toggle (decided 2026-09-29).

@@ -1026,6 +1026,7 @@ name = "filemanager"
 version = "0.1.0"
 dependencies = [
  "fm-core",
+ "fm-pipeline",
  "fm-schedule",
  "fm-tarpack",
  "notify-debouncer-mini",
@@ -1077,6 +1078,13 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "time",
+]
+
+[[package]]
+name = "fm-pipeline"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]

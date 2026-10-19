@@ -130,8 +130,8 @@ pub(super) fn write_new_file(
 }
 
 impl Core {
-    pub fn new(dirs: AppDirs) -> Core {
-        match Store::<RememberedState>::load(&dirs, "tarpack", "state") {
+    pub fn new(dirs: &AppDirs) -> Core {
+        match Store::<RememberedState>::load(dirs, "tarpack", "state") {
             Ok((store, warning)) => {
                 let remembered = store.get().clone();
                 Core::with(
@@ -523,11 +523,12 @@ impl Core {
                 view: v,
             })
             .collect();
-        let total = entries.len() as u32;
+        let total = u32::try_from(entries.len()).unwrap_or(u32::MAX);
         let ready = entries
             .iter()
             .filter(|e| e.status == EntryStatus::Ready)
-            .count() as u32;
+            .count();
+        let ready = u32::try_from(ready).unwrap_or(u32::MAX);
         let reason = if entries.is_empty() {
             Some(BuildBlockedReason::NoEntries)
         } else if entries.iter().any(|e| e.status == EntryStatus::Missing) {
@@ -544,12 +545,7 @@ impl Core {
                 path: display(&l.manifest.path),
                 name,
                 output_name: view.output_name,
-                hash: l
-                    .manifest
-                    .sha256
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect(),
+                hash: fm_core::to_hex(&l.manifest.sha256),
                 entries,
                 entries_withheld: report.entries_withheld,
                 errors: report.errors.clone(),

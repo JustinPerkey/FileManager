@@ -46,7 +46,7 @@ impl ProgressCoalescer {
             .is_none_or(|t| now.saturating_duration_since(t) >= self.interval);
 
         self.prev_phase = Some(event.phase);
-        self.prev_entry_id = event.entry_id.clone();
+        self.prev_entry_id.clone_from(&event.entry_id);
 
         if new_phase || new_entry || is_final || due {
             self.last_forwarded = Some(now);

@@ -12,6 +12,10 @@ pub struct AppDirs {
 impl AppDirs {
     /// Resolve the per-user app data directory `FileManager` (on Windows,
     /// `%APPDATA%\FileManager`).
+    ///
+    /// # Errors
+    ///
+    /// [`FmError::NoAppDataDir`] if the system reports no home directory.
     pub fn from_system() -> Result<Self> {
         let base = directories::BaseDirs::new().ok_or(FmError::NoAppDataDir)?;
         Ok(Self {
@@ -20,16 +24,22 @@ impl AppDirs {
     }
 
     /// Use an explicit root directory (used by tests).
+    #[must_use]
     pub fn at(root: PathBuf) -> Self {
         Self { root }
     }
 
     /// The root directory.
+    #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
     }
 
     /// `<root>/<tool>/`. `tool` must match `[a-z][a-z0-9-]*`.
+    ///
+    /// # Errors
+    ///
+    /// [`FmError::InvalidToolName`] if `tool` does not match.
     pub fn tool_dir(&self, tool: &str) -> Result<PathBuf> {
         if !is_valid_name(tool) {
             return Err(FmError::InvalidToolName(tool.to_owned()));

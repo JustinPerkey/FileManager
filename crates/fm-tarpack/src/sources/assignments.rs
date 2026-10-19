@@ -22,6 +22,7 @@ pub enum EntryStatus {
 pub struct Assignments(BTreeMap<String, PathBuf>);
 
 impl Assignments {
+    #[must_use]
     pub fn new() -> Assignments {
         Assignments(BTreeMap::new())
     }
@@ -40,6 +41,7 @@ impl Assignments {
     }
 
     /// Checks the filesystem now: is the assigned file still there?
+    #[must_use]
     pub fn status(&self, id: &str) -> EntryStatus {
         match self.0.get(id) {
             None => EntryStatus::Unassigned,
@@ -53,10 +55,12 @@ impl Assignments {
         self.0.iter().map(|(k, v)| (k.as_str(), v.as_path()))
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

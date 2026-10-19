@@ -35,6 +35,11 @@ export function openFileDialog(
   });
 }
 
+/** The native Open dialog for one folder. Resolves to `null` when cancelled. */
+export function openDirectoryDialog(options: { defaultPath?: string } = {}): Promise<string | null> {
+  return open({ multiple: false, directory: true, defaultPath: options.defaultPath });
+}
+
 /** The native Save dialog. Resolves to `null` when cancelled. */
 export function saveFileDialog(options: {
   defaultPath: string;

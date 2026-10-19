@@ -11,6 +11,20 @@ vi.mock("../lib/tarpack", () => ({
   recentManifests: vi.fn(async () => []),
   onManifestChanged: vi.fn(async () => () => undefined),
 }));
+vi.mock("../lib/pipeline", () => ({
+  session: vi.fn(async () => ({
+    directory: null,
+    steps: ["Verify", "RunBatch", "Schedule", "Tarpack"].map((id, i) => ({
+      id,
+      report: null,
+      error: null,
+      unlocked: i === 0,
+    })),
+    nextStep: "Verify",
+    running: null,
+    canRun: false,
+  })),
+}));
 
 const tools = [
   { id: "a", label: "Alpha", view: () => <h1>Alpha view</h1> },
@@ -19,7 +33,8 @@ const tools = [
 
 test("renders registry entries", () => {
   render(<AppShell tools={registry} />);
-  expect(screen.getByRole("button", { name: "Tar Packager" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("button", { name: "Pipeline" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("button", { name: "Tar Packager" })).toBeInTheDocument();
 });
 
 test("selecting a tool renders its view", async () => {
@@ -38,6 +53,6 @@ test("shows an empty state with no tools", () => {
 
 test("has no axe violations", async () => {
   const { container } = render(<AppShell tools={registry} />);
-  await screen.findByRole("heading", { name: "Tar Packager" });
+  await screen.findByRole("heading", { name: "Pipeline" });
   expect((await axe(container)).violations).toEqual([]);
 });

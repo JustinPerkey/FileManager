@@ -8,8 +8,10 @@ chain.
 Stack chosen: a Tauri v2 shell, Rust workspace crates for domain logic, a
 React + TypeScript + Vite frontend, npm workspaces at the root. FileManager is
 a Windows-only desktop app distributed as a portable `.exe` (no installer). It
-hosts several independent tools: the Tar Packager (`tarpack`) and the Schedule
-Creator (`schedule`, UI and plumbing only: its parse and merge hooks are stubs).
+hosts several independent tools: the Pipeline (`pipeline`, UI and plumbing
+only: its four step hooks are stubs), the Tar Packager (`tarpack`) and the
+Schedule Creator (`schedule`, UI and plumbing only: its parse and merge hooks
+are stubs).
 
 ## Layout
 
@@ -33,7 +35,9 @@ Creator (`schedule`, UI and plumbing only: its parse and merge hooks are stubs).
 
 ```
 Cargo.toml                    workspace: members crates/*, apps/desktop/src-tauri;
-                              [workspace.dependencies] pins ts-rs (and tempfile)
+                              [workspace.dependencies] pins ts-rs (and tempfile);
+                              [workspace.lints.clippy] turns on pedantic, and every
+                              crate opts in with [lints] workspace = true
 .cargo/config.toml            [env] TS_RS_EXPORT_DIR points stray #[ts(export)] into target/;
                               [target.x86_64-pc-windows-msvc] static CRT (+crt-static)
 .gitattributes                apps/desktop/src/lib/generated/** text eol=lf
@@ -56,10 +60,15 @@ crates/
                               parse (text -> Schedule) and merge (Schedule + XML -> XML)
                               are the hooks, run only on apply; both are stubs
                               returning NotImplemented
+  fm-pipeline/                Pipeline domain library. No tauri dependency.
+                              subdirectories() lists the units of work; one hook
+                              per step (verify, batch, schedule, tarpack), all
+                              stubs returning StepError::NotImplemented
 examples/tarpack/             example manifests, valid, used by tests through include_str!
 docs/tarpack-manifest.md      the manifest, archive-layout, and extraction reference
 docs/tarpack-e2e.md           manual end-to-end release checklist (Windows exe to Linux target)
 docs/schedule.md              the Schedule Creator's flow and where its hooks go
+docs/pipeline.md              the Pipeline's flow and where its step hooks go
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, eslint.config.js, index.html
   src-tauri/                  package and binary name: filemanager
@@ -81,6 +90,11 @@ apps/desktop/
                               chosen files, drop sorting, backup, atomic write;
                               calls the fm-schedule hooks),
                               types.rs, tests.rs
+    src/tools/pipeline/       mod.rs (the pipeline_* commands; a step runs on a
+                              blocking worker), core.rs (directory check,
+                              begin/Job::run/finish with no disk I/O under the
+                              lock, per-step results; calls the fm-pipeline
+                              hooks), types.rs, tests.rs
     src/generated_types.rs    #[cfg(test)] ts-rs export and currency test
   src/
     main.tsx, App.tsx
@@ -90,6 +104,7 @@ apps/desktop/
     lib/tarpack.ts            typed client: one function per tarpack_* command,
                               onManifestChanged, onBuildProgress
     lib/schedule.ts           typed client: one function per schedule_* command
+    lib/pipeline.ts           typed client: one function per pipeline_* command
     lib/generated/            TS types generated from Rust (ts-rs)
     tools/registry.ts         export const tools: ToolEntry[]
 .github/workflows/ci.yml      linux and windows jobs, both run cargo test --workspace;
@@ -105,7 +120,7 @@ npm install                                        # once, at repo root
 npm run tauri:dev                                  # run the app
 npm run tauri:build                                # portable Windows exe (tauri build --no-bundle)
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings   # includes clippy::pedantic (workspace lints)
 cargo test --workspace
 npm run typecheck && npm run lint && npm run test  # frontend (vitest; lint includes jsx-a11y)
 UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current   # regenerate lib/generated/
@@ -153,6 +168,13 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
   runs inside a temporary directory it creates and removes.
 - Paths are handled as the platform's path type, not as display strings. Code
   that renders a path does not assume it is valid UTF-8.
+- Rust code is always `cargo fmt` clean and passes clippy with the `pedantic`
+  group (set in `[workspace.lints.clippy]`; both CI jobs run clippy with
+  `-D warnings`, so a pedantic finding fails the build, and the windows job
+  covers `#[cfg(windows)]` code). A new crate adds `[lints] workspace =
+  true`. Fix the finding rather than silencing it; when silencing is right, use
+  a scoped `#[expect(clippy::<lint>, reason = "...")]`, never a crate-wide
+  `allow`.
 - No secrets in the repository. Configuration comes from the environment, with a
   checked-in `.env.example` documenting every key.
 - Accessibility is a requirement, not a polish item. Every interactive element
@@ -177,7 +199,8 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
 
 ## Adding a tool
 
-1. Add a crate `crates/fm-<tool>` with no tauri dependency. If it has boundary
+1. Add a crate `crates/fm-<tool>` with no tauri dependency, and
+   `[lints] workspace = true` in its `Cargo.toml`. If it has boundary
    types, add `ts-rs = { workspace = true }` and derive `ts_rs::TS`.
 2. Add a module `src-tauri/src/tools/<tool>.rs`. It contributes only
    `#[tauri::command]` functions prefixed `<tool>_`, a managed-state

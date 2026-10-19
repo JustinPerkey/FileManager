@@ -36,6 +36,10 @@ Project-specific checks:
   owns.
 - Paths are not lossily converted to strings anywhere but at display.
 - No secrets committed; every new configuration key is in `.env.example`.
+- `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D
+  warnings` (clippy pedantic) pass. A lint is silenced only with a scoped
+  `#[expect(clippy::..., reason = "...")]` that gives a real reason, never a
+  crate-wide `allow`.
 - `CLAUDE.md` still describes the repository as it now is — a milestone that
   changed the layout, the commands, or an invariant updated it.
 

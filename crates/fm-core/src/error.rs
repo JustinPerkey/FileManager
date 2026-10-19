@@ -37,6 +37,7 @@ pub enum FmError {
 
 impl FmError {
     /// Stable machine-readable discriminator for the UI.
+    #[must_use]
     pub fn kind(&self) -> &'static str {
         match self {
             FmError::InvalidToolName(_) => "InvalidToolName",

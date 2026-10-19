@@ -163,16 +163,15 @@ pub fn read(ctx: &mut Ctx, doc: DeTable<'_>) -> RawDoc {
     let defaults_val = take(&mut table, "defaults");
     let file_val = take(&mut table, "file");
 
-    let defaults = defaults_val.and_then(|v| match v.get_ref() {
-        DeValue::Table(_) => {
+    let defaults = defaults_val.and_then(|v| {
+        if let DeValue::Table(_) = v.get_ref() {
             let span = v.span();
             let DeValue::Table(t) = v.into_inner() else {
                 unreachable!()
             };
             let t = strip_unknown(ctx, t, &DEFAULTS_KEYS, Scope::Defaults);
             de(ctx, Spanned::new(span, DeValue::Table(t)), Scope::Defaults)
-        }
-        _ => {
+        } else {
             type_error(ctx, "a table", &v, Scope::Defaults);
             None
         }

@@ -59,7 +59,7 @@ impl Slot {
 
     /// The path, if the slot is usable.
     fn usable<'a>(
-        slot: &'a Option<Slot>,
+        slot: Option<&'a Slot>,
         missing: K,
         what: &str,
     ) -> Result<&'a Path, ScheduleError> {
@@ -149,7 +149,7 @@ fn backup(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
                 }
                 return Ok(candidate);
             }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(e),
         }
     }
@@ -221,8 +221,8 @@ impl Core {
         expected_text: &str,
         expected_xml: &str,
     ) -> Result<ApplySummary, ScheduleError> {
-        let text_path = Slot::usable(&self.text, K::NoText, "schedule file")?;
-        let xml_path = Slot::usable(&self.xml, K::NoXml, "XML file")?;
+        let text_path = Slot::usable(self.text.as_ref(), K::NoText, "schedule file")?;
+        let xml_path = Slot::usable(self.xml.as_ref(), K::NoXml, "XML file")?;
         if display(text_path) != expected_text || display(xml_path) != expected_xml {
             return Err(ScheduleError::new(
                 K::FilesChanged,

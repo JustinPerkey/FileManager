@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::fs;
 use std::io::{BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -24,7 +25,8 @@ fn ext(f: ArchiveFormat) -> &'static str {
 fn manifest(header: &str, entries: &[(&str, &str, &str)]) -> String {
     let mut s = format!("version = 1\n{header}\n");
     for (id, dir, extra) in entries {
-        s += &format!(
+        let _ = write!(
+            s,
             "[[file]]\nid = \"{id}\"\nsource = \"{id}.bin\"\nname = \"{id}\"\ndir = \"{dir}\"\n{extra}\n"
         );
     }
@@ -189,7 +191,7 @@ fn plan_builds_passed_entries_and_carries_failures() {
         .iter()
         .filter_map(|e| match e {
             PlannedEntry::File { id, .. } => Some(id.as_str()),
-            _ => None,
+            PlannedEntry::Dir { .. } => None,
         })
         .collect();
     assert_eq!(files, ["a", "c"]);
@@ -434,7 +436,11 @@ fn missing_source_writes_nothing() {
         Err(BuildError::SourceMissing { id, .. }) => assert_eq!(id, "b"),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 #[test]
@@ -477,7 +483,11 @@ fn unreadable_source_writes_nothing() {
         Err(BuildError::SourceUnreadable { id, .. }) => assert_eq!(id, "b"),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 #[test]
@@ -504,7 +514,11 @@ fn read_failure_while_writing_names_entry_and_writes_nothing() {
         Err(BuildError::SourceUnreadable { id, .. }) => assert_eq!(id, "a"),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 // Unit-level: a whole build with a 244-byte name exceeds Windows' MAX_PATH
@@ -537,11 +551,15 @@ fn temp_file_name_is_recognisable() {
         &hooks,
     );
     let seen = seen.into_inner();
-    assert!(!seen.is_empty());
+    assert!(!seen.is_empty(), "no temp file names observed");
     assert!(seen
         .iter()
         .all(|n| n.starts_with(".a.tar.") && n.ends_with(".partial")));
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 #[test]
@@ -579,7 +597,11 @@ fn injected_write_failure_leaves_nothing_and_names_entry() {
         Err(BuildError::Io { id, .. }) => assert!(id.is_some()),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 #[test]
@@ -587,7 +609,7 @@ fn verify_failure_leaves_existing_output_unchanged() {
     let fx = simple();
     let out = fx.out_dir().join("a.tar");
     fs::write(&out, b"known bytes").unwrap();
-    let old = SystemTime::now() - Duration::from_secs(86_400);
+    let old = SystemTime::now() - Duration::from_secs(24 * 60 * 60);
     fs::File::options()
         .write(true)
         .open(&out)
@@ -626,7 +648,7 @@ fn verify_failure_leaves_existing_output_unchanged() {
     );
     assert!(matches!(r, Err(BuildError::VerifyFailed(_))));
     assert!(!out2.exists());
-    assert!(dir_listing(&fresh).is_empty());
+    assert!(dir_listing(&fresh).is_empty(), "{:?}", dir_listing(&fresh));
 }
 
 #[test]
@@ -647,17 +669,18 @@ fn truncated_stream_fails_verification() {
             "{format:?}: {r:?}"
         );
         assert!(!out.exists());
-        assert!(dir_listing(&fx.out_dir()).is_empty());
+        assert!(
+            dir_listing(&fx.out_dir()).is_empty(),
+            "{:?}",
+            dir_listing(&fx.out_dir())
+        );
     }
 }
 
 // ---- summary ----
 
 fn sha_hex(p: &Path) -> String {
-    Sha256::digest(fs::read(p).unwrap())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    fm_core::to_hex(&Sha256::digest(fs::read(p).unwrap()))
 }
 
 #[test]
@@ -688,10 +711,10 @@ fn summary_reports_compressed_and_uncompressed_sizes() {
             s.uncompressed_bytes,
             decompressed(&out, format).len() as u64
         );
-        if format != ArchiveFormat::Tar {
-            assert!(s.bytes < s.uncompressed_bytes);
-        } else {
+        if format == ArchiveFormat::Tar {
             assert_eq!(s.bytes, s.uncompressed_bytes);
+        } else {
+            assert!(s.bytes < s.uncompressed_bytes);
         }
     }
 }
@@ -780,7 +803,11 @@ fn eol_source_change_between_passes_fails() {
         Err(BuildError::SourceChanged { id }) => assert_eq!(id, "a"),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 // ---- progress ----
@@ -836,7 +863,7 @@ fn file_progress_starts_after_long_name_record() {
     let out = fx.out_dir().join("l.tar");
     let mut events = Vec::new();
     write_archive(&fx.plan(), &out, ArchiveFormat::Tar, false, |p| {
-        events.push(p)
+        events.push(p);
     })
     .unwrap();
     let total = events[0].bytes_total;

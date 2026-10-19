@@ -61,13 +61,16 @@ pub struct ParseReport {
 
 impl ParseReport {
     /// No errors and no failures.
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         self.errors.is_empty() && self.failures.is_empty()
     }
 
     /// Every error counted once: manifest-level errors plus every failure's.
+    #[must_use]
     pub fn error_count(&self) -> u32 {
-        (self.errors.len() + self.failures.iter().map(|f| f.errors.len()).sum::<usize>()) as u32
+        let n = self.errors.len() + self.failures.iter().map(|f| f.errors.len()).sum::<usize>();
+        u32::try_from(n).unwrap_or(u32::MAX)
     }
 }
 
@@ -111,44 +114,56 @@ impl Entry {
         }
     }
 
+    #[must_use]
     pub fn id(&self) -> &str {
         &self.id
     }
     /// Expected Windows file name.
+    #[must_use]
     pub fn source(&self) -> &str {
         &self.source
     }
     /// Linux directory inside the archive, as written in the manifest.
+    #[must_use]
     pub fn target_dir(&self) -> &str {
         &self.target_dir
     }
+    #[must_use]
     pub fn target_name(&self) -> &str {
         &self.target_name
     }
+    #[must_use]
     pub fn mode(&self) -> u32 {
         self.mode
     }
+    #[must_use]
     pub fn owner(&self) -> &Owner {
         &self.owner
     }
+    #[must_use]
     pub fn uid(&self) -> u32 {
         self.owner.uid
     }
+    #[must_use]
     pub fn gid(&self) -> u32 {
         self.owner.gid
     }
+    #[must_use]
     pub fn uname(&self) -> &str {
         &self.owner.uname
     }
+    #[must_use]
     pub fn gname(&self) -> &str {
         &self.owner.gname
     }
+    #[must_use]
     pub fn normalize_eol(&self) -> bool {
         self.normalize_eol
     }
 
     /// The absolute stored name: `dir` without its trailing `/`, then `/`,
     /// then the name.
+    #[must_use]
     pub fn target_path(&self) -> String {
         format!(
             "{}/{}",
@@ -192,29 +207,36 @@ impl Manifest {
     /// one is allowed only through the whole `ParseReport` (M4's
     /// `ArchivePlan::new`), so that what was left out is reported. This
     /// describes the manifest; it is not a build gate.
+    #[must_use]
     pub fn is_complete(&self) -> bool {
         self.complete
     }
 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
+    #[must_use]
     pub fn output_name(&self) -> Option<&str> {
         self.output_name.as_deref()
     }
     /// Permissions for directory entries the archive creates.
+    #[must_use]
     pub fn dir_mode(&self) -> u32 {
         self.dir_mode
     }
     /// Owner of the directory entries the archive creates.
+    #[must_use]
     pub fn default_owner(&self) -> &Owner {
         &self.default_owner
     }
+    #[must_use]
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
 
     /// The format `output_name`'s suffix names, else `Tar`.
+    #[must_use]
     pub fn default_format(&self) -> ArchiveFormat {
         self.output_name
             .as_deref()

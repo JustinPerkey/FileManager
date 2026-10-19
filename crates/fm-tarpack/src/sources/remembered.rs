@@ -97,6 +97,7 @@ impl RememberedState {
     }
 
     /// Remembered sources for ids that are still in the manifest.
+    #[must_use]
     pub fn restore(&self, manifest_path: &Path, manifest: &Manifest) -> Assignments {
         let mut out = Assignments::new();
         if let Some(mem) = self.memory(manifest_path) {
@@ -111,6 +112,7 @@ impl RememberedState {
 
     /// Every remembered source, including ids the manifest no longer passes.
     /// Use for a manifest with errors, so a typo does not erase a location.
+    #[must_use]
     pub fn restore_all(&self, manifest_path: &Path) -> Assignments {
         Assignments::from_map(
             self.memory(manifest_path)
@@ -119,12 +121,14 @@ impl RememberedState {
         )
     }
 
+    #[must_use]
     pub fn restore_output(&self, manifest_path: &Path) -> Option<PathBuf> {
         self.memory(manifest_path)
             .and_then(|m| m.last_output.clone())
     }
 
     /// The remembered format, else the one the manifest's `output_name` implies.
+    #[must_use]
     pub fn restore_format(&self, manifest_path: &Path, manifest: &Manifest) -> ArchiveFormat {
         self.memory(manifest_path)
             .and_then(|m| m.last_format)

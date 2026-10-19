@@ -16,7 +16,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   save: (...a: unknown[]) => save(...a),
 }));
 
-import { call, on, onDragDrop, openFileDialog, saveFileDialog } from "./tauri";
+import { call, on, onDragDrop, openDirectoryDialog, openFileDialog, saveFileDialog } from "./tauri";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -51,6 +51,12 @@ describe("tauri wrappers", () => {
       filters,
       defaultPath: "C:\\",
     });
+  });
+
+  it("openDirectoryDialog opens a single folder", async () => {
+    open.mockResolvedValue("C:\\jobs");
+    await expect(openDirectoryDialog({ defaultPath: "C:\\" })).resolves.toBe("C:\\jobs");
+    expect(open).toHaveBeenCalledWith({ multiple: false, directory: true, defaultPath: "C:\\" });
   });
 
   it("saveFileDialog passes defaultPath and filters", async () => {

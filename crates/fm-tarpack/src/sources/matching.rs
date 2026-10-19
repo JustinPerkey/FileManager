@@ -117,12 +117,9 @@ fn unreadable(out: &mut Vec<Unmatched>, path: PathBuf) {
 /// Unreadable directories and children are reported and skipped. Returns
 /// whether `dir` itself could be read.
 fn walk(dir: &Path, depth: usize, files: &mut Vec<PathBuf>, problems: &mut Vec<Unmatched>) -> bool {
-    let read = match fs::read_dir(dir) {
-        Ok(r) => r,
-        Err(_) => {
-            unreadable(problems, dir.to_path_buf());
-            return false;
-        }
+    let Ok(read) = fs::read_dir(dir) else {
+        unreadable(problems, dir.to_path_buf());
+        return false;
     };
     let mut children = Vec::new();
     for item in read {
@@ -131,7 +128,7 @@ fn walk(dir: &Path, depth: usize, files: &mut Vec<PathBuf>, problems: &mut Vec<U
             Err(_) => unreadable(problems, dir.to_path_buf()),
         }
     }
-    children.sort_by_key(|e| e.file_name());
+    children.sort_by_key(std::fs::DirEntry::file_name);
     for child in children {
         let Ok(ft) = child.file_type() else {
             unreadable(problems, child.path());
@@ -154,6 +151,7 @@ fn walk(dir: &Path, depth: usize, files: &mut Vec<PathBuf>, problems: &mut Vec<U
 /// Only entries that are unassigned or `Missing` are candidates: a drop never
 /// replaces a `Ready` assignment. A file whose path is not valid Unicode is
 /// never put in `matched`; it is reported as `NotUnicode`.
+#[must_use]
 pub fn match_dropped(
     manifest: &Manifest,
     current: &Assignments,
@@ -172,57 +170,7 @@ pub fn match_dropped(
     }
     let fits_any = |f: &PathBuf| lower_name(f).is_some_and(|n| by_name.contains_key(&n));
 
-    // One record per path: (file, was dropped directly in any occurrence).
-    // Unrelated files found in a folder are not reported.
-    let mut files: Vec<(PathBuf, bool)> = Vec::new();
-    let mut index: BTreeMap<PathBuf, usize> = BTreeMap::new();
-    let mut add = |files: &mut Vec<(PathBuf, bool)>, path: PathBuf, direct: bool| {
-        if let Some(&i) = index.get(&path) {
-            files[i].1 |= direct;
-        } else {
-            index.insert(path.clone(), files.len());
-            files.push((path, direct));
-        }
-    };
-    let mut seen_dropped: BTreeSet<&Path> = BTreeSet::new();
-    let mut seen_unreadable: BTreeSet<PathBuf> = BTreeSet::new();
-    for path in dropped {
-        if !seen_dropped.insert(path.as_path()) {
-            continue;
-        }
-        let reason = |r| Unmatched {
-            path: path.clone(),
-            reason: r,
-        };
-        match fs::symlink_metadata(path) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                out.unmatched.push(reason(UnmatchedReason::NotFound))
-            }
-            Err(_) => out.unmatched.push(reason(UnmatchedReason::Unreadable)),
-            Ok(md) if md.file_type().is_symlink() => {
-                out.unmatched.push(reason(UnmatchedReason::LinkNotFollowed))
-            }
-            Ok(md) if md.is_dir() => {
-                let mut found = Vec::new();
-                let mut problems = Vec::new();
-                let readable = walk(path, 1, &mut found, &mut problems);
-                // A folder and its subfolder may both be dropped: report each
-                // unreadable path once.
-                for p in problems {
-                    if seen_unreadable.insert(p.path.clone()) {
-                        out.unmatched.push(p);
-                    }
-                }
-                if readable && !found.iter().any(fits_any) {
-                    out.unmatched.push(reason(UnmatchedReason::FolderNoMatch));
-                }
-                for f in found {
-                    add(&mut files, f, false);
-                }
-            }
-            Ok(_) => add(&mut files, path.clone(), true),
-        }
-    }
+    let files = collect_files(dropped, fits_any, &mut out);
 
     // entry id -> candidate files; file -> open entries it fits
     let mut candidates: BTreeMap<&str, Vec<PathBuf>> = BTreeMap::new();
@@ -269,26 +217,103 @@ pub fn match_dropped(
         file_fits.entry(file).or_default().extend(open);
     }
 
-    for (id, cands) in candidates {
-        let shared = cands.iter().any(|f| file_fits[f].len() > 1);
-        if cands.len() == 1 && !shared {
-            let file = cands.into_iter().next().expect("one candidate");
-            if file.to_str().is_some() {
-                out.matched.push((id.to_owned(), file));
-            } else {
-                out.unmatched.push(Unmatched {
-                    path: file,
-                    reason: UnmatchedReason::NotUnicode,
-                });
-            }
+    resolve(candidates, &file_fits, &mut out);
+    out
+}
+
+/// Expands `dropped` into the files to match, walking dropped folders. Each
+/// path appears once, with whether it was dropped directly in any occurrence;
+/// unrelated files found in a folder are not reported. Paths that cannot be
+/// used are added to `out.unmatched`.
+fn collect_files(
+    dropped: &[PathBuf],
+    fits_any: impl Fn(&PathBuf) -> bool,
+    out: &mut DropOutcome,
+) -> Vec<(PathBuf, bool)> {
+    let mut files: Vec<(PathBuf, bool)> = Vec::new();
+    let mut index: BTreeMap<PathBuf, usize> = BTreeMap::new();
+    let mut add = |files: &mut Vec<(PathBuf, bool)>, path: PathBuf, direct: bool| {
+        if let Some(&i) = index.get(&path) {
+            files[i].1 |= direct;
         } else {
-            out.ambiguous.push(Ambiguity {
-                id: id.to_owned(),
-                candidates: cands,
-            });
+            index.insert(path.clone(), files.len());
+            files.push((path, direct));
+        }
+    };
+    let mut seen_dropped: BTreeSet<&Path> = BTreeSet::new();
+    let mut seen_unreadable: BTreeSet<PathBuf> = BTreeSet::new();
+    for path in dropped {
+        if !seen_dropped.insert(path.as_path()) {
+            continue;
+        }
+        let reason = |r| Unmatched {
+            path: path.clone(),
+            reason: r,
+        };
+        match fs::symlink_metadata(path) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                out.unmatched.push(reason(UnmatchedReason::NotFound));
+            }
+            Err(_) => out.unmatched.push(reason(UnmatchedReason::Unreadable)),
+            Ok(md) if md.file_type().is_symlink() => {
+                out.unmatched.push(reason(UnmatchedReason::LinkNotFollowed));
+            }
+            Ok(md) if md.is_dir() => {
+                let mut found = Vec::new();
+                let mut problems = Vec::new();
+                let readable = walk(path, 1, &mut found, &mut problems);
+                // A folder and its subfolder may both be dropped: report each
+                // unreadable path once.
+                for p in problems {
+                    if seen_unreadable.insert(p.path.clone()) {
+                        out.unmatched.push(p);
+                    }
+                }
+                if readable && !found.iter().any(&fits_any) {
+                    out.unmatched.push(reason(UnmatchedReason::FolderNoMatch));
+                }
+                for f in found {
+                    add(&mut files, f, false);
+                }
+            }
+            Ok(_) => add(&mut files, path.clone(), true),
         }
     }
-    out
+
+    files
+}
+
+/// Matches each entry that has exactly one candidate file, fitting no other
+/// entry; every other entry with candidates is ambiguous.
+fn resolve(
+    candidates: BTreeMap<&str, Vec<PathBuf>>,
+    file_fits: &BTreeMap<&PathBuf, BTreeSet<&str>>,
+    out: &mut DropOutcome,
+) {
+    for (id, cands) in candidates {
+        let shared = cands
+            .iter()
+            .any(|f| file_fits.get(f).is_some_and(|ids| ids.len() > 1));
+        let cands = match (shared, <[PathBuf; 1]>::try_from(cands)) {
+            (false, Ok([file])) => {
+                if file.to_str().is_some() {
+                    out.matched.push((id.to_owned(), file));
+                } else {
+                    out.unmatched.push(Unmatched {
+                        path: file,
+                        reason: UnmatchedReason::NotUnicode,
+                    });
+                }
+                continue;
+            }
+            (true, Ok(one)) => one.to_vec(),
+            (_, Err(many)) => many,
+        };
+        out.ambiguous.push(Ambiguity {
+            id: id.to_owned(),
+            candidates: cands,
+        });
+    }
 }
 
 /// Applies the `matched` part of an outcome. Ambiguous and unmatched files are

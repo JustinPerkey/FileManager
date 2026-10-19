@@ -64,6 +64,54 @@ fn lossy(b: &[u8]) -> String {
     String::from_utf8_lossy(b).into_owned()
 }
 
+/// Checks one entry's name, type, header fields and size against what was
+/// written.
+fn check_entry<R: Read>(entry: &tar::Entry<'_, R>, w: &Expected) -> Result<(), BuildError> {
+    let name = entry.path_bytes().into_owned();
+    if name != w.name {
+        return Err(fail(format!(
+            "entry name `{}` where `{}` was written",
+            lossy(&name),
+            lossy(&w.name)
+        )));
+    }
+    let what = lossy(&name);
+    let h = entry.header();
+    let wanted = if w.is_dir {
+        tar::EntryType::Directory
+    } else {
+        tar::EntryType::Regular
+    };
+    if h.entry_type() != wanted {
+        return Err(fail(format!("`{what}` has the wrong entry type")));
+    }
+    let mode = h.mode().map_err(fail)? & 0o7777;
+    let uid = h.uid().map_err(fail)?;
+    let gid = h.gid().map_err(fail)?;
+    let mtime = h.mtime().map_err(fail)?;
+    let uname = h.username_bytes().unwrap_or(b"");
+    let gname = h.groupname_bytes().unwrap_or(b"");
+    if mode != w.mode
+        || uid != w.uid
+        || gid != w.gid
+        || mtime != w.mtime
+        || uname != w.uname.as_bytes()
+        || gname != w.gname.as_bytes()
+    {
+        return Err(fail(format!(
+            "`{what}` header fields differ from what was written"
+        )));
+    }
+    let size = entry.size();
+    if size != w.size {
+        return Err(fail(format!(
+            "`{what}` has size {size}, expected {}",
+            w.size
+        )));
+    }
+    Ok(())
+}
+
 /// Returns the SHA-256 of the file's raw bytes.
 pub(crate) fn verify(
     path: &Path,
@@ -104,48 +152,7 @@ pub(crate) fn verify(
                     lossy(&entry.path_bytes())
                 )));
             };
-            let name = entry.path_bytes().into_owned();
-            if name != w.name {
-                return Err(fail(format!(
-                    "entry name `{}` where `{}` was written",
-                    lossy(&name),
-                    lossy(&w.name)
-                )));
-            }
-            let what = lossy(&name);
-            let h = entry.header();
-            let wanted = if w.is_dir {
-                tar::EntryType::Directory
-            } else {
-                tar::EntryType::Regular
-            };
-            if h.entry_type() != wanted {
-                return Err(fail(format!("`{what}` has the wrong entry type")));
-            }
-            let mode = h.mode().map_err(fail)? & 0o7777;
-            let uid = h.uid().map_err(fail)?;
-            let gid = h.gid().map_err(fail)?;
-            let mtime = h.mtime().map_err(fail)?;
-            let uname = h.username_bytes().unwrap_or(b"");
-            let gname = h.groupname_bytes().unwrap_or(b"");
-            if mode != w.mode
-                || uid != w.uid
-                || gid != w.gid
-                || mtime != w.mtime
-                || uname != w.uname.as_bytes()
-                || gname != w.gname.as_bytes()
-            {
-                return Err(fail(format!(
-                    "`{what}` header fields differ from what was written"
-                )));
-            }
-            let size = entry.size();
-            if size != w.size {
-                return Err(fail(format!(
-                    "`{what}` has size {size}, expected {}",
-                    w.size
-                )));
-            }
+            check_entry(&entry, w)?;
             event(progress, w.id.clone());
             let mut buf = vec![0u8; 64 * 1024];
             loop {
