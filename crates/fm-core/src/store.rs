@@ -44,12 +44,23 @@ pub struct Store<T: StateData> {
 impl<T: StateData> Store<T> {
     /// Load state, falling back to defaults (with a warning) for unusable files.
     /// Older schema versions are treated as unusable; see [`Store::load_with_migration`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::load_with_migration`].
     pub fn load(dirs: &AppDirs, tool: &str, name: &str) -> Result<(Self, Option<StoreWarning>)> {
         Self::load_with_migration(dirs, tool, name, |_, _| None)
     }
 
     /// Like [`Store::load`], but `migrate(old_version, data)` may upgrade data
     /// from a lower schema version. Returning `None` keeps and resets the file.
+    ///
+    /// # Errors
+    ///
+    /// [`FmError::InvalidToolName`] or [`FmError::InvalidStateName`] for a bad
+    /// name, and [`FmError::Io`] if the file exists but cannot be read. A file
+    /// that reads but cannot be used is not an error: the defaults load with a
+    /// [`StoreWarning`].
     pub fn load_with_migration(
         dirs: &AppDirs,
         tool: &str,
@@ -115,6 +126,11 @@ impl<T: StateData> Store<T> {
     }
 
     /// Atomically persist the state.
+    ///
+    /// # Errors
+    ///
+    /// If the state cannot be serialised, its directory cannot be created, or
+    /// the write fails (see [`crate::atomic_write`]).
     pub fn save(&self) -> Result<()> {
         let env = EnvelopeRef {
             schema_version: T::SCHEMA_VERSION,

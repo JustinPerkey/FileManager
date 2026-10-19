@@ -79,7 +79,9 @@ established; until then, the task plan states it.
 
 Run the test, lint, and typecheck commands named in `CLAUDE.md` — the subset the
 task touches. If the task is the one that establishes them, prove they run
-before reporting it complete.
+before reporting it complete. Any Rust change must leave `cargo fmt --all
+--check` and `cargo clippy --workspace --all-targets -- -D warnings` (which
+enforces clippy pedantic) clean.
 
 Fix compilation and test failures caused by the task. Do not delete or weaken
 tests to obtain a passing result.

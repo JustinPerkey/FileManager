@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::fs;
 use std::io::{BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -24,7 +25,8 @@ fn ext(f: ArchiveFormat) -> &'static str {
 fn manifest(header: &str, entries: &[(&str, &str, &str)]) -> String {
     let mut s = format!("version = 1\n{header}\n");
     for (id, dir, extra) in entries {
-        s += &format!(
+        let _ = write!(
+            s,
             "[[file]]\nid = \"{id}\"\nsource = \"{id}.bin\"\nname = \"{id}\"\ndir = \"{dir}\"\n{extra}\n"
         );
     }
@@ -189,7 +191,7 @@ fn plan_builds_passed_entries_and_carries_failures() {
         .iter()
         .filter_map(|e| match e {
             PlannedEntry::File { id, .. } => Some(id.as_str()),
-            _ => None,
+            PlannedEntry::Dir { .. } => None,
         })
         .collect();
     assert_eq!(files, ["a", "c"]);
@@ -587,7 +589,7 @@ fn verify_failure_leaves_existing_output_unchanged() {
     let fx = simple();
     let out = fx.out_dir().join("a.tar");
     fs::write(&out, b"known bytes").unwrap();
-    let old = SystemTime::now() - Duration::from_secs(86_400);
+    let old = SystemTime::now() - Duration::from_hours(24);
     fs::File::options()
         .write(true)
         .open(&out)
@@ -654,10 +656,7 @@ fn truncated_stream_fails_verification() {
 // ---- summary ----
 
 fn sha_hex(p: &Path) -> String {
-    Sha256::digest(fs::read(p).unwrap())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    fm_core::to_hex(&Sha256::digest(fs::read(p).unwrap()))
 }
 
 #[test]
@@ -688,10 +687,10 @@ fn summary_reports_compressed_and_uncompressed_sizes() {
             s.uncompressed_bytes,
             decompressed(&out, format).len() as u64
         );
-        if format != ArchiveFormat::Tar {
-            assert!(s.bytes < s.uncompressed_bytes);
-        } else {
+        if format == ArchiveFormat::Tar {
             assert_eq!(s.bytes, s.uncompressed_bytes);
+        } else {
+            assert!(s.bytes < s.uncompressed_bytes);
         }
     }
 }
@@ -836,7 +835,7 @@ fn file_progress_starts_after_long_name_record() {
     let out = fx.out_dir().join("l.tar");
     let mut events = Vec::new();
     write_archive(&fx.plan(), &out, ArchiveFormat::Tar, false, |p| {
-        events.push(p)
+        events.push(p);
     })
     .unwrap();
     let total = events[0].bytes_total;

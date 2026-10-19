@@ -38,6 +38,7 @@ impl Step {
     pub const ALL: [Step; 4] = [Step::Verify, Step::RunBatch, Step::Schedule, Step::Tarpack];
 
     /// The hook that does this step's work.
+    #[must_use]
     pub fn hook(self) -> StepFn {
         match self {
             Step::Verify => verify::verify,
@@ -103,6 +104,10 @@ impl std::error::Error for StepError {}
 
 /// The immediate subdirectories of `root`, sorted by path. Files, and
 /// symlinks to directories, are skipped.
+///
+/// # Errors
+///
+/// If `root` or one of its entries cannot be read.
 pub fn subdirectories(root: &Path) -> io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     for entry in fs::read_dir(root)? {

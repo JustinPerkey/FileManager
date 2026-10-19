@@ -38,7 +38,7 @@ pub struct TarpackState {
 /// Constructs the managed state over the per-user app data directory.
 pub fn state() -> TarpackState {
     let core = match AppDirs::from_system() {
-        Ok(dirs) => Core::new(dirs),
+        Ok(dirs) => Core::new(&dirs),
         Err(e) => Core::unpersisted(format!("saved state is unavailable: {e}.")),
     };
     TarpackState {

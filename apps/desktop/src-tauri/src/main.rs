@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    filemanager_lib::run()
+    filemanager_lib::run();
 }

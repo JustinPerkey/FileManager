@@ -282,20 +282,32 @@ fn defaults_apply_and_per_file_overrides_win() {
     assert!(w.is_empty());
     assert_eq!(m.dir_mode(), 0o700);
     assert_eq!(m.default_owner().uid, 5);
-    let a = &m.entries()[0];
+    let first = &m.entries()[0];
     assert_eq!(
-        (a.mode(), a.uid(), a.gid(), a.uname(), a.gname()),
+        (
+            first.mode(),
+            first.uid(),
+            first.gid(),
+            first.uname(),
+            first.gname()
+        ),
         (0o600, 5, 6, "u", "g")
     );
-    assert_eq!(a.target_path(), "/x/a.txt");
-    assert!(!a.normalize_eol());
-    let b = &m.entries()[1];
+    assert_eq!(first.target_path(), "/x/a.txt");
+    assert!(!first.normalize_eol());
+    let second = &m.entries()[1];
     assert_eq!(
-        (b.mode(), b.uid(), b.gid(), b.uname(), b.gname()),
+        (
+            second.mode(),
+            second.uid(),
+            second.gid(),
+            second.uname(),
+            second.gname()
+        ),
         (0o755, 1, 2, "bu", "bg")
     );
-    assert_eq!(b.target_path(), "/y/renamed");
-    assert_eq!(b.source(), "b.txt");
+    assert_eq!(second.target_path(), "/y/renamed");
+    assert_eq!(second.source(), "b.txt");
 
     let (m, _) = ok(&one(""));
     let e = &m.entries()[0];

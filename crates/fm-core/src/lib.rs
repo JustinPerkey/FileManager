@@ -3,9 +3,11 @@
 pub mod atomic;
 pub mod dirs;
 pub mod error;
+pub mod hex;
 pub mod store;
 
 pub use atomic::atomic_write;
 pub use dirs::AppDirs;
 pub use error::{FmError, Result};
+pub use hex::to_hex;
 pub use store::{StateData, Store, StoreWarning};

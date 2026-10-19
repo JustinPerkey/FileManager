@@ -58,6 +58,7 @@ impl ArchiveFormat {
         ArchiveFormat::TarXz,
     ];
 
+    #[must_use]
     pub fn extension(self) -> &'static str {
         match self {
             ArchiveFormat::Tar => ".tar",
@@ -69,6 +70,7 @@ impl ArchiveFormat {
 
     /// The last suffix without its dot: the form a native Save-dialog filter
     /// takes (Windows matches only the last suffix).
+    #[must_use]
     pub fn filter_extension(self) -> &'static str {
         match self {
             ArchiveFormat::Tar => "tar",
@@ -80,12 +82,14 @@ impl ArchiveFormat {
 
     /// Recognises `.tar`, `.tar.gz`, `.tgz`, `.tar.zst` and `.tar.xz`,
     /// ASCII-case-insensitively; the longest suffix wins.
+    #[must_use]
     pub fn from_file_name(name: &OsStr) -> Option<ArchiveFormat> {
         known_suffix(name).map(|(_, f)| f)
     }
 
     /// Strips a known archive suffix if there is one, then appends this
     /// format's extension. Works on the encoded bytes, never lossily.
+    #[must_use]
     pub fn with_extension(self, name: &OsStr) -> OsString {
         let mut out = strip_known_suffix(name);
         out.push(self.extension());
@@ -95,6 +99,7 @@ impl ArchiveFormat {
     /// The exact GNU tar command that extracts the archive on the target.
     /// `file_name` is single-quoted when it has anything outside
     /// `[A-Za-z0-9._+-]`.
+    #[must_use]
     pub fn extract_command(self, file_name: &str) -> String {
         let flag = match self {
             ArchiveFormat::Tar => "",

@@ -15,3 +15,8 @@ codegen-units = 1
 [workspace.dependencies]
 ts-rs = "12"
 tempfile = "3"
+
+# Every crate opts in with `[lints] workspace = true`. CI runs clippy with
+# `-D warnings`, so a pedantic finding fails the build.
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }

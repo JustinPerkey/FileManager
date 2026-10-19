@@ -8,6 +8,11 @@ use crate::{StepError, StepInput, StepOutcome};
 /// subdirectory, and keep checking the rest, so the user sees every problem at
 /// once. Return [`StepError::Failed`] only when the check itself cannot go
 /// on. This step must not change anything on disk.
+///
+/// # Errors
+///
+/// [`StepError::NotImplemented`] until written; [`StepError::Failed`] when the
+/// step cannot go on.
 pub fn verify(input: StepInput<'_>) -> Result<StepOutcome, StepError> {
     // TODO: decide the required files and check each subdirectory for them.
     let _ = input;

@@ -23,7 +23,7 @@ fn fake_parse(text: &str) -> Result<Schedule, ParseError> {
     for (i, line) in text.lines().enumerate() {
         if line.contains('!') {
             return Err(ParseError::Invalid {
-                line: Some(i as u32 + 1),
+                line: Some(u32::try_from(i + 1).unwrap()),
                 message: "bad line".into(),
             });
         }
@@ -45,11 +45,11 @@ fn fake_merge(schedule: &Schedule, xml: &str) -> Result<MergeOutcome, MergeError
     let items: String = schedule
         .rows
         .iter()
-        .map(|r| format!("<item>{}</item>", r[0]))
+        .flat_map(|r| ["<item>", r[0].as_str(), "</item>"])
         .collect();
     Ok(MergeOutcome {
         xml: format!("{}{items}{}", &xml[..at], &xml[at..]),
-        added: schedule.rows.len() as u32,
+        added: u32::try_from(schedule.rows.len()).unwrap(),
     })
 }
 
@@ -163,15 +163,20 @@ fn drop_sorts_xml_from_text() {
 fn ambiguous_drop_changes_nothing() {
     let d = dir();
     let mut c = core();
-    let a = write(&d, "a.xml", "<a/>");
-    let b = write(&d, "b.xml", "<b/>");
-    let t = write(&d, "t.txt", "t");
+    let xml_a = write(&d, "a.xml", "<a/>");
+    let xml_b = write(&d, "b.xml", "<b/>");
+    let text_t = write(&d, "t.txt", "t");
     assert_eq!(
-        c.set_dropped(&[a, b, t.clone()]).unwrap_err().kind,
+        c.set_dropped(&[xml_a, xml_b, text_t.clone()])
+            .unwrap_err()
+            .kind,
         K::DropAmbiguous
     );
-    let u = write(&d, "u.txt", "u");
-    assert_eq!(c.set_dropped(&[t, u]).unwrap_err().kind, K::DropAmbiguous);
+    let text_u = write(&d, "u.txt", "u");
+    assert_eq!(
+        c.set_dropped(&[text_t, text_u]).unwrap_err().kind,
+        K::DropAmbiguous
+    );
     assert_eq!(c.snapshot().text, None);
     assert_eq!(c.snapshot().xml, None);
 }

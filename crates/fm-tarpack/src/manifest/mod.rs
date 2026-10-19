@@ -58,6 +58,7 @@ impl From<io::Error> for LoadError {
 /// value rules wait until it deserializes. Errors inside a `[[file]]` table
 /// name its `id`, or its position when it has none. Errors in `[defaults]`,
 /// `version`, an unknown top-level key, or `file` withhold every entry.
+#[must_use]
 pub fn parse(text: &str) -> ParseReport {
     let doc = match toml::de::DeTable::parse(text) {
         Ok(doc) => doc,
@@ -70,6 +71,10 @@ pub fn parse(text: &str) -> ParseReport {
 
 /// Reads and parses a manifest file. A readable file always loads, whatever
 /// its errors.
+///
+/// # Errors
+///
+/// [`LoadError::Io`] if the file cannot be read.
 pub fn load(path: &Path) -> Result<LoadedManifest, LoadError> {
     let bytes = std::fs::read(path)?;
     let sha256: [u8; 32] = Sha256::digest(&bytes).into();

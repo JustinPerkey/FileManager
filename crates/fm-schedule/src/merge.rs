@@ -44,6 +44,11 @@ impl std::error::Error for MergeError {}
 /// not add one). This function must not touch the
 /// filesystem: the shell owns the backup and the write, and writes nothing
 /// when this returns an error.
+///
+/// # Errors
+///
+/// [`MergeError::NotImplemented`] until written; [`MergeError::InvalidXml`] or
+/// [`MergeError::Conflict`] when the schedule cannot be added.
 pub fn merge(schedule: &Schedule, xml: &str) -> Result<MergeOutcome, MergeError> {
     // TODO: add `schedule` to `xml`.
     let _ = (schedule, xml);

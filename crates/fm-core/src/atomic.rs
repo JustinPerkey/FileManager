@@ -7,6 +7,11 @@ use std::path::Path;
 /// Write `bytes` to a temp file beside `path`, sync it, then rename it over
 /// `path`. The parent directory must exist. On error the temp file is removed
 /// and any existing `path` is untouched.
+///
+/// # Errors
+///
+/// [`FmError::Io`] if the temp file cannot be created, written or synced, or
+/// cannot replace `path`.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = match path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,

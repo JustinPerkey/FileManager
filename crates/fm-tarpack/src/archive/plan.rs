@@ -74,25 +74,31 @@ impl ArchivePlan {
     /// source are a deliberate partial archive: they are left out and listed
     /// in `not_loaded`. Errors in the report do not refuse the plan; they are
     /// carried along.
+    ///
+    /// # Errors
+    ///
+    /// [`PlanError::NoEntries`] if no entry passed, and
+    /// [`PlanError::Unassigned`] if none of those has a source.
     pub fn new(report: &ParseReport, assignments: &Assignments) -> Result<ArchivePlan, PlanError> {
         let manifest = &report.manifest;
         if manifest.entries().is_empty() {
             return Err(PlanError::NoEntries);
         }
-        let (loaded, not_loaded): (Vec<_>, Vec<_>) = manifest
-            .entries()
-            .iter()
-            .partition(|e| assignments.get(e.id()).is_some());
-        if loaded.is_empty() {
-            return Err(PlanError::Unassigned(
-                not_loaded.iter().map(|e| e.id().to_string()).collect(),
-            ));
+        let mut loaded = Vec::new();
+        let mut not_loaded = Vec::new();
+        for e in manifest.entries() {
+            match assignments.get(e.id()) {
+                Some(source) => loaded.push((e, source)),
+                None => not_loaded.push(e.id().to_string()),
+            }
         }
-        let not_loaded: Vec<String> = not_loaded.iter().map(|e| e.id().to_string()).collect();
+        if loaded.is_empty() {
+            return Err(PlanError::Unassigned(not_loaded));
+        }
 
         let mut entries = Vec::new();
         let mut emitted: Vec<String> = Vec::new();
-        for e in loaded {
+        for (e, source) in loaded {
             let mut dir = String::from("/");
             for seg in e.target_dir().split('/').filter(|s| !s.is_empty()) {
                 dir.push_str(seg);
@@ -104,10 +110,7 @@ impl ArchivePlan {
             }
             entries.push(PlannedEntry::File {
                 id: e.id().to_string(),
-                source: assignments
-                    .get(e.id())
-                    .expect("checked above")
-                    .to_path_buf(),
+                source: source.to_path_buf(),
                 path: e.target_path(),
                 mode: e.mode(),
                 owner: e.owner().clone(),
@@ -126,28 +129,36 @@ impl ArchivePlan {
         })
     }
 
+    #[must_use]
     pub fn entries(&self) -> &[PlannedEntry] {
         &self.entries
     }
+    #[must_use]
     pub fn dir_mode(&self) -> u32 {
         self.dir_mode
     }
+    #[must_use]
     pub fn dir_owner(&self) -> &Owner {
         &self.dir_owner
     }
+    #[must_use]
     pub fn left_out(&self) -> &[EntryFailure] {
         &self.left_out
     }
     /// Ids of passed entries with no source, left out on purpose.
+    #[must_use]
     pub fn not_loaded(&self) -> &[String] {
         &self.not_loaded
     }
+    #[must_use]
     pub fn manifest_errors(&self) -> &[Diagnostic] {
         &self.manifest_errors
     }
+    #[must_use]
     pub fn warnings(&self) -> &[Diagnostic] {
         &self.warnings
     }
+    #[must_use]
     pub fn error_count(&self) -> u32 {
         self.error_count
     }

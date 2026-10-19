@@ -35,7 +35,9 @@ are stubs).
 
 ```
 Cargo.toml                    workspace: members crates/*, apps/desktop/src-tauri;
-                              [workspace.dependencies] pins ts-rs (and tempfile)
+                              [workspace.dependencies] pins ts-rs (and tempfile);
+                              [workspace.lints.clippy] turns on pedantic, and every
+                              crate opts in with [lints] workspace = true
 .cargo/config.toml            [env] TS_RS_EXPORT_DIR points stray #[ts(export)] into target/;
                               [target.x86_64-pc-windows-msvc] static CRT (+crt-static)
 .gitattributes                apps/desktop/src/lib/generated/** text eol=lf
@@ -118,7 +120,7 @@ npm install                                        # once, at repo root
 npm run tauri:dev                                  # run the app
 npm run tauri:build                                # portable Windows exe (tauri build --no-bundle)
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings   # includes clippy::pedantic (workspace lints)
 cargo test --workspace
 npm run typecheck && npm run lint && npm run test  # frontend (vitest; lint includes jsx-a11y)
 UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current   # regenerate lib/generated/
@@ -166,6 +168,12 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
   runs inside a temporary directory it creates and removes.
 - Paths are handled as the platform's path type, not as display strings. Code
   that renders a path does not assume it is valid UTF-8.
+- Rust code is always `cargo fmt` clean and passes clippy with the `pedantic`
+  group (set in `[workspace.lints.clippy]`; CI runs clippy with `-D warnings`,
+  so a pedantic finding fails the build). A new crate adds `[lints] workspace =
+  true`. Fix the finding rather than silencing it; when silencing is right, use
+  a scoped `#[expect(clippy::<lint>, reason = "...")]`, never a crate-wide
+  `allow`.
 - No secrets in the repository. Configuration comes from the environment, with a
   checked-in `.env.example` documenting every key.
 - Accessibility is a requirement, not a polish item. Every interactive element
@@ -190,7 +198,8 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
 
 ## Adding a tool
 
-1. Add a crate `crates/fm-<tool>` with no tauri dependency. If it has boundary
+1. Add a crate `crates/fm-<tool>` with no tauri dependency, and
+   `[lints] workspace = true` in its `Cargo.toml`. If it has boundary
    types, add `ts-rs = { workspace = true }` and derive `ts_rs::TS`.
 2. Add a module `src-tauri/src/tools/<tool>.rs`. It contributes only
    `#[tauri::command]` functions prefixed `<tool>_`, a managed-state

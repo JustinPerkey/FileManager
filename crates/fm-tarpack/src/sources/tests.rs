@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,9 +12,10 @@ use crate::manifest::{parse, Manifest};
 fn manifest_with(header: &str, entries: &[(&str, &str)]) -> Manifest {
     let mut t = format!("version = 1\nname = \"t\"\n{header}\n");
     for (id, src) in entries {
-        t.push_str(&format!(
+        let _ = write!(
+            t,
             "[[file]]\nid = \"{id}\"\nsource = \"{src}\"\nname = \"{id}\"\ndir = \"/opt\"\n"
-        ));
+        );
     }
     let r = parse(&t);
     assert!(r.is_valid(), "{:?}", r.errors);

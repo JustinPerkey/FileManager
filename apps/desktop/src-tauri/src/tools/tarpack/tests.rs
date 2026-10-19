@@ -32,7 +32,7 @@ impl Env {
     }
 
     fn core(&self) -> Core {
-        Core::new(AppDirs::at(self.tmp.path().join("app")))
+        Core::new(&AppDirs::at(self.tmp.path().join("app")))
     }
 
     fn work(&self, name: &str) -> PathBuf {
@@ -581,7 +581,7 @@ fn set_format_rewrites_output_extension() {
             &Assignments::new(),
             Some(&remembered),
             ArchiveFormat::TarGz,
-        )
+        );
     });
     store.save().unwrap();
     let mut core = env.core();

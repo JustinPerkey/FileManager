@@ -41,6 +41,11 @@ impl std::error::Error for ParseError {}
 /// [`ParseError::Invalid`] with the 1-based line number for a problem in the
 /// file; the UI shows it as "Line N of the schedule file: message", and
 /// nothing is written.
+///
+/// # Errors
+///
+/// [`ParseError::NotImplemented`] until written; [`ParseError::Invalid`] for a
+/// problem in the text.
 pub fn parse(text: &str) -> Result<Schedule, ParseError> {
     // TODO: parse `text` into a `Schedule`.
     let _ = text;

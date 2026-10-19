@@ -17,6 +17,7 @@ fn dir_with(subdirs: &[&str]) -> TempDir {
 }
 
 /// Passes, with one line per subdirectory seen.
+#[expect(clippy::unnecessary_wraps, reason = "must match fm_pipeline::StepFn")]
 fn pass(input: StepInput<'_>) -> Result<StepOutcome, StepError> {
     Ok(StepOutcome {
         summary: format!("{} folders checked", input.subdirectories.len()),
@@ -25,6 +26,7 @@ fn pass(input: StepInput<'_>) -> Result<StepOutcome, StepError> {
 }
 
 /// Reports an issue for every subdirectory.
+#[expect(clippy::unnecessary_wraps, reason = "must match fm_pipeline::StepFn")]
 fn flag_all(input: StepInput<'_>) -> Result<StepOutcome, StepError> {
     Ok(StepOutcome {
         summary: "checked".into(),
@@ -57,7 +59,7 @@ fn all_pass(_: Step) -> StepFn {
     pass
 }
 
-/// Verify and RunBatch pass; Schedule stops part way.
+/// Verify and `RunBatch` pass; Schedule stops part way.
 fn schedule_breaks(step: Step) -> StepFn {
     match step {
         Step::Schedule => broken,

@@ -144,6 +144,9 @@ fn io_err(cause: io::Error) -> BuildError {
     BuildError::Io { id: None, cause }
 }
 
+/// Opens a source for a pass; see [`Hooks::open`].
+type OpenSource = dyn Fn(&Path, u8) -> io::Result<Box<dyn Read>>;
+
 /// Test hooks. All off in production. `open` and `fail_write_after` are wired
 /// into the production write path (source opening and the counting writer), so
 /// they stay compiled in; the post-write tampering hooks are test-only.
@@ -151,8 +154,7 @@ fn io_err(cause: io::Error) -> BuildError {
 pub(crate) struct Hooks {
     /// Opens a source for a pass (0 = counting, 1 = writing) instead of
     /// `File::open`.
-    #[allow(clippy::type_complexity)]
-    pub open: Option<Box<dyn Fn(&Path, u8) -> io::Result<Box<dyn Read>>>>,
+    pub open: Option<Box<OpenSource>>,
     /// Chops this many bytes off the finished temp file before verification.
     #[cfg(test)]
     pub truncate_tail: u64,
@@ -295,6 +297,12 @@ fn name_of(path: &str) -> &[u8] {
 /// Writes `plan` to `out_path` in `format`. See the module docs for the steps.
 /// A failure leaves no output and no temp file; an existing `out_path` is
 /// replaced only when `overwrite` is true and the new archive verified.
+///
+/// # Errors
+///
+/// A [`BuildError`] naming what stopped the build: the output already exists
+/// (and `overwrite` is false), a source is missing, unreadable or changed while
+/// it was read, an I/O failure, or the written archive failed verification.
 pub fn write_archive(
     plan: &ArchivePlan,
     out_path: &Path,
@@ -326,7 +334,159 @@ pub(crate) fn write_archive_with(
         });
     }
 
-    // Stat every source first, and size the whole stream.
+    let prepared = prepare_all(plan, hooks)?;
+
+    let dir = match out_path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    // A recognisable name, so a crash's leftover can be identified.
+    let tmp = tempfile::Builder::new()
+        .prefix(&temp_prefix(out_path))
+        .suffix(".partial")
+        .tempfile_in(dir)
+        .map_err(io_err)?;
+
+    let (uncompressed, expected) = encode(plan, &prepared, tmp.as_file(), format, hooks, progress)?;
+
+    tmp.as_file().sync_all().map_err(io_err)?;
+    #[cfg(test)]
+    if hooks.truncate_tail > 0 || hooks.corrupt_at.is_some() {
+        tamper(&tmp, hooks).map_err(io_err)?;
+    }
+    progress(Progress {
+        phase: BuildPhase::Writing,
+        entry_id: None,
+        bytes_done: uncompressed,
+        bytes_total: prepared.total,
+    });
+
+    let hash = verify(tmp.path(), format, &expected, prepared.total, progress)?;
+    let bytes = tmp.as_file().metadata().map_err(io_err)?.len();
+
+    persist(tmp, out_path, overwrite).map_err(|e| {
+        if !overwrite && e.kind() == io::ErrorKind::AlreadyExists {
+            BuildError::OutputExists {
+                path: out_path.to_path_buf(),
+            }
+        } else {
+            io_err(e)
+        }
+    })?;
+
+    Ok(summarize(
+        plan,
+        &prepared.entries,
+        out_path,
+        format,
+        uncompressed,
+        bytes,
+        &hash,
+    ))
+}
+
+/// Writes the tar stream for `plan`, compressed in `format`, to `file`.
+/// Returns the uncompressed stream size and what each entry should look like
+/// when read back.
+fn encode(
+    plan: &ArchivePlan,
+    prepared: &PreparedPlan,
+    file: &File,
+    format: ArchiveFormat,
+    hooks: &Hooks,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<(u64, Vec<Expected>), BuildError> {
+    let mut expected: Vec<Expected> = Vec::new();
+    let sink = BufWriter::new(file);
+    let encoder = Encoder::new(format, sink).map_err(io_err)?;
+    let mut builder = tar::Builder::new(Counting {
+        inner: encoder,
+        count: 0,
+        fail_after: hooks.fail_write_after,
+    });
+    let mut pos = 0u64;
+    for (pe, prep) in plan.entries().iter().zip(&prepared.entries) {
+        match pe {
+            PlannedEntry::Dir { path } => {
+                let meta = Meta {
+                    kind: tar::EntryType::Directory,
+                    mode: plan.dir_mode(),
+                    owner: plan.dir_owner(),
+                    mtime: prepared.newest,
+                    size: 0,
+                };
+                append_entry(&mut builder, name_of(path), &meta, &mut io::empty())
+                    .map_err(io_err)?;
+                expected.push(expect(path, None, &meta));
+                pos += record_size(path.len(), 0);
+                progress(Progress {
+                    phase: BuildPhase::Writing,
+                    entry_id: None,
+                    bytes_done: pos,
+                    bytes_total: prepared.total,
+                });
+            }
+            PlannedEntry::File {
+                id,
+                source,
+                path,
+                mode,
+                owner,
+                normalize_eol,
+            } => {
+                let file = FileRef {
+                    id,
+                    source,
+                    path,
+                    normalize_eol: *normalize_eol,
+                };
+                let prep = prep.as_ref().expect("files are prepared");
+                let meta = Meta {
+                    kind: tar::EntryType::Regular,
+                    mode: *mode,
+                    owner,
+                    mtime: prep.mtime,
+                    size: prep.size,
+                };
+                write_file(
+                    &mut builder,
+                    hooks,
+                    &file,
+                    &meta,
+                    pos,
+                    prepared.total,
+                    progress,
+                )?;
+                expected.push(expect(path, Some(id.clone()), &meta));
+                pos += record_size(path.len(), prep.size);
+            }
+        }
+    }
+    let counting = builder.into_inner().map_err(io_err)?;
+    let count = counting.count;
+    let sink = counting.inner.finish().map_err(io_err)?;
+    sink.into_inner().map_err(|e| io_err(e.into_error()))?;
+    if count != prepared.total {
+        return Err(io_err(io::Error::other(format!(
+            "wrote {count} bytes, planned {}",
+            prepared.total
+        ))));
+    }
+    Ok((count, expected))
+}
+
+/// Every source statted, and the stream sized.
+struct PreparedPlan {
+    /// One per plan entry: `Some` for a file, `None` for a directory.
+    entries: Vec<Option<Prepared>>,
+    /// The uncompressed tar stream's size.
+    total: u64,
+    /// The newest source modification time, used for directories.
+    newest: u64,
+}
+
+/// Stats every source and sizes the whole stream.
+fn prepare_all(plan: &ArchivePlan, hooks: &Hooks) -> Result<PreparedPlan, BuildError> {
     let mut prepared: Vec<Option<Prepared>> = Vec::with_capacity(plan.entries().len());
     let mut total = END_BLOCKS;
     let mut newest = 0u64;
@@ -350,155 +510,96 @@ pub(crate) fn write_archive_with(
             }
         }
     }
+    Ok(PreparedPlan {
+        entries: prepared,
+        total,
+        newest,
+    })
+}
 
-    let dir = match out_path.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p,
-        _ => Path::new("."),
-    };
-    // A recognisable name, so a crash's leftover can be identified.
-    let tmp = tempfile::Builder::new()
-        .prefix(&temp_prefix(out_path))
-        .suffix(".partial")
-        .tempfile_in(dir)
-        .map_err(io_err)?;
+/// The parts of a planned file entry that writing its data needs.
+struct FileRef<'a> {
+    id: &'a String,
+    source: &'a Path,
+    path: &'a str,
+    normalize_eol: bool,
+}
 
-    let mut expected: Vec<Expected> = Vec::new();
-    let uncompressed = {
-        let sink = BufWriter::new(tmp.as_file());
-        let encoder = Encoder::new(format, sink).map_err(io_err)?;
-        let mut builder = tar::Builder::new(Counting {
-            inner: encoder,
-            count: 0,
-            fail_after: hooks.fail_write_after,
-        });
-        let mut pos = 0u64;
-        for (pe, prep) in plan.entries().iter().zip(&prepared) {
-            match pe {
-                PlannedEntry::Dir { path } => {
-                    let meta = Meta {
-                        kind: tar::EntryType::Directory,
-                        mode: plan.dir_mode(),
-                        owner: plan.dir_owner(),
-                        mtime: newest,
-                        size: 0,
-                    };
-                    append_entry(&mut builder, name_of(path), &meta, &mut io::empty())
-                        .map_err(io_err)?;
-                    expected.push(expect(path, None, &meta));
-                    pos += record_size(path.len(), 0);
-                    progress(Progress {
-                        phase: BuildPhase::Writing,
-                        entry_id: None,
-                        bytes_done: pos,
-                        bytes_total: total,
-                    });
-                }
-                PlannedEntry::File {
-                    id,
-                    source,
-                    path,
-                    mode,
-                    owner,
-                    normalize_eol,
-                } => {
-                    let prep = prep.as_ref().expect("files are prepared");
-                    let meta = Meta {
-                        kind: tar::EntryType::Regular,
-                        mode: *mode,
-                        owner,
-                        mtime: prep.mtime,
-                        size: prep.size,
-                    };
-                    let base = pos + preamble_size(path.len());
-                    progress(Progress {
-                        phase: BuildPhase::Writing,
-                        entry_id: Some(id.clone()),
-                        bytes_done: base,
-                        bytes_total: total,
-                    });
-                    let raw =
-                        open_source(hooks, source, 1).map_err(|e| source_error(id, source, e))?;
-                    let inner: Box<dyn Read> = if *normalize_eol {
-                        Box::new(CrlfToLf::new(raw))
-                    } else {
-                        raw
-                    };
-                    let mut tracked = Tracked {
-                        inner,
-                        count: 0,
-                        base,
-                        total,
-                        id,
-                        progress: &mut *progress,
-                        read_err: None,
-                    };
-                    // Read one byte past the size, so growth is caught
-                    // instead of silently truncated.
-                    let result = {
-                        let mut r = (&mut tracked as &mut dyn Read).take(prep.size + 1);
-                        append_entry(&mut builder, name_of(path), &meta, &mut r)
-                    };
-                    let read_err = tracked.read_err.take();
-                    let count = tracked.count;
-                    drop(tracked);
-                    if let Some(cause) = read_err {
-                        return Err(source_error(id, source, cause));
-                    }
-                    if let Err(cause) = result {
-                        return Err(BuildError::Io {
-                            id: Some(id.clone()),
-                            cause,
-                        });
-                    }
-                    if count != prep.size {
-                        return Err(BuildError::SourceChanged { id: id.clone() });
-                    }
-                    expected.push(expect(path, Some(id.clone()), &meta));
-                    pos += record_size(path.len(), prep.size);
-                }
-            }
-        }
-        let counting = builder.into_inner().map_err(io_err)?;
-        let count = counting.count;
-        let sink = counting.inner.finish().map_err(io_err)?;
-        sink.into_inner().map_err(|e| io_err(e.into_error()))?;
-        if count != total {
-            return Err(io_err(io::Error::other(format!(
-                "wrote {count} bytes, planned {total}"
-            ))));
-        }
-        count
-    };
-
-    tmp.as_file().sync_all().map_err(io_err)?;
-    #[cfg(test)]
-    if hooks.truncate_tail > 0 || hooks.corrupt_at.is_some() {
-        tamper(&tmp, hooks).map_err(io_err)?;
-    }
+/// Appends one file's header and data at stream offset `pos`, reporting
+/// progress as it is read. Fails if the source cannot be read or no longer
+/// has the size in `meta`.
+fn write_file<W: Write>(
+    builder: &mut tar::Builder<W>,
+    hooks: &Hooks,
+    file: &FileRef<'_>,
+    meta: &Meta<'_>,
+    pos: u64,
+    total: u64,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<(), BuildError> {
+    let FileRef {
+        id, source, path, ..
+    } = *file;
+    let base = pos + preamble_size(path.len());
     progress(Progress {
         phase: BuildPhase::Writing,
-        entry_id: None,
-        bytes_done: uncompressed,
+        entry_id: Some(id.clone()),
+        bytes_done: base,
         bytes_total: total,
     });
+    let raw = open_source(hooks, source, 1).map_err(|e| source_error(id, source, e))?;
+    let inner: Box<dyn Read> = if file.normalize_eol {
+        Box::new(CrlfToLf::new(raw))
+    } else {
+        raw
+    };
+    let mut tracked = Tracked {
+        inner,
+        count: 0,
+        base,
+        total,
+        id,
+        progress: &mut *progress,
+        read_err: None,
+    };
+    // Read one byte past the size, so growth is caught instead of silently
+    // truncated.
+    let result = {
+        let mut r = (&mut tracked as &mut dyn Read).take(meta.size + 1);
+        append_entry(builder, name_of(path), meta, &mut r)
+    };
+    let read_err = tracked.read_err.take();
+    let count = tracked.count;
+    drop(tracked);
+    if let Some(cause) = read_err {
+        return Err(source_error(id, source, cause));
+    }
+    if let Err(cause) = result {
+        return Err(BuildError::Io {
+            id: Some(id.clone()),
+            cause,
+        });
+    }
+    if count != meta.size {
+        return Err(BuildError::SourceChanged { id: id.clone() });
+    }
+    Ok(())
+}
 
-    let hash = verify(tmp.path(), format, &expected, total, progress)?;
-    let bytes = tmp.as_file().metadata().map_err(io_err)?.len();
-
-    persist(tmp, out_path, overwrite).map_err(|e| {
-        if !overwrite && e.kind() == io::ErrorKind::AlreadyExists {
-            BuildError::OutputExists {
-                path: out_path.to_path_buf(),
-            }
-        } else {
-            io_err(e)
-        }
-    })?;
-
+/// The summary of a verified, persisted archive.
+fn summarize(
+    plan: &ArchivePlan,
+    prepared: &[Option<Prepared>],
+    out_path: &Path,
+    format: ArchiveFormat,
+    uncompressed: u64,
+    bytes: u64,
+    hash: &[u8; 32],
+) -> BuildSummary {
     let mut built_ids = Vec::new();
     let mut normalized_entries = Vec::new();
     let mut dirs = 0u64;
-    for (pe, prep) in plan.entries().iter().zip(&prepared) {
+    for (pe, prep) in plan.entries().iter().zip(prepared) {
         match pe {
             PlannedEntry::Dir { .. } => dirs += 1,
             PlannedEntry::File {
@@ -518,7 +619,7 @@ pub(crate) fn write_archive_with(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    Ok(BuildSummary {
+    BuildSummary {
         path: out_path.display().to_string(),
         format,
         entries: plan.entries().len() as u64,
@@ -526,7 +627,7 @@ pub(crate) fn write_archive_with(
         dirs,
         bytes,
         uncompressed_bytes: uncompressed,
-        sha256_hex: hash.iter().map(|b| format!("{b:02x}")).collect(),
+        sha256_hex: fm_core::to_hex(hash),
         extract_command: format.extract_command(&file_name),
         normalized_entries,
         built_ids,
@@ -535,7 +636,7 @@ pub(crate) fn write_archive_with(
         manifest_errors: plan.manifest_errors().to_vec(),
         warnings: plan.warnings().to_vec(),
         error_count: plan.error_count(),
-    })
+    }
 }
 
 /// `.<output name>.`, with a long name cut so the temp name (16 bytes longer)
@@ -559,8 +660,8 @@ pub(crate) fn temp_prefix(out_path: &Path) -> std::ffi::OsString {
 }
 
 /// Whether a failed rename is worth retrying: another process briefly holds
-/// the file. On Windows that is usually ERROR_SHARING_VIOLATION (32) or
-/// ERROR_LOCK_VIOLATION (33), which std does not map to `PermissionDenied`.
+/// the file. On Windows that is usually `ERROR_SHARING_VIOLATION` (32) or
+/// `ERROR_LOCK_VIOLATION` (33), which std does not map to `PermissionDenied`.
 fn transient(e: &io::Error) -> bool {
     e.kind() == io::ErrorKind::PermissionDenied
         || (cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33)))
