@@ -385,19 +385,19 @@ pub(crate) fn write_archive_with(
     ))
 }
 
-/// Writes the tar stream for `plan`, compressed in `format`, to `file`.
+/// Writes the tar stream for `plan`, compressed in `format`, to `out`.
 /// Returns the uncompressed stream size and what each entry should look like
 /// when read back.
 fn encode(
     plan: &ArchivePlan,
     prepared: &PreparedPlan,
-    file: &File,
+    out: &File,
     format: ArchiveFormat,
     hooks: &Hooks,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<(u64, Vec<Expected>), BuildError> {
     let mut expected: Vec<Expected> = Vec::new();
-    let sink = BufWriter::new(file);
+    let sink = BufWriter::new(out);
     let encoder = Encoder::new(format, sink).map_err(io_err)?;
     let mut builder = tar::Builder::new(Counting {
         inner: encoder,

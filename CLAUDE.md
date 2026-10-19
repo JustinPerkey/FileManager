@@ -169,8 +169,9 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
 - Paths are handled as the platform's path type, not as display strings. Code
   that renders a path does not assume it is valid UTF-8.
 - Rust code is always `cargo fmt` clean and passes clippy with the `pedantic`
-  group (set in `[workspace.lints.clippy]`; CI runs clippy with `-D warnings`,
-  so a pedantic finding fails the build). A new crate adds `[lints] workspace =
+  group (set in `[workspace.lints.clippy]`; both CI jobs run clippy with
+  `-D warnings`, so a pedantic finding fails the build, and the windows job
+  covers `#[cfg(windows)]` code). A new crate adds `[lints] workspace =
   true`. Fix the finding rather than silencing it; when silencing is right, use
   a scoped `#[expect(clippy::<lint>, reason = "...")]`, never a crate-wide
   `allow`.

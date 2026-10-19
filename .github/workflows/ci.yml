@@ -53,6 +53,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -60,6 +61,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build -w apps/desktop
+      # The linux job never compiles #[cfg(windows)] code; lint it here.
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: npm run tauri:build
       - name: Exe must import no C runtime, zstd, liblzma, or WebView2Loader DLL

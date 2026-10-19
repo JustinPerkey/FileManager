@@ -52,6 +52,8 @@ against the code, never against this paragraph.
 
 ## Architectural rules to preserve when planning
 
+- Rust code stays `cargo fmt` clean and passes clippy with the `pedantic`
+  group (`-D warnings`); a milestone's acceptance includes both.
 - Filesystem logic does not depend on the UI layer; the core is usable and
   testable without it.
 - Every type crossing the core/UI boundary is defined once and mirrored
