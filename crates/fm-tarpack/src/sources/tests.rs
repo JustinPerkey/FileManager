@@ -52,7 +52,7 @@ fn drop_does_not_replace_ready_assignment() {
     let mut asg = Assignments::new();
     asg.insert("a", old);
     let out = match_dropped(&m, &asg, std::slice::from_ref(&new));
-    assert!(out.matched.is_empty());
+    assert!(out.matched.is_empty(), "{:?}", out.matched);
     assert_eq!(out.unmatched.len(), 1);
     assert_eq!(out.unmatched[0].path, new);
     assert_eq!(out.unmatched[0].reason, UnmatchedReason::AlreadyAssigned);
@@ -76,7 +76,7 @@ fn folder_drop_finds_nested_files() {
         out.matched,
         vec![("a".to_string(), a), ("b".to_string(), b)]
     );
-    assert!(out.unmatched.is_empty());
+    assert!(out.unmatched.is_empty(), "{:?}", out.unmatched);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn ambiguous_drop_is_not_assigned() {
     let f1 = touch(tmp.path(), "one/a.bin");
     let f2 = touch(tmp.path(), "two/A.BIN");
     let out = match_dropped(&m, &Assignments::new(), &[f1.clone(), f2.clone()]);
-    assert!(out.matched.is_empty());
+    assert!(out.matched.is_empty(), "{:?}", out.matched);
     assert_eq!(out.ambiguous.len(), 1);
     assert_eq!(out.ambiguous[0].id, "a");
     assert_eq!(out.ambiguous[0].candidates, vec![f1, f2]);
@@ -109,7 +109,7 @@ fn ambiguous_drop_is_not_assigned() {
     let m = manifest(&[("a", "a.bin"), ("b", "a.bin")]);
     let f = touch(tmp.path(), "three/a.bin");
     let out = match_dropped(&m, &Assignments::new(), &[f]);
-    assert!(out.matched.is_empty());
+    assert!(out.matched.is_empty(), "{:?}", out.matched);
     let ids: Vec<_> = out.ambiguous.iter().map(|a| a.id.as_str()).collect();
     assert_eq!(ids, ["a", "b"]);
 
@@ -121,7 +121,7 @@ fn ambiguous_drop_is_not_assigned() {
         &[tmp.path().join("one"), tmp.path().join("two")],
     );
     assert_eq!(out.ambiguous.len(), 1);
-    assert!(out.matched.is_empty());
+    assert!(out.matched.is_empty(), "{:?}", out.matched);
 }
 
 #[test]
@@ -368,7 +368,7 @@ fn symlinks_not_followed() {
 
     // A dropped symlink itself is not followed either.
     let out = match_dropped(&m, &Assignments::new(), &[root.join("b.bin")]);
-    assert!(out.matched.is_empty());
+    assert!(out.matched.is_empty(), "{:?}", out.matched);
     assert_eq!(out.unmatched.len(), 1);
     assert_eq!(out.unmatched[0].reason, UnmatchedReason::LinkNotFollowed);
 }
@@ -437,7 +437,7 @@ fn shared_candidate_is_ambiguous() {
     let m = manifest(&[("a", "x.bin"), ("b", "x.bin")]);
     let f = touch(tmp.path(), "dir/x.bin");
     let out = match_dropped(&m, &Assignments::new(), &[tmp.path().join("dir")]);
-    assert!(out.matched.is_empty());
+    assert!(out.matched.is_empty(), "{:?}", out.matched);
     assert_eq!(out.ambiguous.len(), 2);
     for (amb, id) in out.ambiguous.iter().zip(["a", "b"]) {
         assert_eq!(amb.id, id);
@@ -448,7 +448,7 @@ fn shared_candidate_is_ambiguous() {
     asg.insert("a", touch(tmp.path(), "elsewhere/x.bin"));
     let out = match_dropped(&m, &asg, std::slice::from_ref(&f));
     assert_eq!(out.matched, vec![("b".to_string(), f)]);
-    assert!(out.ambiguous.is_empty());
+    assert!(out.ambiguous.is_empty(), "{:?}", out.ambiguous);
 }
 
 #[test]
@@ -581,7 +581,7 @@ fn non_unicode_match_is_reported() {
     let m = manifest(&[("a", "a.bin")]);
     let f = bad_file(&tmp.path().join("root"), "a.bin");
     let out = match_dropped(&m, &Assignments::new(), &[tmp.path().join("root")]);
-    assert!(out.matched.is_empty());
+    assert!(out.matched.is_empty(), "{:?}", out.matched);
     assert_eq!(
         out.unmatched,
         vec![Unmatched {
@@ -639,7 +639,11 @@ fn non_unicode_paths_are_not_remembered() {
     assert!(restored.get("bad").is_none());
     assert_eq!(s.get().restore_output(&mpath), None);
     assert!(!s.get().recent_manifests.contains(&bad));
-    assert!(s.get().recent_manifests.is_empty());
+    assert!(
+        s.get().recent_manifests.is_empty(),
+        "{:?}",
+        s.get().recent_manifests
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -653,7 +657,11 @@ fn non_unicode_symlink_to_unicode_manifest_is_not_remembered() {
     let mut s = store(&root);
     s.update(|st| st.touch_recent(&link));
     s.save().unwrap();
-    assert!(store(&root).get().recent_manifests.is_empty());
+    assert!(
+        store(&root).get().recent_manifests.is_empty(),
+        "{:?}",
+        store(&root).get().recent_manifests
+    );
 }
 
 #[cfg(windows)]

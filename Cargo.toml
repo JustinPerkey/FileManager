@@ -8,7 +8,7 @@ edition = "2021"
 license = "MIT"
 publish = false
 # Oldest toolchain the code (and its tests) builds with; CI uses latest stable.
-rust-version = "1.91"
+rust-version = "1.90"
 
 [profile.release]
 lto = true

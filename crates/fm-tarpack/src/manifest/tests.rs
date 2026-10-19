@@ -15,11 +15,15 @@ fn with_dir(dir: &str) -> String {
 fn check_invariants(r: &ParseReport) {
     assert_eq!(r.manifest.is_complete(), r.is_valid());
     if r.entries_withheld {
-        assert!(r.manifest.entries().is_empty());
+        assert!(
+            r.manifest.entries().is_empty(),
+            "{:?}",
+            r.manifest.entries()
+        );
         assert!(!r.is_valid());
     }
     for f in &r.failures {
-        assert!(!f.errors.is_empty());
+        assert!(!f.errors.is_empty(), "failure with no errors: {f:?}");
         assert!(f.errors.iter().all(|d| d.severity == Severity::Error));
     }
     for d in &r.errors {
@@ -125,7 +129,11 @@ fn rejects_duplicate_id() {
     assert!(errs[1].message.contains("first used on line 4"));
     let r = parse(t);
     assert_eq!(r.failures.len(), 2);
-    assert!(r.manifest.entries().is_empty());
+    assert!(
+        r.manifest.entries().is_empty(),
+        "{:?}",
+        r.manifest.entries()
+    );
     let d = assert_err(
         &one("").replace("id = \"a\"", "id = \"\""),
         "id must not be empty",
@@ -279,7 +287,7 @@ fn defaults_apply_and_per_file_overrides_win() {
         [[file]]\nid = \"b\"\nsource = \"b.txt\"\nname = \"renamed\"\ndir = \"/y/\"\n\
         mode = \"0755\"\nuid = 1\ngid = 2\nuname = \"bu\"\ngname = \"bg\"\n";
     let (m, w) = ok(t);
-    assert!(w.is_empty());
+    assert!(w.is_empty(), "{w:?}");
     assert_eq!(m.dir_mode(), 0o700);
     assert_eq!(m.default_owner().uid, 5);
     let first = &m.entries()[0];
@@ -335,7 +343,7 @@ fn warns_on_shared_source_name() {
     assert_eq!(w[0].entry_id.as_deref(), Some("b"));
     assert!(w[0].message.contains("`a`"));
     let (_, w) = ok(&t.replace("cfg.TXT", "other"));
-    assert!(w.is_empty());
+    assert!(w.is_empty(), "{w:?}");
 }
 
 #[test]
@@ -345,7 +353,7 @@ fn warns_on_long_target() {
     assert!(w[0].message.contains("100 bytes or longer"));
     assert!(w[0].message.contains("153 bytes"));
     let (_, w) = ok(&with_dir("/opt"));
-    assert!(w.is_empty());
+    assert!(w.is_empty(), "{w:?}");
 }
 
 #[test]
@@ -362,7 +370,7 @@ fn long_name_warning_counts_leading_slash() {
 #[test]
 fn warns_on_no_files() {
     let (m, w) = ok("version = 1\nname = \"t\"\n");
-    assert!(m.entries().is_empty());
+    assert!(m.entries().is_empty(), "{:?}", m.entries());
     assert_eq!(w.len(), 1);
     assert!(w[0].message.contains("no [[file]]"));
 }
@@ -578,7 +586,7 @@ fn passed_entries_survive_entry_errors() {
     assert_eq!(r.failures.len(), 1);
     let f = &r.failures[0];
     assert_eq!((f.index, f.id.as_deref(), f.line), (2, Some("b"), 7));
-    assert!(r.errors.is_empty());
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
     assert!(!r.entries_withheld);
     assert_eq!(r.error_count(), 1);
     assert!(!r.manifest.is_complete());
@@ -743,7 +751,7 @@ fn name_and_output_name_errors_keep_entries() {
         assert!(!r.entries_withheld, "{head}");
         assert_eq!(ids(&r.manifest), ["a"], "{head}");
         assert_eq!(r.errors.len(), 1, "{head}");
-        assert!(r.failures.is_empty());
+        assert!(r.failures.is_empty(), "{:?}", r.failures);
         assert_eq!(r.manifest.name(), name);
         assert_eq!(r.manifest.output_name(), out);
         assert!(!r.is_valid() && !r.manifest.is_complete());
@@ -780,7 +788,11 @@ fn three_entries_on_one_target_report_each_pair_on_both() {
     assert_eq!(r.failures.len(), 3);
     // Each entry is in two pairs, so each has two errors.
     assert!(r.failures.iter().all(|f| f.errors.len() == 2));
-    assert!(r.manifest.entries().is_empty());
+    assert!(
+        r.manifest.entries().is_empty(),
+        "{:?}",
+        r.manifest.entries()
+    );
 }
 
 #[test]
@@ -813,7 +825,7 @@ fn unknown_key_only_table_takes_no_part_in_target_checks() {
     assert_eq!(r.failures.len(), 1);
     assert_eq!(r.failures[0].id.as_deref(), Some("a"));
     assert_eq!(ids(&r.manifest), ["b"]);
-    assert!(r.warnings.is_empty());
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
 }
 
 #[test]

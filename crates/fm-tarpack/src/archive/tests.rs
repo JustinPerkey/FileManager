@@ -436,7 +436,11 @@ fn missing_source_writes_nothing() {
         Err(BuildError::SourceMissing { id, .. }) => assert_eq!(id, "b"),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 #[test]
@@ -479,7 +483,11 @@ fn unreadable_source_writes_nothing() {
         Err(BuildError::SourceUnreadable { id, .. }) => assert_eq!(id, "b"),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 #[test]
@@ -506,7 +514,11 @@ fn read_failure_while_writing_names_entry_and_writes_nothing() {
         Err(BuildError::SourceUnreadable { id, .. }) => assert_eq!(id, "a"),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 // Unit-level: a whole build with a 244-byte name exceeds Windows' MAX_PATH
@@ -539,11 +551,15 @@ fn temp_file_name_is_recognisable() {
         &hooks,
     );
     let seen = seen.into_inner();
-    assert!(!seen.is_empty());
+    assert!(!seen.is_empty(), "no temp file names observed");
     assert!(seen
         .iter()
         .all(|n| n.starts_with(".a.tar.") && n.ends_with(".partial")));
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 #[test]
@@ -581,7 +597,11 @@ fn injected_write_failure_leaves_nothing_and_names_entry() {
         Err(BuildError::Io { id, .. }) => assert!(id.is_some()),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 #[test]
@@ -589,7 +609,7 @@ fn verify_failure_leaves_existing_output_unchanged() {
     let fx = simple();
     let out = fx.out_dir().join("a.tar");
     fs::write(&out, b"known bytes").unwrap();
-    let old = SystemTime::now() - Duration::from_hours(24);
+    let old = SystemTime::now() - Duration::from_secs(24 * 60 * 60);
     fs::File::options()
         .write(true)
         .open(&out)
@@ -628,7 +648,7 @@ fn verify_failure_leaves_existing_output_unchanged() {
     );
     assert!(matches!(r, Err(BuildError::VerifyFailed(_))));
     assert!(!out2.exists());
-    assert!(dir_listing(&fresh).is_empty());
+    assert!(dir_listing(&fresh).is_empty(), "{:?}", dir_listing(&fresh));
 }
 
 #[test]
@@ -649,7 +669,11 @@ fn truncated_stream_fails_verification() {
             "{format:?}: {r:?}"
         );
         assert!(!out.exists());
-        assert!(dir_listing(&fx.out_dir()).is_empty());
+        assert!(
+            dir_listing(&fx.out_dir()).is_empty(),
+            "{:?}",
+            dir_listing(&fx.out_dir())
+        );
     }
 }
 
@@ -779,7 +803,11 @@ fn eol_source_change_between_passes_fails() {
         Err(BuildError::SourceChanged { id }) => assert_eq!(id, "a"),
         other => panic!("{other:?}"),
     }
-    assert!(dir_listing(&fx.out_dir()).is_empty());
+    assert!(
+        dir_listing(&fx.out_dir()).is_empty(),
+        "{:?}",
+        dir_listing(&fx.out_dir())
+    );
 }
 
 // ---- progress ----

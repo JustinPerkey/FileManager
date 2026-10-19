@@ -808,7 +808,7 @@ fn error_kinds_map_from_build_errors() {
     for (err, kind, id) in cases {
         assert_eq!(err.kind, kind, "{err}");
         assert_eq!(err.entry_id.as_deref(), id, "{err}");
-        assert!(!err.message.is_empty());
+        assert!(!err.message.is_empty(), "{err:?} has no message");
     }
 }
 
@@ -837,7 +837,7 @@ fn ev(phase: BuildPhase, id: Option<&str>, done: u64, total: u64) -> Progress {
 
 /// The M4 contract, which the coalescer must keep for what the UI receives.
 fn assert_contract(events: &[Progress], file_ids: &[&str]) {
-    assert!(!events.is_empty());
+    assert!(!events.is_empty(), "no progress events");
     let total = events[0].bytes_total;
     assert!(events.iter().all(|e| e.bytes_total == total));
     let split = events

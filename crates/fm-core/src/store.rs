@@ -270,7 +270,7 @@ mod tests {
         a.update(|d| d.items.push("a".into()));
         a.save().unwrap();
         let (b, _) = Store::<Demo>::load(&dirs, "beta", "state").unwrap();
-        assert!(b.get().items.is_empty());
+        assert!(b.get().items.is_empty(), "{:?}", b.get().items);
     }
 
     #[test]
@@ -323,7 +323,11 @@ mod tests {
         let (s2, w) = Store::<Demo>::load(&dirs, "demo", "state").unwrap();
         assert!(w.is_none());
         assert_eq!(s2.get().items, vec!["two".to_string()]);
-        assert!(temp_leftovers(&dirs.tool_dir("demo").unwrap()).is_empty());
+        assert!(
+            temp_leftovers(&dirs.tool_dir("demo").unwrap()).is_empty(),
+            "{:?}",
+            temp_leftovers(&dirs.tool_dir("demo").unwrap())
+        );
     }
 
     #[test]
