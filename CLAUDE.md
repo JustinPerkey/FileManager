@@ -69,6 +69,8 @@ docs/tarpack-manifest.md      the manifest, archive-layout, and extraction refer
 docs/tarpack-e2e.md           manual end-to-end release checklist (Windows exe to Linux target)
 docs/schedule.md              the Schedule Creator's flow and where its hooks go
 docs/pipeline.md              the Pipeline's flow and where its step hooks go
+docs/manual/user-manual.md    end-user manual; images/ are its screenshots, regenerated
+                              by screenshots/shoot.js (real frontend, mocked backend)
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, eslint.config.js, index.html
   src-tauri/                  package and binary name: filemanager
