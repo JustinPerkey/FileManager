@@ -24,7 +24,7 @@ fn same(a: &Path, b: &Path) -> bool {
     {
         match (a.to_str(), b.to_str()) {
             (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
-            _ => false,
+            _ => a == b,
         }
     }
     #[cfg(not(windows))]
@@ -62,18 +62,35 @@ mod tests {
         for i in 0..12 {
             s.touch(Path::new(&format!("/d/{i}.db")));
         }
-        assert_eq!(s.recent.len(), MAX_RECENT);
-        assert_eq!(s.recent[0], Path::new("/d/11.db"));
+        let paths = |ids: &[usize]| -> Vec<PathBuf> {
+            ids.iter()
+                .map(|i| PathBuf::from(format!("/d/{i}.db")))
+                .collect()
+        };
+        assert_eq!(s.recent, paths(&[11, 10, 9, 8, 7, 6, 5, 4, 3, 2]));
         s.touch(Path::new("/d/5.db"));
-        assert_eq!(s.recent[0], Path::new("/d/5.db"));
-        assert_eq!(s.recent.len(), MAX_RECENT);
-        assert_eq!(
-            s.recent
-                .iter()
-                .filter(|p| **p == Path::new("/d/5.db"))
-                .count(),
-            1
-        );
+        assert_eq!(s.recent, paths(&[5, 11, 10, 9, 8, 7, 6, 4, 3, 2]));
+        s.touch(Path::new("/d/0.db"));
+        assert_eq!(s.recent, paths(&[0, 5, 11, 10, 9, 8, 7, 6, 4, 3]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recent_touch_ignores_non_unicode() {
+        use std::os::unix::ffi::OsStrExt;
+        let mut s = RememberedState::default();
+        s.touch(Path::new("/a.db"));
+        s.touch(Path::new(std::ffi::OsStr::from_bytes(b"/tmp/\xff.db")));
+        assert_eq!(s.recent, vec![PathBuf::from("/a.db")]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn recent_dedupes_case_insensitively_on_windows() {
+        let mut s = RememberedState::default();
+        s.touch(Path::new(r"C:\A.db"));
+        s.touch(Path::new(r"c:\a.db"));
+        assert_eq!(s.recent, vec![PathBuf::from(r"c:\a.db")]);
     }
 
     #[test]

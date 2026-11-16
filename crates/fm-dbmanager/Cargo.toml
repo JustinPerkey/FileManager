@@ -10,8 +10,6 @@ publish.workspace = true
 fm-core = { path = "../fm-core" }
 rusqlite = { version = "0.43", features = ["bundled", "backup"] }
 serde = { version = "1", features = ["derive"] }
-
-[dev-dependencies]
 tempfile = { workspace = true }
 
 [lints]

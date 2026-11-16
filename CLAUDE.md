@@ -11,7 +11,8 @@ a Windows-only desktop app distributed as a portable `.exe` (no installer). It
 hosts several independent tools: the Pipeline (`pipeline`, UI and plumbing
 only: its four step hooks are stubs), the Tar Packager (`tarpack`) and the
 Schedule Creator (`schedule`, UI and plumbing only: its parse and merge hooks
-are stubs). The Database Manager (`dbmanager`) is in progress: crate only (`fm-dbmanager`), UI to come.
+are stubs). The Database Manager (`dbmanager`) is in progress: crate only
+(`fm-dbmanager`), UI to come.
 
 ## Layout
 
@@ -145,14 +146,15 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
   environment variable overrides the config's rustflags (dropping
   `+crt-static`), and `STATIC_VCRUNTIME` overrides `staticVCRuntime`, so set
   neither. The Windows CI job runs `dumpbin /dependents` on the exe and fails if
-  it lists `vcruntime*`, `msvcp*`, `api-ms-win-crt-*`, `zstd*`, `liblzma*`, `sqlite3*`, or
-  `WebView2Loader.dll`, then uploads `FileManager-<version>-x64.exe`.
+  it lists `vcruntime*`, `msvcp*`, `api-ms-win-crt-*`, `zstd*`, `liblzma*`,
+  `sqlite3*`, or `WebView2Loader.dll`, then uploads `FileManager-<version>-x64.exe`.
 - Both CI jobs run `cargo test --workspace`, so the generated-types test runs
   on both.
 - Building the shell on Linux needs the webkit2gtk dev packages:
   `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libsoup-3.0-dev`,
   `libjavascriptcoregtk-4.1-dev`. Without them, cargo can be scoped to
-  `-p fm-core -p fm-tarpack -p fm-dbmanager`, but then the generated-types test does not run.
+  `-p fm-core -p fm-tarpack -p fm-dbmanager`, but then the generated-types
+  test does not run.
 - `tauri:build` produces a portable exe (`target/release/filemanager.exe`), not
   an installer.
 - Native prerequisites: `fm-tarpack` depends on `zstd` and `liblzma`

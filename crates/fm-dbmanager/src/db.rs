@@ -1,12 +1,14 @@
 //! Opening a user's `SQLite` file safely.
 
 use rusqlite::config::DbConfig;
-use rusqlite::{Connection, ErrorCode, OpenFlags};
+use rusqlite::{Connection, ErrorCode, OpenFlags, MAIN_DB};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const READ_ONLY_REASON: &str = "the file or its folder is read-only";
+const READ_ONLY_FILE: &str = "the file is read-only";
+const READ_ONLY_FOLDER: &str = "the folder is read-only, so changes cannot be saved";
+const BUSY_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Why a database could not be opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +21,8 @@ pub enum OpenError {
     NotUnicode(PathBuf),
     /// `SQLite` says the file is not a database.
     NotADatabase(PathBuf, String),
+    /// Still locked by another program after the busy timeout.
+    Busy(PathBuf),
     /// Anything else, with `SQLite`'s message.
     Io(PathBuf, String),
 }
@@ -37,6 +41,9 @@ impl fmt::Display for OpenError {
             }
             OpenError::NotADatabase(p, m) => {
                 write!(f, "{} is not a SQLite database: {m}", p.display())
+            }
+            OpenError::Busy(p) => {
+                write!(f, "{} is in use by another program.", p.display())
             }
             OpenError::Io(p, m) => write!(f, "{} could not be opened: {m}", p.display()),
         }
@@ -69,6 +76,10 @@ impl Database {
     ///
     /// See [`OpenError`].
     pub fn open(path: &Path) -> Result<Database, OpenError> {
+        Self::open_with_timeout(path, BUSY_TIMEOUT)
+    }
+
+    pub(crate) fn open_with_timeout(path: &Path, timeout: Duration) -> Result<Database, OpenError> {
         let owned = path.to_path_buf();
         if path.to_str().is_none() {
             return Err(OpenError::NotUnicode(owned));
@@ -82,33 +93,34 @@ impl Database {
 
         // No SQLITE_OPEN_CREATE and no SQLITE_OPEN_URI.
         let rw = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let (conn, mut reason) = match Connection::open_with_flags(path, rw) {
+        let ro = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let (mut conn, mut reason) = match open_conn(path, rw, timeout) {
             Ok(c) => (c, None),
             Err(e) if is_retryable(&e) => {
-                let ro = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-                let c = Connection::open_with_flags(path, ro).map_err(|e| classify(&owned, &e))?;
-                (c, Some(READ_ONLY_REASON.to_owned()))
+                let c = open_conn(path, ro, timeout).map_err(|e| classify(&owned, &e))?;
+                (c, Some(READ_ONLY_FILE.to_owned()))
             }
             Err(e) => return Err(classify(&owned, &e)),
         };
 
+        // A writable file in a read-only folder cannot be written: SQLite
+        // needs its journal beside the file.
+        if reason.is_none() && folder_is_read_only(path) {
+            conn = open_conn(path, ro, timeout).map_err(|e| classify(&owned, &e))?;
+            reason = Some(READ_ONLY_FOLDER.to_owned());
+        }
+
         conn.query_row("SELECT count(*) FROM sqlite_schema", [], |r| {
             r.get::<_, i64>(0)
         })
-        .map_err(|e| match e {
-            rusqlite::Error::SqliteFailure(f, m) if f.code == ErrorCode::NotADatabase => {
-                OpenError::NotADatabase(owned.clone(), m.unwrap_or_else(|| f.to_string()))
-            }
-            other => classify(&owned, &other),
-        })?;
+        .map_err(|e| classify(&owned, &e))?;
 
-        if reason.is_none() && conn.is_readonly("main").unwrap_or(false) {
-            reason = Some(READ_ONLY_REASON.to_owned());
+        if reason.is_none() && conn.is_readonly(MAIN_DB).unwrap_or(false) {
+            reason = Some(READ_ONLY_FILE.to_owned());
         }
 
         let io = |e: rusqlite::Error| OpenError::Io(owned.clone(), e.to_string());
         conn.pragma_update(None, "foreign_keys", true).map_err(io)?;
-        conn.busy_timeout(Duration::from_secs(3)).map_err(io)?;
         conn.pragma_update(None, "trusted_schema", false)
             .map_err(io)?;
         conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)
@@ -155,10 +167,44 @@ impl Database {
     }
 }
 
+/// Open with `flags`, then set the busy timeout before any statement runs.
+fn open_conn(path: &Path, flags: OpenFlags, timeout: Duration) -> rusqlite::Result<Connection> {
+    let conn = Connection::open_with_flags(path, flags)?;
+    conn.busy_timeout(timeout)?;
+    Ok(conn)
+}
+
+/// True when a temp file cannot be created beside `path`. Any other probe
+/// error is ignored: a later write reports its own error.
+fn folder_is_read_only(path: &Path) -> bool {
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    match tempfile::Builder::new()
+        .prefix(".fm-dbmanager-probe-")
+        .tempfile_in(parent)
+    {
+        Ok(_) => false,
+        Err(e) => matches!(
+            e.kind(),
+            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
+        ),
+    }
+}
+
 fn classify(path: &Path, e: &rusqlite::Error) -> OpenError {
-    if let rusqlite::Error::SqliteFailure(f, _) = e {
-        if f.code == ErrorCode::NotADatabase {
-            return OpenError::NotADatabase(path.to_path_buf(), e.to_string());
+    if let rusqlite::Error::SqliteFailure(f, m) = e {
+        match f.code {
+            ErrorCode::NotADatabase => {
+                return OpenError::NotADatabase(
+                    path.to_path_buf(),
+                    m.clone().unwrap_or_else(|| f.to_string()),
+                );
+            }
+            ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked => {
+                return OpenError::Busy(path.to_path_buf());
+            }
+            _ => {}
         }
     }
     OpenError::Io(path.to_path_buf(), e.to_string())
@@ -252,6 +298,29 @@ mod tests {
         assert_eq!(pragma_str(&db, "journal_mode"), "delete");
     }
 
+    /// Resets permissions on drop so a failing assertion never leaves an
+    /// undeletable temp dir.
+    struct Restore(PathBuf);
+
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Ok(meta) = std::fs::metadata(&self.0) {
+                let mut perm = meta.permissions();
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    perm.set_mode(if meta.is_dir() { 0o755 } else { 0o644 });
+                }
+                #[cfg(not(unix))]
+                {
+                    #[expect(clippy::permissions_set_readonly_false, reason = "temp cleanup")]
+                    perm.set_readonly(false);
+                }
+                let _ = std::fs::set_permissions(&self.0, perm);
+            }
+        }
+    }
+
     #[test]
     fn open_readonly_file_falls_back_to_read_only() {
         #[cfg(unix)]
@@ -261,17 +330,74 @@ mod tests {
         }
         let tmp = tempfile::tempdir().unwrap();
         let p = make_db(tmp.path(), "delete");
+        let _restore = Restore(p.clone());
         let mut perm = std::fs::metadata(&p).unwrap().permissions();
         perm.set_readonly(true);
         std::fs::set_permissions(&p, perm).unwrap();
         let db = Database::open(&p).unwrap();
-        assert!(db.read_only_reason().is_some());
-        // Restore so the temp dir can be removed on every platform.
-        let mut perm = std::fs::metadata(&p).unwrap().permissions();
-        #[expect(clippy::permissions_set_readonly_false, reason = "temp file cleanup")]
-        perm.set_readonly(false);
+        assert_eq!(db.read_only_reason(), Some(READ_ONLY_FILE));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_readonly_folder_falls_back_to_read_only() {
+        use std::os::unix::fs::PermissionsExt;
+        if permissions_do_not_bind() {
+            eprintln!("skipping: running as root, permissions do not bind");
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let p = make_db(tmp.path(), "delete");
+        let _restore = Restore(tmp.path().to_path_buf());
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let db = Database::open(&p).unwrap();
+        assert!(db.read_only_reason().unwrap().contains("folder"));
         drop(db);
-        std::fs::set_permissions(&p, perm).unwrap();
+        let names: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("t.db")]);
+    }
+
+    #[test]
+    fn open_probe_leaves_nothing_behind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = make_db(tmp.path(), "delete");
+        drop(Database::open(&p).unwrap());
+        let names: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("t.db")]);
+    }
+
+    #[test]
+    fn open_busy_waits_then_reports_busy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = make_db(tmp.path(), "delete");
+        let locker = Connection::open(&p).unwrap();
+        locker
+            .execute_batch("BEGIN EXCLUSIVE; INSERT INTO t DEFAULT VALUES;")
+            .unwrap();
+        let timeout = Duration::from_millis(200);
+        let start = std::time::Instant::now();
+        let err = Database::open_with_timeout(&p, timeout).unwrap_err();
+        assert!(matches!(err, OpenError::Busy(_)), "{err:?}");
+        assert!(start.elapsed() >= timeout);
+    }
+
+    #[test]
+    fn open_after_lock_released_succeeds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = make_db(tmp.path(), "delete");
+        let locker = Connection::open(&p).unwrap();
+        locker
+            .execute_batch("BEGIN EXCLUSIVE; INSERT INTO t DEFAULT VALUES;")
+            .unwrap();
+        assert!(Database::open_with_timeout(&p, Duration::from_millis(100)).is_err());
+        locker.execute_batch("COMMIT").unwrap();
+        assert!(Database::open_with_timeout(&p, Duration::from_millis(100)).is_ok());
     }
 
     #[cfg(unix)]

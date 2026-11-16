@@ -80,7 +80,13 @@ pub fn system_config_dir() -> Result<PathBuf> {
 }
 
 /// The Windows rule of [`system_config_dir`], compiled on every platform.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(
+    all(not(windows), not(test)),
+    expect(
+        dead_code,
+        reason = "used only by the Windows branch of system_config_dir and by tests"
+    )
+)]
 fn system_config_dir_from(program_data: Option<OsString>) -> Result<PathBuf> {
     match program_data {
         Some(p) if !p.is_empty() && Path::new(&p).is_absolute() => {
