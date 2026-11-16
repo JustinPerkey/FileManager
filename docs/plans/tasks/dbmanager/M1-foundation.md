@@ -1,8 +1,9 @@
 # M1 — `fm-dbmanager` crate, bundled SQLite, and database opening
 
-Status: implemented; the reviewer requested changes. **Run "Review round 1"
-(end of this plan)** on this task plan; the rules below are already corrected
-for it. (Approved 2026-11-16; revised the same day: the recent list holds
+Status: done (2026-11-16). Review round 1 applied; the reviewer approved.
+Known limitation: a WAL database with no `-shm` file in a read-only folder
+fails to open (`OpenError::Io`) rather than opening read-only; fixing it would
+need URI `immutable=1`, which these rules forbid. (Approved 2026-11-16; revised the same day: the recent list holds
 databases only; `fm-core` gains the app-wide config directory.)
 Project: dbmanager   Depends on: none
 

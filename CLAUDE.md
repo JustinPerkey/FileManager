@@ -147,7 +147,8 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
   `+crt-static`), and `STATIC_VCRUNTIME` overrides `staticVCRuntime`, so set
   neither. The Windows CI job runs `dumpbin /dependents` on the exe and fails if
   it lists `vcruntime*`, `msvcp*`, `api-ms-win-crt-*`, `zstd*`, `liblzma*`,
-  `sqlite3*`, or `WebView2Loader.dll`, then uploads `FileManager-<version>-x64.exe`.
+  `sqlite3*`, or `WebView2Loader.dll`, then uploads
+  `FileManager-<version>-x64.exe`.
 - Both CI jobs run `cargo test --workspace`, so the generated-types test runs
   on both.
 - Building the shell on Linux needs the webkit2gtk dev packages:

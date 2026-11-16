@@ -70,7 +70,8 @@ fn is_retryable(e: &rusqlite::Error) -> bool {
 
 impl Database {
     /// Open an existing `SQLite` file, read-write when possible, else read-only.
-    /// Never creates a file and never changes persistent settings of it.
+    /// Never creates the database file (a temporary probe file is created and
+    /// removed beside it) and never changes its persistent settings.
     ///
     /// # Errors
     ///
