@@ -195,6 +195,15 @@ fields belong to an object table:
 - The app never deletes backups.
 - `pub(crate) fn ensure_backup(&mut self) -> Result<Option<PathBuf>,
   SessionError>` returns the path only when it made one.
+- **A reload does not reset the backup.** "Session" here means "this
+  database, opened once in this app run, until it is closed or another
+  database is opened". The shell's reload reopens the same file as a new
+  `Session` value, so add `pub fn adopt_backup(&mut self, backup: PathBuf)`.
+  It marks the backup as already taken and sets `backup_path()` to it,
+  without writing anything. The caller uses it only for the same database
+  path. Test `adopted_backup_is_not_retaken`: after `adopt_backup`, the next
+  save creates no backup, returns `backup_created: None`, and `backup_path()`
+  is the adopted path.
 
 Exports: `SaveRequest`, `SaveResult`, and the types they reference.
 

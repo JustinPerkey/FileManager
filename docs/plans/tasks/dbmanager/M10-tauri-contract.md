@@ -169,12 +169,21 @@ Operations:
 - `open_dropped(paths)`:
   - Exactly one path is opened like `open`.
   - More than one path gives `DropAmbiguous`, and nothing changes.
-  - A dropped `.toml` is not special. It fails as `DatabaseUnreadable`, and
-    the message adds that the config is not chosen by dropping and names its
-    fixed path.
+  - A single dropped path ending `.toml` (ASCII case-insensitive) is refused
+    with the dedicated kind **`ConfigNotDroppable`**, before any open is
+    attempted, so the UI can say that the config is fixed and show
+    `session.config.path`. Nothing changes: the current database stays
+    open.
 - `reload()` reloads the config and, if a database is open, reopens it
   (re-introspects) with the new config. It works with no database open: it
   then only reloads the config.
+  - **A reload keeps the once-per-session backup.** If the old session had
+    taken a backup, the new `Session` gets `adopt_backup(path)` (M7).
+    `backupPath` in the snapshot stays the same, and the next write takes no
+    second backup.
+  - `close()`, or opening a database (even the same path again through
+    `open`), starts a fresh session: the next write takes a new backup, and
+    `backupPath` is cleared until it does.
 - `reload_config()` (`pub(crate)`, used by the write path here and by the
   watcher in a later milestone) runs `LoadedConfig::load(path)`, then
   `session.set_config(…)` if a database is open.
@@ -226,6 +235,7 @@ pub struct DbmanagerSession {
 }
 pub enum DbmanagerErrorKind {
     NoDatabase, NotAbsolute, NotAFile, DatabaseUnreadable, OpenerFailed,
+    ConfigNotDroppable,
     DropAmbiguous, UnknownTable, UnknownObject, UnknownRelation, NotEditable,
     ValidationFailed, Conflict, SchemaChanged, ConfigChangedOnDisk,
     DatabaseReadOnly, Busy, BackupFailed, ImpactChanged, DeleteBlocked,
@@ -250,7 +260,9 @@ pub struct DbmanagerError {
 `ConfigUnreadable` is gone: an unreadable config is a status
 (`config.status == "failClosed"` with `configFailClosed`), not a command
 error. `OpenerFailed` replaces it. The later "Edit config" command returns it
-when the system editor cannot be started. There are still 21 kinds.
+when the system editor cannot be started. `ConfigNotDroppable` is new: a
+dropped `.toml` (the config is fixed at `session.config.path`). There are 22
+kinds.
 
 `DbmanagerErrorKind` serializes as the variant name, like
 `ScheduleErrorKind`. Mapping:
@@ -296,7 +308,7 @@ exists.
 - Append `DbmanagerSession`, `DbmanagerError` and `DbmanagerErrorKind` to
   `EXPORTERS`, then regenerate. `DbConfigView` follows from them.
 - Add a test like `error_kind_is_string_union` for `DbmanagerErrorKind.ts`,
-  with its own pinned list of the 21 kinds above. Changing that list is a UI
+  with its own pinned list of the 22 kinds above. Changing that list is a UI
   contract change.
 
 ### Client (`apps/desktop/src/lib/dbmanager.ts`)
@@ -395,8 +407,12 @@ config path inside the temp dir, and databases built from
   `session()` of a new `Core`;
 - a missing recent database on restore: empty state, `state_warning` set,
   entry kept;
-- `open_dropped` with one file, `DropAmbiguous` for two, and a `.toml`
-  rejected with a message naming the config path;
+- `open_dropped` with one file, `DropAmbiguous` for two, and a `.toml` →
+  `ConfigNotDroppable` with the database left open;
+- after a first save took a backup, `reload()` keeps `backupPath` and the
+  next save creates no second backup file (count the `.bak` files in the
+  temp dir); `close()` then `open` of the same file clears `backupPath`, and
+  the next save creates a second backup;
 - a relative path → `NotAbsolute`, a directory → `NotAFile`, and a
   non-database → `DatabaseUnreadable` in the database slot;
 - `NoDatabase` for reads without a session;
@@ -493,7 +509,9 @@ Shell (`tests.rs`):
 - Opening and dropping:
   - `open_dropped_single`
   - `open_dropped_ambiguous`
-  - `open_dropped_toml_explained`
+  - `open_dropped_toml_is_config_not_droppable`
+  - `reload_keeps_backup`
+  - `open_again_resets_backup`
   - `open_rejects_relative_and_directory`
   - `non_database_is_unreadable`
 - Saves and errors:

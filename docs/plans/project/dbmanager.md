@@ -315,8 +315,8 @@ All commands are `async`, and the work runs under `spawn_blocking`.
 | --- | --- |
 | `dbmanager_session()` | `DbmanagerSession`. The first call loads the config and reopens the most recent database. Later calls are cheap and side-effect free, and recompute `configChanged`. |
 | `dbmanager_open(database)` | `DbmanagerSession` |
-| `dbmanager_open_dropped(paths)` | `DbmanagerSession`. Exactly one database file. A `.toml` is explained, not accepted. |
-| `dbmanager_reload()` | `DbmanagerSession`. Reloads the config and re-introspects. |
+| `dbmanager_open_dropped(paths)` | `DbmanagerSession`. Exactly one database file. A `.toml` is refused with `ConfigNotDroppable` (the config is fixed). |
+| `dbmanager_reload()` | `DbmanagerSession`. Reloads the config and re-introspects. It **keeps** the session's backup (`backupPath` unchanged, no second backup). `close`/`open` start a fresh session. |
 | `dbmanager_close()` | `DbmanagerSession` |
 | `dbmanager_list(table, query)` | `ObjectPage` |
 | `dbmanager_object(table, key)` | `ObjectView` |
@@ -340,11 +340,11 @@ All commands are `async`, and the work runs under `spawn_blocking`.
 - `recent`, the recent database paths;
 - `stateWarning`.
 
-`DbmanagerErrorKind` has 21 kinds, pinned by a test:
+`DbmanagerErrorKind` has 22 kinds, pinned by a test:
 
 - `NoDatabase`, `NotAbsolute`, `NotAFile`, `DatabaseUnreadable`;
 - `OpenerFailed`, which replaces `ConfigUnreadable`;
-- `DropAmbiguous`;
+- `DropAmbiguous`, `ConfigNotDroppable` (a dropped `.toml`);
 - `UnknownTable`, `UnknownObject`, `UnknownRelation`, `NotEditable`;
 - `ValidationFailed`, `Conflict`;
 - `SchemaChanged`, `ConfigChangedOnDisk`, `DatabaseReadOnly`, `Busy`;
@@ -790,6 +790,17 @@ None.
 
 These decisions were not asked of the human. Each is recorded with its
 reason.
+
+- **`reload()` keeps the backup** (asked by the ui-designer). A reload
+  re-reads the same file. A session is "this database, opened, until
+  closed", so a second backup would only add clutter. `close`/`open` start
+  a new session. Pinned in M7 (`adopt_backup`) and M10.
+- **The config-changed event fires only after the reload is complete**, and
+  is emitted without holding the core lock. A `session()` call from the
+  handler sees the new hash, diagnostics and tables. Pinned in M13.
+- **A dropped `.toml` gets its own kind, `ConfigNotDroppable`** (taken; it
+  was cheap). The UI copy can say that the config is fixed and show
+  `session.config.path`. The list now has 22 kinds.
 
 - **A pickable link opens the object read-only.** The user sees what they
   picked, and the table cannot be edited through a link.

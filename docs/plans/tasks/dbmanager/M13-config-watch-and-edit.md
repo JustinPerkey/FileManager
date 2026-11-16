@@ -239,6 +239,13 @@ the payload to emit, or `None`)
     switched to `read-only`);
   - keeps the open database (same `Session` instance, no reopen);
   - yields a `DbmanagerConfigChanged` payload.
+- **The event follows the completed reload.** In
+  `event_emitted_after_reload_completes`, the factored callback is given an
+  emit closure that, when called, immediately calls `Core::session()` (as a
+  UI handler would). Inside the closure, the snapshot already has the new
+  `config.hash`, diagnostics and `tables`. The `core` lock must not be held
+  while emitting, so the closure can take it without deadlocking. Assert
+  both: the new state is visible, and nothing deadlocks.
 - An edit that does not change the bytes yields no payload.
 - Breaking the TOML makes the status `failClosed` with a reason. Deleting
   the file makes it `missing`.
@@ -278,6 +285,7 @@ Shell:
 
 - reload and event:
   - `config_edit_reloads_and_emits`
+  - `event_emitted_after_reload_completes`
   - `unchanged_bytes_do_not_emit`
   - `broken_config_fails_closed_on_reload`
   - `deleted_config_is_missing`
