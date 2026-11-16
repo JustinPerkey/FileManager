@@ -28,7 +28,8 @@ to them.
 
 Builds on:
 
-- M1 `src/db.rs`: `Database::open` (`OpenError`), `conn()`,
+- M1 `src/db.rs`: `Database::open` (`OpenError`, whose tuple-like variants
+  carry the `PathBuf`, incl. `Busy(path)`), `conn()`,
   `read_only_reason()`, `schema_version()`.
 - M2 `src/schema/`: `introspect`, `Schema`, `Identity` (`Rowid { accessor,
   alias_column }` | `PrimaryKey { columns }`), `ForeignKey`, `Ident` with

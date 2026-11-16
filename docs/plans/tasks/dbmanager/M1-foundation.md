@@ -1,7 +1,9 @@
 # M1 — `fm-dbmanager` crate, bundled SQLite, and database opening
 
-Status: approved (2026-11-16; revised the same day: the recent list holds
-databases only; `fm-core` gains the app-wide config directory)
+Status: implemented; the reviewer requested changes. **Run "Review round 1"
+(end of this plan)** on this task plan; the rules below are already corrected
+for it. (Approved 2026-11-16; revised the same day: the recent list holds
+databases only; `fm-core` gains the app-wide config directory.)
 Project: dbmanager   Depends on: none
 
 ## Goal
@@ -54,12 +56,14 @@ Follow `CLAUDE.md` "Adding a tool", step 1, and its Invariants. In particular:
 ```rust
 pub struct Database { /* rusqlite::Connection, path, read_only reason */ }
 
+// Variants are tuple-like and carry the path (as implemented; accepted in review).
 pub enum OpenError {
-    NotAbsolute,          // relative paths resolve against an invisible cwd
-    NotAFile,             // missing, or a directory
-    NotUnicode,           // SQLite on Windows needs a UTF-8 path
-    NotADatabase(String), // SQLite says "file is not a database", or similar
-    Io(String),           // anything else, with SQLite's message
+    NotAbsolute(PathBuf),          // relative paths resolve against an invisible cwd
+    NotAFile(PathBuf),             // missing, or a directory
+    NotUnicode(PathBuf),           // SQLite on Windows needs a UTF-8 path
+    NotADatabase(PathBuf, String), // SQLite says "file is not a database", or similar
+    Busy(PathBuf),                 // still locked by another program after busy_timeout
+    Io(PathBuf, String),           // anything else, with SQLite's message
 }
 
 impl Database {
@@ -81,19 +85,39 @@ Rules for `open`:
 2. Open with `SQLITE_OPEN_READ_WRITE` and **without** `SQLITE_OPEN_CREATE`
    and without `SQLITE_OPEN_URI` (a file name must never be interpreted as a
    URI). Never create a file.
-3. If read-write fails with `SQLITE_READONLY` or `SQLITE_CANTOPEN` while the
-   file exists, retry with `SQLITE_OPEN_READ_ONLY` and record a reason
-   ("the file or its folder is read-only"). Also treat a read-write open
-   whose first write probe is refused as read-only: after opening, check
-   `conn.is_readonly(DatabaseName::Main)`.
-4. Prove it is a database: `SELECT count(*) FROM sqlite_schema`. A failure
-   (for example SQLITE_NOTADB) is `NotADatabase`.
-5. Apply, in this order: `PRAGMA foreign_keys = ON` (off by default per
-   connection), `busy_timeout` 3000 ms (`conn.busy_timeout`),
-   `PRAGMA trusted_schema = OFF`, and `SQLITE_DBCONFIG_DEFENSIVE` on
+3. **Immediately after the connection opens, before any statement**, set
+   `busy_timeout` 3000 ms (`conn.busy_timeout`). It is a per-connection
+   setting, not a persistent setting of the file. It must come before the
+   probe in rule 5: otherwise a database locked by another program (for
+   example a rollback-journal database with a pending write) fails at once
+   with `SQLITE_BUSY`, where the contract is "busy after 3 s".
+4. **Read-only detection:**
+   - If read-write fails with `SQLITE_READONLY` or `SQLITE_CANTOPEN` while the
+     file exists, retry with `SQLITE_OPEN_READ_ONLY` (then rule 3 again).
+     Also, after opening, treat `conn.is_readonly(DatabaseName::Main)` as
+     read-only. Either way the reason is "the file is read-only".
+   - **Folder probe:** a writable file in a read-only folder opens read-write,
+     but cannot be written: SQLite must create its journal beside the file,
+     and the app writes its backup there. So after a read-write open, probe
+     the parent folder by creating a temp file in it with
+     `tempfile::Builder::new().prefix(".fm-dbmanager-probe-").tempfile_in(parent)`
+     and dropping it at once. That creates nothing persistent: the file is
+     deleted on drop. If the probe fails with `PermissionDenied` (or
+     `ReadOnlyFilesystem`), reopen with `SQLITE_OPEN_READ_ONLY` and set the
+     reason "the folder is read-only, so changes cannot be saved". Any other
+     probe error is ignored: the database opens read-write, and a later write
+     reports its own error.
+5. Prove it is a database: `SELECT count(*) FROM sqlite_schema`.
+   - `SQLITE_BUSY`/`SQLITE_LOCKED`, still failing after the timeout →
+     `OpenError::Busy(path)`. A later milestone maps it to the `Busy` kind.
+   - `SQLITE_NOTADB` or similar → `NotADatabase`.
+   - Anything else → `Io`.
+6. Then apply, in this order: `PRAGMA foreign_keys = ON` (off by default per
+   connection), `PRAGMA trusted_schema = OFF`, and
+   `SQLITE_DBCONFIG_DEFENSIVE` on
    (`conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)`).
    **Never change `journal_mode`** or any persistent setting of the file.
-6. A path that is not valid Unicode is `NotUnicode` (check with
+7. A path that is not valid Unicode is `NotUnicode` (check with
    `path.to_str()` before opening, on every platform).
 
 `OpenError` implements `Display` (a sentence naming the path via
@@ -247,9 +271,105 @@ Run: `cargo test -p fm-dbmanager`, then the full workspace commands in
 ## Risks
 
 - `rusqlite`'s MSRV moving past 1.90: pick the version accordingly.
-- `libsqlite3-sys` must pick up `+crt-static` through `cc`; the dumpbin check
-  proves it once the shell links the crate (M10). If the Windows job fails on
+- `libsqlite3-sys` must pick up `+crt-static` through `cc`. The dumpbin check
+  proves it once the shell **links** the crate into the exe, which happens in
+  M10. M4 only adds the shell dependency for `#[cfg(test)]` type exports,
+  which does not link SQLite into the release exe. If the Windows job fails on
   CRT imports then, the fix is in the build configuration, not by dropping
   the check.
 - `is_readonly` and the read-only retry must not mask other open failures:
   only `SQLITE_READONLY`/`SQLITE_CANTOPEN` on an existing file retry.
+- The folder probe briefly creates a hidden temp file beside the database. It
+  is removed on drop. A crash between create and drop could leave a
+  `.fm-dbmanager-probe-*` file behind; that is accepted, because the
+  alternative (reading Windows ACLs) is far more complex and less reliable.
+
+## Review round 1
+
+The reviewer requested changes on the first implementation. Fix all of the
+following in one run; the rules above already describe the target behaviour.
+
+**R1 — `busy_timeout` before the probe** (rule 3).
+
+- Move `conn.busy_timeout(3000 ms)` to directly after each open (including
+  the read-only reopen), before the `sqlite_schema` probe.
+- Add `OpenError::Busy(PathBuf)`. `SQLITE_BUSY`/`SQLITE_LOCKED` from the
+  probe after the timeout map to it, never to `Io`.
+- Test `open_busy_waits_then_reports_busy`, in a temp dir:
+  1. create a database in rollback-journal mode (`journal_mode = DELETE`);
+  2. from a second connection, run `BEGIN EXCLUSIVE` and a write;
+  3. call `Database::open` with a short timeout made injectable for tests (for
+     example `pub(crate) fn open_with_timeout`) set to about 200 ms;
+  4. it returns `OpenError::Busy` after at least that long.
+
+  Test `open_after_lock_released_succeeds`: release the lock and open again
+  successfully.
+
+**R2 — read-only folder** (rule 4).
+
+- Implement the folder probe and the two distinct reasons.
+- Add `open_readonly_folder_falls_back_to_read_only` (Unix: chmod the temp
+  folder to `0o555`; skip with a printed note when running as root, and on
+  Windows, where the test cannot set an ACL cheaply):
+  - `read_only_reason()` names the folder;
+  - the folder contains no leftover probe file afterwards;
+  - a writable folder leaves no probe file either
+    (`open_probe_leaves_nothing_behind`).
+- `tempfile` becomes a normal dependency of `fm-dbmanager` (workspace
+  version).
+
+**R3 — `dead_code` attribute** in `crates/fm-core/src/dirs.rs` (around line
+83). Replace
+`#[cfg_attr(not(windows), allow(dead_code))]` with exactly:
+
+```rust
+#[cfg_attr(all(not(windows), not(test)), expect(dead_code, reason = "used only by the Windows branch of system_config_dir and by tests"))]
+```
+
+The reviewer verified that this form is clean in both the lib and the test
+builds; `cfg_attr(not(windows), expect(...))` fails in test builds, because
+the tests use the function. Never use a bare `allow`.
+
+**R4 — case-insensitive recent paths** in `state.rs` `same()`.
+
+- On Windows, compare the ASCII-case-folded `to_str()` forms.
+- If either path is not valid Unicode, fall back to `a == b`.
+- Add a `#[cfg(windows)]` test `recent_dedupes_case_insensitively_on_windows`:
+  touching `C:\A.db` then `c:\a.db` leaves one entry, the later spelling.
+
+**R5 — tests.**
+
+- `recent_touch_orders_dedupes_and_caps` asserts the **full** list order after
+  de-duplication, not just its length or first element.
+- Add the `#[cfg(unix)]` test `recent_touch_ignores_non_unicode`: a path built
+  with `std::os::unix::ffi::OsStrExt::from_bytes(b"/tmp/\xff.db")` leaves the
+  list unchanged.
+- In `open_readonly_file_falls_back_to_read_only` (and the new folder test),
+  restore permissions through a guard whose `Drop` resets them, so a failing
+  assertion never leaves an undeletable temp dir.
+
+**R6 — documentation of where SQLite is linked.** The Risks entry above now
+says M10 links the crate (M4 only adds a test-only dependency). Check that no
+comment or doc you wrote says otherwise.
+
+**R7 — `CLAUDE.md` formatting.** Rewrap the new Status sentence, the edited
+forbidden-DLL line and the `-p fm-dbmanager` line to the file's existing wrap
+width (about 79 columns, matching the surrounding text). Change only the
+wrapping; the content stays the same.
+
+### Acceptance criteria (review round 1)
+
+- `open_busy_waits_then_reports_busy`, `open_after_lock_released_succeeds`,
+  `open_readonly_folder_falls_back_to_read_only` and
+  `open_probe_leaves_nothing_behind` pass.
+- `recent_touch_ignores_non_unicode` passes on Unix, and
+  `recent_dedupes_case_insensitively_on_windows` on the Windows CI job.
+- `open_readonly_file_falls_back_to_read_only` uses a permission-restoring
+  guard; the read-only reasons distinguish file and folder.
+- `crates/fm-core/src/dirs.rs` contains the exact `cfg_attr(... expect(...))`
+  above and no `allow(dead_code)`.
+- `cargo clippy --workspace --all-targets -- -D warnings` is clean in both
+  normal and test builds on Linux, and on the Windows CI job.
+- `CLAUDE.md` lines touched by M1 wrap at the file's width.
+- `cargo fmt --all --check` and `cargo test --workspace` pass.
+- The diff goes back to the reviewer.

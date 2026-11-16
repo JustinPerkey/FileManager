@@ -137,7 +137,12 @@ Reasons:
 
 - **Path rules.** The path must be absolute and name an existing file. It is
   never created, and never treated as a URI.
-- **Read-only files.** A read-only file or folder opens read-only, with a
+- **Busy at open.** `busy_timeout` (3 s) is set right after the connection
+  opens, before the first statement, so a database locked by another program
+  waits and then fails with `Busy` (`OpenError::Busy`), not `DatabaseUnreadable`.
+- **Read-only files.** A read-only file, or a writable file in a read-only
+  folder (found by a transient temp-file probe; SQLite's journal and the
+  app's backup both need the folder), opens read-only, with a
   reason, and writes are refused with `DatabaseReadOnly`.
 - **Settings.** The connection sets `foreign_keys = ON`, `busy_timeout`
   3 s, `trusted_schema = OFF` and `SQLITE_DBCONFIG_DEFENSIVE`. The journal

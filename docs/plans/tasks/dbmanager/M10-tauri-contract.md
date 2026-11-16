@@ -37,7 +37,8 @@ The app only reads it. The user picks only databases.
 
 All the database logic lives in `crates/fm-dbmanager`:
 
-- `db.rs`: `Database::open` → `OpenError::{NotAbsolute, NotAFile,
+- `db.rs`: `Database::open` → `OpenError` (tuple-like variants that carry
+  the `PathBuf`: `NotAbsolute(path)`, …, `Busy(path)`). Its variants are `{NotAbsolute, NotAFile, Busy,
   NotUnicode, NotADatabase, Io}`.
 - `state.rs`:
   - `RememberedState { recent: Vec<PathBuf> }` (recent databases);
@@ -257,6 +258,7 @@ when the system editor cannot be started. There are still 21 kinds.
 | From | To |
 | --- | --- |
 | `OpenError::NotAbsolute`, `NotAFile` | the same kinds |
+| `OpenError::Busy` | `Busy` (the database is locked by another program) |
 | `OpenError::NotUnicode`, `NotADatabase`, `Io` | `DatabaseUnreadable` |
 | `Validation` | `ValidationFailed`, with `field_errors` (always present, possibly empty) and `link_errors` (present when non-empty) |
 | `Conflict` | `Conflict`, with `current`, plus `conflict_link` when the conflict is on a link |
@@ -459,8 +461,12 @@ When `session()` is called repeatedly after the first call:
 - The kind-list test passes. Generated types are current, with no `bigint`.
 - `npm run typecheck && npm run lint && npm run test` pass, including
   `dbmanager.test.ts`.
-- On the Windows CI job, the exe (which now links SQLite) passes the dumpbin
-  check, including the `sqlite3*.dll` rule added in M1.
+- On the Windows CI job, the exe passes the dumpbin step **with SQLite
+  linked in**: this milestone is the first whose non-test code uses
+  `fm-dbmanager`, so check that it does (for example `dbmanager_open` calls
+  `Database::open`), and that the step lists no `sqlite3*.dll`, no CRT DLL,
+  and no other forbidden import. A green step without SQLite linked proves
+  nothing.
 - fmt, clippy pedantic and `cargo test --workspace` pass.
 
 ## Tests proving completion
