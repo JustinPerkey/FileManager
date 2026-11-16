@@ -1,7 +1,8 @@
 # M6 — Session and reads: lists, objects, relations, checklists
 
 Status: awaiting approval (revised 2026-11-16: editable defaults, durations,
-link values)
+link values; then the human's final answers: one fixed config file loaded
+separately and swappable for automatic reload, `pickable` tables)
 Project: dbmanager   Depends on: M5 (landed)
 
 ## Goal
@@ -66,28 +67,52 @@ Rules that bind this task:
 
 ```rust
 // src/session/mod.rs
-pub struct Session { /* Database, Schema, Model, config source (path, sha256), backup path (M7) */ }
-pub enum ConfigLoadError { Unreadable { path: PathBuf, message: String } } // I/O or not UTF-8
+pub struct Session { /* Database, Schema, Model, LoadedConfig, backup path (M7) */ }
+
+// src/config/load.rs — the app has ONE config file at a fixed path (the shell
+// passes it in; tests pass a temp path). Reading it is separate from opening a
+// database, because its status is shown even when no database is open.
+pub enum ConfigStatus { Loaded, Missing, FailClosed }          // ts: "loaded" | "missing" | "failClosed"
+pub struct LoadedConfig { /* path, status, report: ConfigReport, hash, fail_closed reason */ }
+impl LoadedConfig {
+    /// Reads and parses `path`:
+    /// - file absent (NotFound) → `Missing`: `Config::default()` (editable
+    ///   built-in defaults), no diagnostics, hash `"missing"`;
+    /// - unreadable (other I/O error, not UTF-8) → `FailClosed`:
+    ///   `Config::fail_closed()`, reason "the config file could not be read: …";
+    /// - parsed with `ConfigReport.fail_closed` set (syntax error, unsupported
+    ///   version) → `FailClosed` with that reason;
+    /// - otherwise `Loaded` (entry-level errors are diagnostics, not fail-closed).
+    /// The hash is the SHA-256 (hex) of the exact bytes.
+    pub fn load(path: &Path) -> LoadedConfig;
+    pub fn path(&self) -> &Path;
+    pub fn status(&self) -> ConfigStatus;
+    pub fn hash(&self) -> &str;
+    pub fn fail_closed_reason(&self) -> Option<&str>;
+    /// Config-only diagnostics (no schema needed); shown when no database is open.
+    pub fn diagnostics(&self) -> &[ConfigDiagnostic];
+    /// True if the file now differs from what was loaded (re-reads and hashes it;
+    /// appearing, disappearing and becoming unreadable all count).
+    pub fn changed_on_disk(&self) -> bool;
+}
+
 impl Session {
-    /// Opens the database and, if given, reads and parses the config. An unreadable
-    /// config does not fail the open: the session resolves with
-    /// `Config::fail_closed()` (everything read-only; the user meant a config to
-    /// apply, so the editable built-in defaults must not) and returns the config
-    /// error beside it. With no config path, the built-in (editable) defaults apply.
-    pub fn open(database: &Path, config: Option<&Path>)
-        -> Result<(Session, Option<ConfigLoadError>), SessionError>;
+    /// Opens the database and resolves its model with `config` (already loaded).
+    pub fn open(database: &Path, config: LoadedConfig) -> Result<Session, SessionError>;
+    /// Replaces the config and re-resolves the model against the already
+    /// introspected schema. No database I/O except a `schema_version` check.
+    /// Used by the automatic reload when the config file changes.
+    pub fn set_config(&mut self, config: LoadedConfig);
+    pub fn config(&self) -> &LoadedConfig;
     pub fn database_path(&self) -> &Path;
-    pub fn config_path(&self) -> Option<&Path>;
     /// Some(short reason) iff the model was resolved fail-closed (everything
-    /// read-only) because the config had a syntax error or an unsupported version
-    /// (`ConfigReport.fail_closed`) or could not be read (the `ConfigLoadError`'s
-    /// message, shortened). None otherwise, including with no config.
+    /// read-only): `self.config().fail_closed_reason()`. None otherwise,
+    /// including a missing config file.
     pub fn config_fail_closed(&self) -> Option<&str>;
     pub fn read_only_reason(&self) -> Option<&str>;
     pub fn diagnostics(&self) -> &[ConfigDiagnostic];
     pub fn table_views(&self) -> Vec<TableView>;
-    /// True if the config file's bytes no longer hash to what was loaded (or it
-    /// is gone/unreadable). Always false without a config.
+    /// `self.config().changed_on_disk()`.
     pub fn config_changed(&self) -> bool;
     pub fn list(&self, table: &str, query: &ListQuery) -> Result<ObjectPage, SessionError>;
     pub fn object(&self, table: &str, key: &ObjectKey) -> Result<ObjectView, SessionError>;
@@ -109,7 +134,12 @@ agree.
 
 Config bytes are hashed with SHA-256 (`sha2`, as `fm-tarpack` does; hex via
 `fm_core::to_hex`). A leading BOM is stripped before parsing, not before
-hashing.
+hashing. The hash is how writes (later milestones) prove they were checked
+against the config now in force.
+
+**Pickable tables** (`TableView.mode == "pickable"`) are readable like any
+visible table: `list` (FK pickers), `object` (following a link opens it; every
+field is read-only), and as the other side of `m2m_options`.
 
 ### Keys and values
 
@@ -223,12 +253,13 @@ page. `relation` must be an `m2m:` relation with a checklist on `table`'s
 side, else `UnknownRelation`.
 
 Exports: `ObjectKey`, `ListQuery`, `ReferencingFilter`, `ObjectPage`,
-`ObjectView`, `M2mQuery`, `M2mPage` (referenced types follow).
+`ObjectView`, `M2mQuery`, `M2mPage`, `ConfigStatus` (referenced types follow).
 
 ## Files
 
 Create `crates/fm-dbmanager/src/session/{mod.rs, read.rs, sql.rs, key.rs,
-version.rs, label.rs (or reuse model/labels.rs), tests/…}`. Edit
+version.rs, label.rs (or reuse model/labels.rs), tests/…}` and
+`src/config/load.rs`. Edit
 `src/lib.rs`, `crates/fm-dbmanager/Cargo.toml` (`sha2`),
 `apps/desktop/src-tauri/src/generated_types.rs`, generated files, `Cargo.lock`,
 `CLAUDE.md` (layout: `src/session/`).
@@ -281,10 +312,18 @@ stated:
   key; `UnknownRelation` for a relation of another table.
 - Altering the schema from a second connection makes the next read fail with
   `SchemaChanged`. Editing the config file makes `config_changed()` true.
-- A config that cannot be read opens the session fail-closed (everything
-  read-only) and returns a `ConfigLoadError`; `config_fail_closed()` is
-  `Some` for it, for a syntax error and for `version = 2`, and `None` for no
-  config, a valid config, and a config with only entry-level errors.
+- `LoadedConfig::load`: a missing file is `Missing` (editable defaults, hash
+  `"missing"`); an unreadable file (a directory at the path, invalid UTF-8),
+  a syntax error and `version = 2` are `FailClosed` with a reason, and the
+  session is all read-only; a valid config and one with only entry-level
+  errors are `Loaded`. `config_fail_closed()` follows the status.
+  `changed_on_disk()` turns true when the file is created, edited, deleted or
+  made unreadable.
+- `set_config` with a new `LoadedConfig` re-resolves the model in place:
+  `table_views()` reflects the new modes and bounds, the database is not
+  reopened, and reads keep working.
+- `publisher` (pickable in `example.toml`) is listable, openable (all fields
+  read-only) and appears in `book`'s FK picker list.
 - **Awkward identifiers:** a schema whose tables and columns are named `a"b`,
   `select`, `with space` and `ünï`, with FKs and a junction between them, is
   listed, searched, opened, and checklisted correctly.
@@ -301,10 +340,11 @@ stated:
 `value_problems`, `duration_values_and_labels`, `relation_counts`,
 `m2m_options_all_and_linked`, `m2m_options_new_object`,
 `m2m_options_link_values`, `m2m_options_only`, `link_version_tracks_junction_row`,
-`config_fail_closed_reason`,
+`config_fail_closed_reason`, `loaded_config_statuses`, `set_config_reresolves`,
+`pickable_table_reads`,
 `no_config_is_editable`, `version_tracks_every_column`,
 `unknown_table_object_relation`, `schema_change_detected`,
-`config_change_detected`, `unreadable_config_opens_read_only`,
+`config_change_detected`, `unreadable_config_is_fail_closed`,
 `awkward_identifiers_end_to_end`, `rowid_accessor_shadowed`,
 `without_rowid_keys`.
 

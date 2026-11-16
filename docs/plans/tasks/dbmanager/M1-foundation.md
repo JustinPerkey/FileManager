@@ -1,6 +1,7 @@
 # M1 — `fm-dbmanager` crate, bundled SQLite, and database opening
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-16: the recent list holds
+databases only; `fm-core` gains the app-wide config directory)
 Project: dbmanager   Depends on: none
 
 ## Goal
@@ -12,8 +13,9 @@ and wire the crate into CI and `CLAUDE.md`.
 ## Context
 
 FileManager is getting a fourth tool, the **Database Manager** (`dbmanager`):
-the user picks a SQLite file and, optionally, a TOML config that makes some
-tables and fields editable; the app shows tables as lists of objects and
+the user picks a SQLite file; one app-wide TOML config at a fixed location
+(`%ProgramData%\FileManager\dbmanager.toml`, not user-selectable) says which
+tables and fields are editable; the app shows tables as lists of objects and
 objects as forms. This milestone lays only the crate and its lowest layer.
 Later milestones add schema introspection, the config, validation, reads,
 writes and the Tauri module.
@@ -106,18 +108,17 @@ Persisted through `fm_core::Store` (see `crates/fm-core/src/store.rs`) at
 ```rust
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RememberedState {
-    /// Most recent first, unique by database path, at most MAX_RECENT.
-    pub recent: Vec<RecentPair>,
+    /// Recent databases, most recent first, unique by path, at most MAX_RECENT.
+    /// (The config is not remembered: there is one fixed app-wide config file.)
+    pub recent: Vec<PathBuf>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RecentPair { pub database: PathBuf, pub config: Option<PathBuf> }
 pub const MAX_RECENT: usize = 10;
 impl StateData for RememberedState { const SCHEMA_VERSION: u32 = 1; }
 impl RememberedState {
-    /// Moves (database, config) to the front, replacing any entry with the same
-    /// database path; truncates to MAX_RECENT. Paths that are not valid
-    /// Unicode are ignored (the list must stay serialisable).
-    pub fn touch(&mut self, database: &Path, config: Option<&Path>);
+    /// Moves `database` to the front, removing any equal entry; truncates to
+    /// MAX_RECENT. Paths that are not valid Unicode are ignored (the list must
+    /// stay serialisable).
+    pub fn touch(&mut self, database: &Path);
     pub fn forget(&mut self, database: &Path);
 }
 ```
@@ -126,6 +127,28 @@ impl RememberedState {
 (`#[cfg(windows)]`, ASCII case fold of the `to_str()` form) and exactly
 elsewhere. Do not canonicalise (a file on a missing share must still be
 recognised).
+
+### `fm-core`: the app-wide config directory
+
+The Database Manager reads one config for the whole app from a machine-wide
+location (a later milestone uses it; it is shared, tool-agnostic code, so it
+belongs in `fm-core`). Add to `crates/fm-core/src/dirs.rs`:
+
+```rust
+/// The machine-wide FileManager configuration directory. The app only reads
+/// from it (developer tooling may create files there).
+/// - Windows: `<ProgramData>\FileManager`, where `<ProgramData>` is the
+///   `ProgramData` environment variable (normally `C:\ProgramData`); it must be
+///   an absolute path, else `FmError::NoProgramDataDir`.
+/// - Other platforms (development builds only): `/etc/filemanager`.
+pub fn system_config_dir() -> Result<PathBuf>;
+```
+
+Add `FmError::NoProgramDataDir` (with its `kind()` string). Do not read any
+other environment variable, and do not create the directory. Tests do not
+call it against the real location: test the pure part by factoring
+`fn system_config_dir_from(program_data: Option<OsString>) -> Result<PathBuf>`
+(Windows logic, compiled on every platform) and testing that.
 
 ### CI and documentation
 
@@ -160,10 +183,12 @@ Create:
 - `crates/fm-dbmanager/src/db.rs`, `crates/fm-dbmanager/src/state.rs`, and
   their tests (inline `#[cfg(test)] mod tests` or `src/tests/…`)
 
-Edit: `Cargo.lock`, `.github/workflows/ci.yml`, `CLAUDE.md`.
+Edit: `crates/fm-core/src/dirs.rs`, `crates/fm-core/src/error.rs`,
+`crates/fm-core/src/lib.rs` (re-export), `Cargo.lock`,
+`.github/workflows/ci.yml`, `CLAUDE.md`.
 
-Do not touch `apps/desktop/` (no shell dependency yet), any other crate, or
-anything under `docs/plans/`.
+Do not touch `apps/desktop/` (no shell dependency yet), any other tool crate,
+or anything under `docs/plans/`.
 
 ## Acceptance criteria
 
@@ -179,8 +204,13 @@ anything under `docs/plans/`.
   opens with `read_only_reason()` set; a normal one opens with `None`.
 - A relative path is `NotAbsolute`.
 - `RememberedState::touch` keeps most-recent-first order, de-duplicates by
-  database path (replacing the config of the old entry), caps at 10;
-  `forget` removes; a `Store` round trip preserves it.
+  database path, caps at 10; `forget` removes; a `Store` round trip
+  preserves it.
+- `system_config_dir_from(Some(p))` for an absolute `p` on the host platform
+  (use a temp dir's path; never the real ProgramData) gives `p/FileManager`;
+  `None`, an empty value or a relative value gives `NoProgramDataDir`. On
+  non-Windows, `system_config_dir()` is `/etc/filemanager` (assert the path
+  only; never create it).
 - `cargo tree -p fm-dbmanager -i tauri -e normal,build,dev` reports that
   tauri matches no packages.
 - CI's two edits are present; `CLAUDE.md` describes the crate.
@@ -200,6 +230,8 @@ In `fm-dbmanager`, each in its own temp dir:
 - `schema_version_changes_after_ddl`
 - `recent_touch_orders_dedupes_and_caps`, `recent_forget_removes`,
   `recent_round_trips_through_store`
+- in `fm-core`: `system_config_dir_from_program_data`,
+  `system_config_dir_rejects_missing_or_relative`
 
 Run: `cargo test -p fm-dbmanager`, then the full workspace commands in
 `CLAUDE.md`.

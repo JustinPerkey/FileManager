@@ -2,8 +2,11 @@
 
 Status: awaiting approval — **depends on UI plan**: runs only after every
 Database Manager UI task (`U<n>`) has landed. (Renumbered from M11 and
-revised 2026-11-16: editable defaults, durations, link fields.)
-Project: dbmanager   Depends on: M10 (landed), M11 (landed), all dbmanager U
+revised 2026-11-16: editable defaults, durations, link fields; then the
+human's final answers: one fixed app-wide config with automatic reload and a
+developer-mode Edit config, `pickable` tables, recent databases, the
+window-close prompt.)
+Project: dbmanager   Depends on: M10, M11, M13, M14 (landed), all dbmanager U
 tasks (landed)
 
 ## Goal
@@ -35,9 +38,21 @@ backend with canned responses per scenario; see its `README.md`).
 Facts to document (all already implemented; read the code to confirm
 wording):
 
-- Opening: absolute path to an existing SQLite file, never created; optional
-  config; drop a `.db` and/or `.toml`; recent pairs; the most recent pair is
-  reopened on start.
+- Opening: absolute path to an existing SQLite file, never created; drop one
+  database file; recent databases; the most recent database is reopened on
+  start (if it is missing, the app starts empty and says why).
+- **The config:** one file for the whole app at
+  `%ProgramData%\FileManager\dbmanager.toml`, never chosen by the user; the
+  app only reads it and reloads it automatically when it changes (unsaved
+  edits are kept and re-checked; a save prepared under the old rules is
+  refused once and can be repeated); missing → everything editable by default
+  and a "no config" notice; developer mode (Ctrl+Alt+Shift+D) offers **Edit
+  config**, which opens it in the system editor and creates a commented
+  starter file if there is none. Administrators deploy the file; document
+  where and how.
+- **Pickable tables:** lookup tables not shown in the table list but offered
+  in pickers and opened read-only from links.
+- **Closing the window with unsaved edits asks first.**
 - **Defaults:** anything the config does not mention is editable (except
   keys, generated, BLOB, untyped and composite-FK columns); creating is on by
   default, deleting is off unless a table sets `allow_delete = true`; a
@@ -82,7 +97,9 @@ Rules that bind this task:
   `crates/fm-dbmanager/src/`).
 - Edit `docs/manual/user-manual.md`: a "Database Manager" chapter (after
   Pipeline, before "Entering paths") and its entry in Contents: opening a
-  database and config, browsing tables and objects, following links and going
+  database, the app-wide config (where it lives, automatic reload, the
+  no-config and fail-closed notices, deploying it as an administrator,
+  developer-mode Edit config), pickable lookup tables, browsing tables and objects, following links and going
   back, editing and saving, booleans, durations, many-to-many checklists and
   link fields, creating,
   deleting and its confirmation, backups and restoring, messages, a short
@@ -95,7 +112,7 @@ Rules that bind this task:
   `dbmanager-link-fields` (a contribution link with role and position being
   added),
   `dbmanager-validation` (inline issues), `dbmanager-delete` (confirmation
-  with cascades), `dbmanager-delete-blocked`, `dbmanager-diagnostics` (config
+  with cascades), `dbmanager-delete-blocked`, `dbmanager-no-config` (the no-config notice), `dbmanager-diagnostics` (config
   warnings/errors), `dbmanager-backup` (the backup notice). Generate the PNGs
   into `docs/manual/images/` with the commands in the screenshots README.
 - Edit `CLAUDE.md`: Status (the Database Manager is complete), Layout
@@ -117,8 +134,14 @@ Rules that bind this task:
   without developer tools:
   1. the Windows CI job is green, including the dumpbin check (no
      `sqlite3*.dll`, no CRT DLLs);
-  2. open `examples/dbmanager/schema.sql` loaded into a fresh `.db` (create it
-     with any SQLite tool beforehand) with `example.toml`; no diagnostics;
+  2. with no `%ProgramData%\FileManager\dbmanager.toml`, open a fresh `.db`
+     built from `examples/dbmanager/schema.sql` (create it with any SQLite
+     tool beforehand): the "no config" notice shows and tables are editable;
+     copy `examples/dbmanager/example.toml` to
+     `%ProgramData%\FileManager\dbmanager.toml`: the app picks it up without
+     any action, with no diagnostics; Publishers is not in the table list,
+     but the book form's publisher picker lists publishers and following the
+     link opens one read-only;
   3. edit an author, save: a `.bak` appears beside the database; a second save
      adds none;
   4. create a book with an author picked from the list, two genres ticked, a
@@ -129,9 +152,16 @@ Rules that bind this task:
      link data lost), genre links and loans; confirm; they are gone;
   7. try to delete a publisher with books (with a config allowing it): the
      confirmation shows it is blocked;
-  8. edit the config in an editor: the app asks to reload; saving is refused
-     until it does; introduce a TOML syntax error and reload: everything is
-     read-only and the error is shown;
+  8. with an unsaved edit open, change a bound in the config and save it in
+     an editor: the app reloads by itself, the draft is kept and re-checked
+     against the new bound; introduce a TOML syntax error: everything becomes
+     read-only and the error is shown with its line; fix it: editable again;
+  8a. turn on developer mode, delete the config, choose **Edit config**: a
+      commented starter file is created and opens in the editor; choosing it
+      again does not change the file;
+  8b. with an unsaved edit, close the window: the app asks; "keep editing"
+      keeps it open, "discard" closes it; with no unsaved edits it closes at
+      once;
   9. open the database in another SQLite tool, hold a write transaction, save
      in the app: "busy" after a few seconds, nothing changed;
   10. restore the backup by copying it over the database and reopening: the
