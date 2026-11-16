@@ -752,6 +752,7 @@ in the other tools.
 | `DatabaseUnreadable` | This file could not be opened as a SQLite database. Check that it is a SQLite file and that you can read it. |
 | `OpenerFailed` | The config file could not be opened in an editor. Open it yourself: {session.config.path}. |
 | `DropAmbiguous` | Drop one database file at a time. Nothing was changed. |
+| `ConfigNotDroppable` | The config can't be chosen by dropping it: the app always uses {session.config.path, or "its fixed config file"}. Nothing was changed. |
 | `UnknownTable` | This table is no longer available. Reload to see the current tables. |
 | `UnknownObject` | This object no longer exists. Another program may have deleted it. |
 | `UnknownRelation` | This relation is no longer available. Reload to continue. |
@@ -838,7 +839,9 @@ time it appears on a sheet.
 - **No impact:** "Nothing else references it."
 - **Banners:**
   - Backup: "A backup of the database was saved before this first change:
-    {path}."
+    {path}." The header's backup line follows `session.backupPath`:
+    - Reload keeps it, and no second backup is taken;
+    - Close and Open clear it, and the backup notice is removed with it.
   - Config failed closed: "Everything is read-only: {configFailClosed}. Fix
     the config file ({config.path}); it reloads by itself." Action:
     **Edit config** in developer mode only. Not dismissible.
@@ -856,8 +859,8 @@ time it appears on a sheet.
   - Starter config created (notice, from `editConfig` with `created: true`):
     "A starter config was created at {path} and opened in your editor. It
     changes nothing until you edit it."
-  - A dropped file that is not a database: the `DatabaseUnreadable` copy,
-    whose Details carry the backend's note about the fixed config path.
+  - A dropped `.toml`: the `ConfigNotDroppable` error banner. The current
+    database stays open, and nothing else changes.
   - Schema changed: "The database's structure changed. Reload to continue."
     Action: **Reload**.
   - Read-only database: "This database is open read-only: {reason}. You can
@@ -960,25 +963,18 @@ Accessible names the shots rely on:
 4. `objectName`;
 5. `M2mQuery.only`, which U9 now uses for a link conflict instead of paging.
 
-**Remaining requests,** clarifications only. No task plan blocks on them;
-each task states its assumption.
+**Settled by the planner (`dbmanager.md` §2.8, §8.3; M10, M13):**
 
-1. **Does `dbmanager_reload()` start a new backup session?** It reopens the
-   database.
-   - The UI assumes it does **not**: `backupPath` stays, and the next write
-     takes no second backup.
-   - If a reload does reset it, keep `backupPath` in the snapshot, or clear
-     it, so the header line and the backup notice stay truthful. The UI shows
-     whatever the snapshot says.
-2. **Confirm the event order for `onConfigChanged`:** emitted only after the
-   reload completes, so `session()` called from the handler returns the new
-   `config.hash`, diagnostics and tables. M13 says so; U2 and U6 rely on it.
-3. **Optional:** a distinct signal for a dropped `.toml`. Today it is
-   `DatabaseUnreadable`, with the explanation only in the message, so the UI
-   shows the generic copy and the explanation in Details. A
-   `DbmanagerError.hint: "configNotDroppable"`, or similar, would let the
-   copy say "The config is not chosen by dropping; it is always
-   {path}." Not needed for v1.
+1. `reload()` keeps `backupPath` and takes no second backup. `close()` and
+   `open()` start a fresh session and clear it. The header line and the
+   backup notice follow the snapshot.
+2. `dbmanager://config-changed` fires only after the reload completes, so
+   `session()` from the handler sees the new state.
+3. A dropped `.toml` is refused with the new kind `ConfigNotDroppable`,
+   before any open, and the current database stays open. There are now 22
+   kinds.
+
+No requests remain.
 
 ## 11. Questions for the human: answered (2026-11-16)
 

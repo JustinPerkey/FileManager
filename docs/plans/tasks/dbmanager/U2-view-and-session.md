@@ -1,7 +1,8 @@
 # U2 — Database Manager view scaffold and session
 
 Status: awaiting approval (revised 2026-11-16: the fixed app-wide config,
-recent databases, automatic config reload, developer-mode Edit config)
+recent databases, automatic config reload, developer-mode Edit config; then
+`ConfigNotDroppable` and the backup-path rules)
 Project: dbmanager   Depends on: U1 (landed), M10 (landed), M13 (landed)
 
 ## Goal
@@ -69,11 +70,11 @@ with something else on an IPC failure.
 | --- | --- | --- |
 | `session()` | `dbmanager_session` | `DbmanagerSession`. The first call loads the config and reopens the most recent database. Later calls are cheap and side-effect free, recompute `configChanged`, and are safe on window focus. |
 | `open(database: string)` | `dbmanager_open` | `DbmanagerSession` |
-| `openDropped(paths: string[])` | `dbmanager_open_dropped` | `DbmanagerSession`. Exactly one file; more than one gives `DropAmbiguous`. A `.toml` fails as `DatabaseUnreadable`, and the message names the fixed config path. |
-| `reload()` | `dbmanager_reload` | `DbmanagerSession`. Reloads the config and, if a database is open, re-introspects it. Works with no database open. |
-| `close()` | `dbmanager_close` | `DbmanagerSession` (the config stays loaded) |
+| `openDropped(paths: string[])` | `dbmanager_open_dropped` | `DbmanagerSession`. Exactly one file; more than one gives `DropAmbiguous`. A single `.toml` is refused with `ConfigNotDroppable` before any open: nothing changes, and the current database stays open. |
+| `reload()` | `dbmanager_reload` | `DbmanagerSession`. Reloads the config and, if a database is open, re-introspects it. Works with no database open. **Keeps `backupPath`**: no second backup is taken after a reload. |
+| `close()` | `dbmanager_close` | `DbmanagerSession` (the config stays loaded). `close()` and `open()` start a fresh session: `backupPath` is null until that session's first write. |
 | `editConfig()` | `dbmanager_edit_config` | `EditConfigOutcome { created: boolean; session: DbmanagerSession }`. Developer mode only, as the view gates it. Creates a commented, inert starter file if none exists, then opens the file in the system editor. Fails with `OpenerFailed` when the editor cannot start, or `Io` when the folder cannot be created. |
-| `onConfigChanged(handler)` | event `dbmanager://config-changed` (`CONFIG_CHANGED_EVENT`) | `Promise<UnlistenFn>`. The payload is `DbmanagerConfigChanged { hash, status }`, emitted **after** the backend has reloaded: re-fetch `session()`. |
+| `onConfigChanged(handler)` | event `dbmanager://config-changed` (`CONFIG_CHANGED_EVENT`) | `Promise<UnlistenFn>`. The payload is `DbmanagerConfigChanged { hash, status }`, emitted only **after** the reload completes, so `session()` called from the handler returns the new hash, diagnostics and tables. |
 | `isDbmanagerError(e)` | — | type guard |
 
 `lib/tauri.ts` provides:
@@ -117,7 +118,7 @@ type DbmanagerError = { kind: DbmanagerErrorKind; message: string;
   fieldErrors?: FieldError[]; linkErrors?: LinkError[]; current?: ObjectView;
   conflictLink?: LinkRef; impact?: DeleteImpact };
 type DbmanagerErrorKind = "NoDatabase" | "NotAbsolute" | "NotAFile" | "DatabaseUnreadable"
-  | "OpenerFailed" | "DropAmbiguous" | "UnknownTable" | "UnknownObject" | "UnknownRelation"
+  | "OpenerFailed" | "ConfigNotDroppable" | "DropAmbiguous" | "UnknownTable" | "UnknownObject" | "UnknownRelation"
   | "NotEditable" | "ValidationFailed" | "Conflict" | "SchemaChanged" | "ConfigChangedOnDisk"
   | "DatabaseReadOnly" | "Busy" | "BackupFailed" | "ImpactChanged" | "DeleteBlocked"
   | "ConstraintFailed" | "Io";
@@ -175,7 +176,9 @@ sizes and `--font-mono`.
 
      - a **Read-only** tag (lock icon + word, `title` = `readOnlyReason`)
        when `readOnlyReason` is set;
-     - the **backup line** when `backupPath` is set: "Backup:" + file name,
+     - the **backup line** when `backupPath` is set (it follows the snapshot:
+       it stays across Reload, and Close or Open clears it): "Backup:" + file
+       name,
        full path in `title` and in visually hidden text.
    - Actions on the right, wrapping onto a second line when narrow:
      - **Open database…**: Ctrl+O, `aria-keyshortcuts="Control+O"`, `title`
@@ -260,8 +263,12 @@ sizes and `--font-mono`.
 - **Reload** calls `reload()`. **Close database** calls `close()` and returns
   to the empty state.
 - **Drop:** `openDropped(paths)`, label "Drop a SQLite database file".
-  `DropAmbiguous` and `DatabaseUnreadable` show the command-error banner. For
-  a dropped `.toml`, the backend's explanation is in Details.
+  `DropAmbiguous`, `ConfigNotDroppable` and `DatabaseUnreadable` show the
+  command-error banner. On `ConfigNotDroppable`, keep the current session as
+  it is: the database stays open, and the store's session is not replaced.
+- **Backup notices follow the session.** When a newly applied session has a
+  different `database.path`, or `backupPath` becomes null (after Close or
+  Open), remove any backup notice still in `notices`. Reload keeps it.
 - **Edit config** (developer mode):
   1. Call `editConfig()` and apply `outcome.session`.
   2. If `created`, push the notice "A starter config was created at {path}
@@ -356,6 +363,7 @@ do not import them. The copy:
 | `DatabaseUnreadable` | This file could not be opened as a SQLite database. Check that it is a SQLite file and that you can read it. |
 | `OpenerFailed` | The config file could not be opened in an editor. Open it yourself: {path}. (`{path}` is the session's `config.path`; pass it in, or say "the config file" when null.) |
 | `DropAmbiguous` | Drop one database file at a time. Nothing was changed. |
+| `ConfigNotDroppable` | The config can't be chosen by dropping it: the app always uses {path}. Nothing was changed. (`{path}` is `session.config.path`; pass it in, or say "its fixed config file" when null.) |
 | `UnknownTable` | This table is no longer available. Reload to see the current tables. |
 | `UnknownObject` | This object no longer exists. Another program may have deleted it. |
 | `UnknownRelation` | This relation is no longer available. Reload to continue. |
@@ -495,8 +503,13 @@ Example paths:
 - Open database… passes the filters and calls `open(path)` with no config
   argument.
 - Drop calls `openDropped(paths)`. `DropAmbiguous` shows "Drop one database
-  file at a time. Nothing was changed.". A `.toml` drop rejected as
-  `DatabaseUnreadable` shows its copy, with the backend's message in Details.
+  file at a time. Nothing was changed.".
+- A `.toml` drop rejected with `ConfigNotDroppable` shows "The config can't
+  be chosen by dropping it: the app always uses
+  C:\ProgramData\FileManager\dbmanager.toml. Nothing was changed.". The
+  open database and its header stay as they were.
+- After Reload, the backup line stays. After Close and then Open, it is gone,
+  along with any backup notice.
 - While a command is pending, the actions are disabled, `aria-busy` is set,
   the status text shows, and the drop zone is disabled with its reason.
 - Responses arrive out of order: only the newest is applied.
@@ -521,8 +534,8 @@ Example paths:
 
 **Errors:**
 
-- `errorMessage` has an entry for every one of the 21 kinds, including
-  `OpenerFailed`; the typecheck enforces it. There is no `ConfigUnreadable`.
+- `errorMessage` has an entry for every one of the 22 kinds, including
+  `OpenerFailed` and `ConfigNotDroppable`; the typecheck enforces it. There is no `ConfigUnreadable`.
 - `Busy` and `Io` differ by context.
 - An IPC rejection that is not a `DbmanagerError` shows "Something went
   wrong. See Details."
@@ -548,6 +561,7 @@ Example paths:
   - `every kind has copy`;
   - `busy and io differ by context`;
   - `opener failed names the path`;
+  - `config not droppable names the path`;
   - `unexpected errors claim nothing`;
   - `toDbmanagerError rejects unknown shapes`.
 - `store.test.ts`:
@@ -566,7 +580,8 @@ Example paths:
   - `state warning`;
   - `drop calls openDropped`;
   - `drop ambiguous`;
-  - `toml drop shows details`;
+  - `toml drop shows config not droppable and keeps the database`;
+  - `backup line kept on reload and cleared on close/open`;
   - `pending disables actions`;
   - `focus refresh`;
   - `restore failure offers try again`;

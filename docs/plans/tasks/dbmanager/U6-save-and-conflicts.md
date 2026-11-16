@@ -346,6 +346,9 @@ Edit:
   object, and the list re-reads.
 - If `backupCreated` is set, the notice shows the path and the header gains
   its backup line (after a session re-read). A second save adds no notice.
+- After a Reload, a save returns `backupCreated: null`. The backend keeps the
+  session's backup across reloads, so no second notice appears and the
+  header line is unchanged.
 
 **Errors:**
 
