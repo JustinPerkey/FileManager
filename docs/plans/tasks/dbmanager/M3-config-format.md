@@ -79,7 +79,15 @@ in this milestone.
 
 ```rust
 pub fn parse(text: &str) -> ConfigReport;   // src/config/mod.rs
-pub struct ConfigReport { pub config: Config, pub diagnostics: Vec<ConfigDiagnostic> }
+pub struct ConfigReport {
+    pub config: Config,
+    pub diagnostics: Vec<ConfigDiagnostic>,
+    /// Some(short reason) iff `config` is `Config::fail_closed()` because the whole
+    /// config could not be used ("syntax error at line 4", "unsupported version 2").
+    /// None for every other config, including an empty one. The UI shows this
+    /// reason; it must never infer fail-closed from diagnostic text.
+    pub fail_closed: Option<String>,
+}
 ```
 
 `Config` always exists. Two constructors matter:
@@ -90,7 +98,9 @@ pub struct ConfigReport { pub config: Config, pub diagnostics: Vec<ConfigDiagnos
   It is used when the config's intent cannot be known. That covers a syntax
   error, a `version` other than 1, and, from M6 on, a config file that cannot
   be read. Without this, a typo would make everything editable, including
-  tables the user meant to hide.
+  tables the user meant to hide. `ConfigReport.fail_closed` carries the
+  reason whenever it is used.
+
 Diagnostics are sorted by (line, col). A leading UTF-8 BOM is accepted.
 
 The model is below. The names are indicative. Every entry keeps the 1-based
@@ -179,6 +189,7 @@ read-only"), and an entry with an error makes its subject read-only.
 | `mode` | `"editable" \| "read-only" \| "hidden"` | `defaults.table_mode` | `hidden`: never listed or linked. `read-only`: browsable, nothing changes. `editable`: fields per their modes. For a junction used as many-to-many, see "Many-to-many". |
 | `display_name` | string | the SQL name | shown for the table |
 | `description` | string | none | shown with the table |
+| `object_name` | string | none | the singular noun for one object, lower case as it reads mid-sentence (`"author"`), so the app can say "New author" instead of "New object in Authors" |
 | `label` | template | see Labels | an object's title |
 | `order_by` | array | label columns, then key | list order; elements `"col"` or `{ column = "col", descending = true }` |
 | `field_order` | array of strings | column order | these fields first, the rest in column order |
@@ -219,7 +230,8 @@ field entry:
 - `allowed` that is empty, mixes strings and integers, contains a duplicate
   value, has an inline table with keys other than `value`/`label`, or is
   missing a `value`;
-- an empty (all-whitespace) `display_name`, `help` or `description`.
+- an empty (all-whitespace) `display_name`, `help`, `description` or
+  `object_name`.
 
 Pattern dialect: Rust's `regex` is authoritative on save, while the UI checks
 the same pattern with JavaScript `RegExp` (`u` flag) as the user types. Stay
@@ -499,13 +511,14 @@ editable defaults and states only what differs:
   `editable`, for the reader, with a comment showing the one-line
   read-only alternative.
 - `author`:
-  - `display_name = "Authors"`, `label = "{last_name}, {first_name}"`,
+  - `display_name = "Authors"`, `object_name = "author"`,
+    `label = "{last_name}, {first_name}"`,
     `order_by = ["last_name", "first_name"]`, `allow_delete = true`;
   - `first_name` and `last_name`: lengths 1–100;
   - `born`: 1000–2100;
   - `internal_note`: hidden.
 - `book`:
-  - `label = "{title}"`, `allow_delete = true`,
+  - `object_name = "book"`, `label = "{title}"`, `allow_delete = true`,
     `field_order = ["title", "author_id", "isbn", "format"]`;
   - `title`: max 200;
   - `isbn`: create-only, `pattern = '97[89][0-9]{10}'`,
@@ -521,16 +534,18 @@ editable defaults and states only what differs:
   - `summary`: multiline, max 4000;
   - `revision`: `mode = "read-only"`.
 - `genre`:
+  - `object_name = "genre"`;
   - `code`: create-only, `pattern = '[a-z-]+'`, max 20;
   - the default label is `{name}`, and delete is not allowed (default).
-- `publisher`: `display_name = "Publishers"`, `mode = "read-only"` (a
+- `publisher`: `display_name = "Publishers"`, `object_name = "publisher"`,
+  `mode = "read-only"` (a
   pickable lookup table).
 - `member`:
-  - `allow_delete = true`;
+  - `object_name = "member"`, `allow_delete = true`;
   - `name`: min 1;
   - `email`: `pattern = '[^@\s]+@[^@\s]+'`, max 254.
 - `loan`:
-  - `allow_delete = true`;
+  - `object_name = "loan"`, `allow_delete = true`;
   - `book_id` ("Book") and `member_id` ("Member"): display names;
   - `loan_period`: `type = "duration"`, `unit = "seconds"`, `min = "1d"`,
     `max = "90d"`, `display_name = "Loan period"`;
@@ -580,7 +595,10 @@ Do not touch the shell, the frontend, other crates, or `docs/plans/`.
   entry `Rejected`, and `hidden` set only when the entry's own valid `mode`
   was `hidden`.
 - A syntax error, and `version = 2`, each give `Config::fail_closed()`
-  (all defaults read-only) plus one error.
+  (all defaults read-only) plus one error, and `fail_closed` holds a short
+  reason. Every other outcome (empty text, invalid `[defaults]`, rejected
+  entries) has `fail_closed: None`.
+- `object_name` parses on a table; an empty one is an error.
 - An invalid `[defaults]` gives an error and read-only defaults, and the
   other valid entries are kept.
 - `allow_create`, `allow_delete` and `mode` record whether they were set
@@ -601,6 +619,8 @@ Do not touch the shell, the frontend, other crates, or `docs/plans/`.
 `src/config/tests.rs`:
 
 - `example_parses_clean`
+- `fail_closed_reason_only_when_fail_closed`
+- `object_name_key`
 - `schema_sql_runs`
 - `empty_config_defaults_editable`
 - `syntax_error_ignores_config`

@@ -5,8 +5,9 @@ Revised 2026-11-16 after the human answered four open questions (§8.1).
 Those answers changed the defaults (editable, not read-only), removed dates,
 added a `duration` field kind, and made junctions with extra columns editable
 together with their fields. Link editing became its own milestone (M8), so
-the later milestones were renumbered. Decisions marked *(proposed)* stand
-unless the human overrides them in answer to §8.2.
+the later milestones were renumbered. The same day, the ui-designer's
+contract requests (§8.3) were applied to M3, M5, M6 and M10. Decisions marked
+*(proposed)* stand unless the human overrides them in answer to §8.2.
 
 The UI is not designed here. §7 hands it to the `ui-designer`, who writes
 [`dbmanager-ui.md`](dbmanager-ui.md) and the `U<n>` task plans.
@@ -223,6 +224,9 @@ The full rules are in M3's task plan. Once M3 lands they live in
   visible text column named `name`/`title`/`label`, else `"<display name>
   #<key>"`. Labels are computed in Rust. Search matches the label's text and
   integer columns with `LIKE`.
+- **Object noun:** an optional table key `object_name = "author"` reaches
+  `TableView.objectName`, so copy can say "New author". It is never guessed
+  (no singularising of display names); without it the UI uses neutral copy.
 - **Many-to-many:**
   - **Auto-detection** needs a table with exactly two single-column FKs to
     two *different* tables, where the pair is the primary key or a unique
@@ -370,7 +374,7 @@ All commands are `async`. Their work runs under `spawn_blocking` on an
 | `dbmanager_close()` | `DbmanagerSession` |
 | `dbmanager_list(table, query)` | `ObjectPage` |
 | `dbmanager_object(table, key)` | `ObjectView` |
-| `dbmanager_m2m_options(table, key?, relation, query)` | `M2mPage` (every object of the other side, `linked`, and for linked ones `linkValues` + `linkVersion`) |
+| `dbmanager_m2m_options(table, key?, relation, query)` | `M2mPage` (every object of the other side, `linked`, and for linked ones `linkValues` + `linkVersion`; `query.only` fetches one other-side object, e.g. to refresh a conflicted link) |
 | `dbmanager_save(request)` | `SaveResult` (create when `key` is null; `links` carry add / update / remove with link fields) |
 | `dbmanager_delete_preview(table, key)` | `DeleteImpact` |
 | `dbmanager_delete(table, key, version, impactToken)` | `DeleteResult` |
@@ -382,6 +386,21 @@ All commands are `async`. Their work runs under `spawn_blocking` on an
 `Conflict` (with `current` and an optional `conflictLink`),
 `SchemaChanged`, `ConfigChangedOnDisk`, `DatabaseReadOnly`, `Busy`,
 `BackupFailed`, `ImpactChanged`, `DeleteBlocked`, `ConstraintFailed`, `Io`.
+
+`DbmanagerSession.configFailClosed` is a short reason when a config syntax
+error, unsupported `version` or unreadable file made everything read-only,
+and `null` otherwise (including no config). The UI never infers it from
+diagnostic text.
+
+`dbmanager_session()` is cheap and side-effect free after the first call:
+no reopen, no query on user tables, no writes. It recomputes `configChanged`
+on every call, so the view calls it on window focus.
+
+The `lib/dbmanager.ts` export names are pinned in M10: `session`, `open`,
+`setConfig`, `openDropped`, `reload`, `close`, `list`, `object`,
+`m2mOptions`, `save`, `deletePreview`, `deleteObject`, plus the helpers
+`boolValue`, `durationValue`, `linkKey`, `isConfirmDeleteAllowed` and
+`isDbmanagerError`.
 
 Capabilities and the CSP do not change.
 
@@ -521,6 +540,12 @@ Contract facts already fixed (do not redesign them; ask the planner to change th
   - Saving validates only changed fields.
   - Creating is offered when TableView.canCreate (on by default); deleting
     only when TableView.canDelete (off by default, opted into per table).
+  - (Added after the UI plan's contract requests.) DbmanagerSession.
+    configFailClosed carries the fail-closed reason, or null.
+    TableView.objectName is the optional singular noun. M2mQuery.only
+    fetches one other-side object. dbmanager_session() is cheap after the
+    first call and recomputes configChanged. The lib/dbmanager.ts names are
+    pinned in M10.
 
 Constraints and features the design must cover
   - Object editor feel; the table list shows display names and whether each
@@ -652,3 +677,21 @@ Constraints and features the design must cover
     automatically. Confirm.
 11. **Config naming its database:** should the TOML be able to name its
     database file (`database = "shop.db"`)?
+
+### 8.3 UI contract requests (applied 2026-11-16)
+
+The ui-designer's plan (`dbmanager-ui.md`, U1–U12) requested five changes.
+All five are applied:
+
+1. `DbmanagerSession.configFailClosed` (required by U2). The source is a new
+   `ConfigReport.fail_closed` (M3) and `Session::config_fail_closed()`
+   (M6). It is pinned in M10's snapshot tests.
+2. The client export names are adopted exactly as the U plans assume, and
+   pinned in M10.
+3. `dbmanager_session()` is cheap and side-effect free after the first call,
+   and recomputes `configChanged`. Stated and tested in M10.
+4. *(optional, taken)* `object_name` table key (M3) → `TableView.objectName`
+   (M5). It is not guessed when absent, and the example config sets it.
+5. *(optional, taken)* `M2mQuery.only: ObjectKey` (M6) returns exactly one
+   other-side object with its link state, so U9 can refresh one link after a
+   conflict.

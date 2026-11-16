@@ -217,6 +217,7 @@ The boundary views are exported:
 ```rust
 pub struct TableView {
     pub name: String, pub display_name: String, pub description: Option<String>,
+    pub object_name: Option<String>,     // config `object_name`; None when not configured (no guessing)
     pub mode: TableMode,                 // editable | read-only (never hidden here)
     pub can_create: bool, pub can_delete: bool, pub searchable: bool,
     pub has_triggers: bool,
@@ -300,6 +301,8 @@ resolve with zero diagnostics, and:**
   - `book` has no reverse relation from `book_genre`.
 - Labels and permissions:
   - genre's label is `{name}`;
+  - `author`'s `object_name` is `"author"`; a table without the key (for
+    example any table with no config) has `object_name: None`;
   - `can_create` is true for author, book, genre, member and loan, and false
     for publisher;
   - `can_delete` is true for author, book, member and loan, and false for

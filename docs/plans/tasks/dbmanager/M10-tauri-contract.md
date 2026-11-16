@@ -1,7 +1,9 @@
 # M10 — Tauri commands, session snapshot, errors, and the typed client
 
 Status: awaiting approval (renumbered from M9 and revised 2026-11-16: link
-errors and conflicts, duration helper, fail-closed config)
+errors and conflicts, duration helper, fail-closed config; then the
+ui-designer's contract requests: `configFailClosed`, pinned client names, a
+cheap `session()`, `objectName`, `M2mQuery.only`)
 Project: dbmanager   Depends on: M9 (landed)
 
 ## Goal
@@ -24,7 +26,7 @@ All its database logic lives in `crates/fm-dbmanager`:
 - `config/`: `ConfigDiagnostic`; `session/`: `Session::open(database,
   config) -> Result<(Session, Option<ConfigLoadError>), SessionError>`,
   `database_path`, `config_path`, `read_only_reason`, `diagnostics`,
-  `table_views`, `config_changed`, `backup_path`, `list`, `object`,
+  `table_views`, `config_changed`, `config_fail_closed`, `backup_path`, `list`, `object`,
   `m2m_options`, `save`, `delete_preview`, `delete`.
 - `SessionError::{Open(OpenError), UnknownTable, UnknownObject,
   UnknownRelation, SchemaChanged, Busy, Sqlite, ReadOnlyDatabase,
@@ -38,9 +40,11 @@ All its database logic lives in `crates/fm-dbmanager`:
 - Boundary types already exported to `apps/desktop/src/lib/generated/`:
   `DbValue` (incl. `duration`), `FieldKind`, `FieldRule`, `DurationUnit`,
   `FieldIssue`, `FieldError`, `FieldIssueCode`, `ConfigDiagnostic`,
-  `TableMode`/`FieldMode`/`RelationMode`, `TableView` (+ `FieldView`,
+  `TableMode`/`FieldMode`/`RelationMode`, `TableView` (with `objectName`; +
+  `FieldView`,
   `ForeignKeyView`, `ReverseRelationView`, `M2mView` with `linkFields`),
-  `ObjectKey`, `ListQuery`, `ObjectPage`, `ObjectView`, `M2mQuery`,
+  `ObjectKey`, `ListQuery`, `ObjectPage`, `ObjectView`, `M2mQuery` (with an
+  optional `only` key),
   `M2mPage` (options with `linkValues`, `linkVersion`), `SaveRequest` (with
   `links: LinkChange[]` of `add`/`update`/`remove`), `LinkError`, `LinkRef`,
   `SaveResult`, `DeleteImpact` (groups with `links`, `linkData`),
@@ -91,6 +95,13 @@ restore ran, and a `state_warning`.
 - `session()` → snapshot; on the first call, reopen the most recent pair; on
   failure nothing is open, `state_warning` says which pair could not be
   reopened and why, and the pair stays in the list.
+- **`session()` after the first call is cheap and side-effect free** (the view
+  calls it on every window focus): it opens nothing, runs no query against
+  user tables, writes nothing (not the database, not the recent store), takes
+  no backup, and does not re-introspect. Its only I/O is re-reading and
+  hashing the config file so `config_changed` is **recomputed on every call**
+  (and `false` with no config). Everything else in the snapshot comes from
+  state already held.
 - `open(database, config)`: path must be absolute (`NotAbsolute`) and a file
   (`NotAFile`) — checked for both before opening; on success the pair is
   touched in the recent list and saved; a config that cannot be read leaves
@@ -116,6 +127,12 @@ pub struct DbmanagerSession {
     pub open: bool,
     pub read_only_reason: Option<String>,
     pub config_changed: bool,
+    /// Some(short reason) iff a config syntax error, an unsupported `version`,
+    /// or an unreadable config file made everything read-only (from
+    /// `Session::config_fail_closed()`). None otherwise, including no config
+    /// and no open database. The UI shows this; it never infers fail-closed
+    /// from diagnostic text.
+    pub config_fail_closed: Option<String>,
     pub diagnostics: Vec<ConfigDiagnostic>,
     pub error_count: u32, pub warning_count: u32,
     pub tables: Vec<TableView>,
@@ -190,8 +207,25 @@ session's `backup_path` reflects the backup.
 
 One exported function per command, built on `call` from `./tauri`, typed
 with the generated types, in the style of `lib/schedule.ts` (doc comment per
-function stating what it does and which errors matter). Plus helpers the UI
-needs so it holds no storage logic:
+function stating what it does and which errors matter). **The names are
+pinned** (the UI task plans import them):
+
+| Export | Command | Arguments passed |
+| --- | --- | --- |
+| `session()` | `dbmanager_session` | none |
+| `open(database, config)` | `dbmanager_open` | `{ database, config }` (`config: string \| null`) |
+| `setConfig(config)` | `dbmanager_set_config` | `{ config }` |
+| `openDropped(paths)` | `dbmanager_open_dropped` | `{ paths }` |
+| `reload()` | `dbmanager_reload` | none |
+| `close()` | `dbmanager_close` | none |
+| `list(table, query)` | `dbmanager_list` | `{ table, query }` |
+| `object(table, key)` | `dbmanager_object` | `{ table, key }` |
+| `m2mOptions(table, key, relation, query)` | `dbmanager_m2m_options` | `{ table, key, relation, query }` (`key: ObjectKey \| null`) |
+| `save(request)` | `dbmanager_save` | `{ request }` |
+| `deletePreview(table, key)` | `dbmanager_delete_preview` | `{ table, key }` |
+| `deleteObject(table, key, version, impactToken)` | `dbmanager_delete` | `{ table, key, version, impactToken }` |
+
+Plus helpers the UI needs so it holds no storage logic (names pinned too):
 
 - `boolValue(checked: boolean): DbValue` → integer `"1"`/`"0"`;
 - `durationValue(text: string): DbValue` → `{ type: "duration", value: text }`
@@ -202,10 +236,9 @@ needs so it holds no storage logic:
 - `isConfirmDeleteAllowed(impact: DeleteImpact): boolean` → `!impact.blocked`;
 - `isDbmanagerError(e: unknown): e is DbmanagerError`.
 
-`delete` is exported under a name that is not a reserved word (for example
-`deleteObject`). The `delete` doc comment says: always call
-`deletePreview` first and show its impact; pass back its `version` and
-`token`.
+`deleteObject`'s doc comment says: always call `deletePreview` first and show
+its impact; pass back its `version` and `token`. `session`'s doc comment says
+it is cheap after the first call and safe to call on window focus.
 
 `apps/desktop/src/lib/dbmanager.test.ts`: as `lib/schedule.test.ts`, one
 `it.each` row per command asserting the command name and argument object
@@ -246,6 +279,24 @@ CSP, other tools, or `docs/plans/`.
   `link_errors` and `conflict_link`, and their absence from the JSON when
   empty/none), a save through `Core` with link changes on
   `m2m:contribution`, `backup_path` set after the first save.
+- **Snapshot pins** (tests in `tests.rs`):
+  - `configFailClosed` is a non-empty reason for a config with a TOML syntax
+    error, for `version = 2`, and for an unreadable config file (all tables
+    read-only in each case); it is `null` with no config, with a valid
+    config, with a config that has only entry-level errors, and with no
+    database open. The serialised JSON key is `configFailClosed`.
+  - `session()` called repeatedly after the first call: the database file's
+    bytes and the recent store file's bytes and modification time are
+    unchanged, no backup appears, and (with a counting hook or by asserting
+    the `Session` is the same instance) no reopen or re-introspection happens;
+    editing the config file between two calls flips `configChanged` from
+    `false` to `true` without any other call; restoring its old bytes flips it
+    back.
+  - `TableView.objectName` and `M2mQuery.only` pass through the commands
+    (an `object_name` from the config reaches the snapshot; an `only` query
+    returns one option).
+- `dbmanager.test.ts` asserts every export name in the pinned table and its
+  command and argument object.
 - The kind-list test passes; generated types current; no `bigint`.
 - `npm run typecheck && npm run lint && npm run test` pass, including
   `dbmanager.test.ts`.
@@ -255,7 +306,9 @@ CSP, other tools, or `docs/plans/`.
 
 ## Tests proving completion
 
-Shell: `open_builds_snapshot`, `recent_persisted_and_restored`,
+Shell: `open_builds_snapshot`, `session_is_cheap_and_side_effect_free`,
+`session_recomputes_config_changed`, `config_fail_closed_in_snapshot`,
+`recent_persisted_and_restored`,
 `failed_restore_warns_and_keeps_pair`, `open_dropped_sorts_by_extension`,
 `open_dropped_ambiguous`, `open_rejects_relative_and_directory`,
 `non_database_is_unreadable`, `unreadable_config_keeps_database_open_read_only`,

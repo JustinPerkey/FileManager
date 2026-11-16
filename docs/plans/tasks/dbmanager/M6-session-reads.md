@@ -78,6 +78,11 @@ impl Session {
         -> Result<(Session, Option<ConfigLoadError>), SessionError>;
     pub fn database_path(&self) -> &Path;
     pub fn config_path(&self) -> Option<&Path>;
+    /// Some(short reason) iff the model was resolved fail-closed (everything
+    /// read-only) because the config had a syntax error or an unsupported version
+    /// (`ConfigReport.fail_closed`) or could not be read (the `ConfigLoadError`'s
+    /// message, shortened). None otherwise, including with no config.
+    pub fn config_fail_closed(&self) -> Option<&str>;
     pub fn read_only_reason(&self) -> Option<&str>;
     pub fn diagnostics(&self) -> &[ConfigDiagnostic];
     pub fn table_views(&self) -> Vec<TableView>;
@@ -188,7 +193,14 @@ pub struct RelationCount { pub relation: String, pub count: u64 }
   `key` and `label` `None`, no lookup.
 
 ```rust
-pub struct M2mQuery { pub search: Option<String>, pub offset: u32, pub limit: u32, pub linked_only: bool }
+pub struct M2mQuery {
+    pub search: Option<String>, pub offset: u32, pub limit: u32, pub linked_only: bool,
+    /// Fetch exactly this one other-side object (e.g. to refresh a single link after a
+    /// conflict): the page holds it, or nothing if it no longer exists. `search`,
+    /// `offset` and `linked_only` are ignored; `total` is 0 or 1; `linked_total` is
+    /// still the relation's full linked count. `#[serde(default)]`, `#[ts(optional)]`.
+    pub only: Option<ObjectKey>,
+}
 pub struct M2mOption {
     pub key: ObjectKey, pub label: String, pub linked: bool,
     /// Linked options only: the link's visible link fields, in M2mView.link_fields
@@ -257,6 +269,10 @@ stated:
   and a `link_version` that changes when the junction row changes (including a
   hidden link field, if one is configured hidden in the test config); from the
   author side the same links carry the same values.
+- `only: Some(key)` returns exactly that author (with `linked`,
+  `link_values`, `link_version` as in the full listing), `total` 1 and the
+  relation's full `linked_total`; for a deleted author it returns an empty
+  page with `total` 0; `search`/`offset`/`linked_only` are ignored with it.
 - With **no config**, every table is editable and listed except detected
   junctions.
 - `version` changes when any column changes, including a hidden one, and is
@@ -266,7 +282,9 @@ stated:
 - Altering the schema from a second connection makes the next read fail with
   `SchemaChanged`. Editing the config file makes `config_changed()` true.
 - A config that cannot be read opens the session fail-closed (everything
-  read-only) and returns a `ConfigLoadError`.
+  read-only) and returns a `ConfigLoadError`; `config_fail_closed()` is
+  `Some` for it, for a syntax error and for `version = 2`, and `None` for no
+  config, a valid config, and a config with only entry-level errors.
 - **Awkward identifiers:** a schema whose tables and columns are named `a"b`,
   `select`, `with space` and `ünï`, with FKs and a junction between them, is
   listed, searched, opened, and checklisted correctly.
@@ -282,7 +300,8 @@ stated:
 `list_referencing`, `object_fields_and_links`, `object_hides_hidden`,
 `value_problems`, `duration_values_and_labels`, `relation_counts`,
 `m2m_options_all_and_linked`, `m2m_options_new_object`,
-`m2m_options_link_values`, `link_version_tracks_junction_row`,
+`m2m_options_link_values`, `m2m_options_only`, `link_version_tracks_junction_row`,
+`config_fail_closed_reason`,
 `no_config_is_editable`, `version_tracks_every_column`,
 `unknown_table_object_relation`, `schema_change_detected`,
 `config_change_detected`, `unreadable_config_opens_read_only`,
