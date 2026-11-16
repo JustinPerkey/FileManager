@@ -1,6 +1,6 @@
 # M1 — `fm-dbmanager` crate, bundled SQLite, and database opening
 
-Status: awaiting approval (revised 2026-11-16: the recent list holds
+Status: approved (2026-11-16; revised the same day: the recent list holds
 databases only; `fm-core` gains the app-wide config directory)
 Project: dbmanager   Depends on: none
 
