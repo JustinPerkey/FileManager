@@ -1,6 +1,6 @@
 # U8 — Creating objects
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-16: objectName, configHash, pickable)
 Project: dbmanager   Depends on: U7 (landed), M10 (landed), M11 (landed)
 
 ## Goal
@@ -53,7 +53,7 @@ import each other.
 
 ### The API used
 
-- `save({ table, key: null, version: null, changes, links: [] })` →
+- `save({ table, key: null, version: null, configHash, changes, links: [] })` →
   `SaveResult { object, backupCreated }`. `key: null` means create. On create,
   the backend reports a missing `requiredOnCreate` field as `ValidationFailed`
   with `required`.
@@ -65,7 +65,8 @@ import each other.
 type FieldView = { column; displayName; mode: "editable" | "read-only" | "create-only"; kind;
   rule: FieldRule; isKey: boolean; requiredOnCreate: boolean; hasDefault: boolean;
   defaultValue: DbValue | null; foreignKey: ForeignKeyView | null; … };
-type TableView = { name; displayName; mode; canCreate: boolean; fields: FieldView[]; … };
+type TableView = { name; displayName; mode: "editable" | "read-only" | "pickable";
+  objectName: string | null; canCreate: boolean; fields: FieldView[]; … };
 ```
 
 ### The design (brief excerpt)
@@ -84,8 +85,13 @@ type TableView = { name; displayName; mode; canCreate: boolean; fields: FieldVie
 - in the object list toolbar, after the search;
 - shown only when `table.canCreate`, the table is editable, and the session
   is writable (no `readOnlyReason`, no `configFailClosed`);
-- visible label "New", accessible name "New object in {displayName}",
-  `aria-keyshortcuts="Control+N"`, `title` "Shortcut: Ctrl+N";
+- **its noun comes from `TableView.objectName`** (a string or null; the
+  config's singular noun, never guessed):
+  - set (for example "author"): the visible label is "New author", with no
+    extra accessible name;
+  - null: the visible label is "New", with the accessible name "New object
+    in {displayName}";
+- `aria-keyshortcuts="Control+N"`, `title` "Shortcut: Ctrl+N";
 - **Ctrl+N** works anywhere in the view, including inside inputs, when New
   is shown;
 - it calls `navigate({ push: { kind: "new", table } })`, so U6's guard asks
@@ -96,7 +102,8 @@ type TableView = { name; displayName; mode; canCreate: boolean; fields: FieldVie
 
 - the location bar (Back returns to the table; the breadcrumb ends "New
   object");
-- the eyebrow (the table's display name), the `h2` "New object"
+- the eyebrow (the table's display name), the `h2` "New {objectName}" (for
+  example "New author"), or "New object" when `objectName` is null
   (`tabIndex={-1}`, focused on arrival), and a **Not saved yet** tag;
 - no **Delete…** and no **Referenced by**; the many-to-many sections come in
   U9;
@@ -130,7 +137,8 @@ type TableView = { name; displayName; mode; canCreate: boolean; fields: FieldVie
 
    Any issue shows them all and focuses the error summary ("Fix {n} problems
    before creating."); nothing is sent.
-2. **Request:** `{ table, key: null, version: null, changes, links: [] }`,
+2. **Request:** `{ table, key: null, version: null, configHash:
+   session.config.hash, changes, links: [] }`,
    with only the changed fields. A prefilled default the user did not change
    is **not** sent; the database applies it.
 3. **Success:**
@@ -201,10 +209,14 @@ Fixtures from the example config:
 **New:**
 
 - It is shown for Books, Authors and Genres in a writable session.
-- It is not shown for Publishers, nor for any table when `readOnlyReason` or
-  `configFailClosed` is set.
-- Its accessible name is "New object in Books". Ctrl+N works from inside the
-  search input.
+- It is not shown for Publishers (a pickable lookup table, `canCreate`
+  false), nor for any table when `readOnlyReason` or `configFailClosed` is
+  set.
+- For Books (`objectName: null`), its accessible name is "New object in
+  Books", and the form's `h2` reads "New object".
+- For Authors (`objectName: "author"`), it reads "New author", and the form's
+  `h2` reads "New author".
+- Ctrl+N works from inside the search input.
 - An empty table says "… has no objects yet. Create one with New.".
 
 **The create form for a book:**
@@ -221,8 +233,8 @@ Fixtures from the example config:
 - Create with nothing filled in sends nothing. The summary lists Title,
   ISBN and Author (Author: "Choose an object.") and takes focus.
 - Filling Title, ISBN and Author, then pressing Create, sends `{ table:
-  "book", key: null, version: null, changes: [title, isbn, author_id
-  (reference)], links: [] }`. Format and In print are **not** sent.
+  "book", key: null, version: null, configHash, changes: [title, isbn,
+  author_id (reference)], links: [] }`. Format and In print are **not** sent.
 - On success: the place is replaced by the new object, so Back returns to
   the list place before New; focus is on its `h2`; "Created Dune." is
   announced; the list re-reads.

@@ -1,6 +1,7 @@
 # U3 — Panes, table and object navigation, and history
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-16: pickable tables, recent
+databases, the config reloads by itself)
 Project: dbmanager   Depends on: U2 (landed), M10 (landed)
 
 ## Goal
@@ -59,7 +60,7 @@ If M10 named these differently, use the landed names for
 
 ```ts
 type TableView = { name: string; displayName: string; description: string | null;
-  mode: "editable" | "read-only"; canCreate: boolean; canDelete: boolean; searchable: boolean;
+  mode: "editable" | "read-only" | "pickable"; objectName: string | null; canCreate: boolean; canDelete: boolean; searchable: boolean;
   hasTriggers: boolean; fields: FieldView[]; referencedBy: ReverseRelationView[];
   manyToMany: M2mView[] };
 type ListQuery = { search: string | null; offset: number; limit: number;
@@ -112,6 +113,24 @@ text narrows the layout by itself:
   shows one with `display: none` on the other, which also removes it from the
   accessibility tree. The disclosure's list is rendered only while expanded,
   so no ids are duplicated.
+
+**Pickable tables** (lookup tables, `mode: "pickable"`) arrive in
+`session.tables` but are **not listed**: filter them out of `TableNav`.
+
+Their objects are still reached:
+
+- by following a reference (U4);
+- from a picker (U7);
+- from a checklist (U9).
+
+Such a place is an ordinary `object` place in a pickable table:
+
+- the objects pane shows that table's object list, headed by its display name
+  with a **Lookup table** tag (a word, U4's tag style);
+- the list is searchable and paged like any other;
+- the table list has **no current item**;
+- the two-pane disclosure reads "Table: {displayName} (lookup)";
+- the sheet shows the **Read-only** tag. U4 renders it read-only.
 
 **Table list** (`TableNav`):
 
@@ -195,12 +214,16 @@ type Place =
 - Pushing truncates the forward entries.
 - Each table keeps a **list state** `{ search, offset }` for the session.
   Returning to a table, by any route, restores it.
-- **Opening a database** (a new `database.path`) resets history to `[{ kind:
-  "table", table: tables[0].name }]`, or `[{ kind: "tables" }]` when there
-  are no tables, and clears the list states.
-- **A session update keeps history.** If the current place's table is no
-  longer listed, the store pushes `tables` and adds a notice: "{table} is no
-  longer available."
+- **Opening a database** (a new `database.path`) resets history and clears
+  the list states. History becomes `[{ kind: "table", table: <the first
+  non-pickable table>.name }]`, or `[{ kind: "tables" }]` when there is none.
+- **A session update keeps history.** That covers Reload, U2's automatic
+  config reload, and window-focus refreshes.
+  - If the current place's table is no longer in `session.tables`, the store
+    pushes `tables` and adds a notice: "{display name} is no longer
+    available.".
+  - A table that became pickable stays reachable as a lookup place.
+  - A table that became hidden is gone.
 - **Back / Forward:**
   - the `LocationBar` buttons at the top of the sheet pane: quiet, with the
     `arrow-left` / `arrow-right` icons and the visible labels "Back" /
@@ -237,7 +260,8 @@ this task renders the frame and the loading states.
        `tabIndex={-1}`, wrapping);
      - if `ObjectView.label` differs from the place's, the history entry's
        label is updated;
-     - a **Read-only** tag when the table's `mode` is `read-only`.
+     - a **Read-only** tag when the table's `mode` is `read-only` or
+       `pickable`.
   4. `UnknownObject`: "This object no longer exists. Another program may have
      deleted it." with **Back**. The history entry is kept.
   5. Other errors: an inline error with **Try again**.
@@ -289,7 +313,8 @@ Edit:
   any value that differs from what you built. Change nothing else there.
 
 Fixtures: the example database's tables (Authors with `searchable`; Books;
-Genres; Members; Loans; Publishers read-only), with 250 authors generated for
+Genres; Members; Loans; Publishers **pickable**; plus one `read-only` table,
+"Audit" (`mode: "read-only"`), for the Read-only tag), with 250 authors generated for
 the paging tests and one label of 300 characters.
 
 ## Skill
@@ -315,8 +340,9 @@ the paging tests and one label of 300 characters.
 
 **Table list:**
 
-- It shows every listed table by display name. Publishers shows "Read-only"
-  as a word, not only an icon.
+- It shows every non-pickable table by display name; Publishers (pickable)
+  is absent.
+- Audit (read-only) shows "Read-only" as a word, not only an icon.
 - The current table has `aria-current`.
 - Up/Down/Home/End rove, and Enter chooses.
 
@@ -346,11 +372,18 @@ the paging tests and one label of 300 characters.
 - Opening a different database resets history and list states.
 - A reload in which the current table disappears goes to `tables`, with the
   notice.
+- **A Publishers object place** (reached by pushing it, as a followed link
+  would):
+  - the objects pane shows the Publishers list with **Lookup table**;
+  - the rail has no `aria-current`;
+  - the disclosure reads "Table: Publishers (lookup)";
+  - Back returns to the previous place.
 
 **Sheet shell:**
 
 - An object place loads with skeletons, then shows the eyebrow, the label
-  `h2` and the Read-only tag for Publishers.
+  `h2`, and the Read-only tag for an Audit object and for a Publishers
+  (pickable) object.
 - `UnknownObject` shows its state with Back.
 - `SchemaChanged` from `list` or `object` sets the schema-changed banner.
 
@@ -377,10 +410,12 @@ the paging tests and one label of 300 characters.
   - `cap at 50`;
   - `replace`;
   - `list state per table`;
-  - `new database resets`;
-  - `missing table after reload`.
+  - `new database resets to the first non-pickable table`;
+  - `missing table after reload`;
+  - `pickable object place`.
 - `TableNav.test.tsx`:
-  - `rail lists tables with read-only words`;
+  - `rail lists tables with read-only words and omits pickable`;
+  - `lookup place has no current table`;
   - `roving keys`;
   - `disclosure expands and collapses`;
   - `no tables`.

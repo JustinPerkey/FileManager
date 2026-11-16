@@ -29,8 +29,10 @@ no native control vocabulary of its own.
 - **Database Manager users:** the same people, when they keep the data in a
   SQLite file correct: fixing a value, adding a row, linking two objects, or
   removing a stale one. They know the data, and do not want to write SQL or
-  read foreign-key integers in a grid. A maintainer writes the TOML config
-  that decides what is editable. *(inferred from the Database Manager plan,
+  read foreign-key integers in a grid. An administrator or maintainer writes
+  the one app-wide TOML config that decides what is editable. A developer
+  edits it from the app in developer mode (Ctrl+Alt+Shift+D, "Edit
+  config"). *(inferred from the Database Manager plan,
   2026-11-16)*
 
 ## Product Purpose
@@ -97,17 +99,24 @@ otherwise need SQL or a generic browser that shows raw ids:
   things ask first. The steps themselves are not written yet; the UI says so,
   and until the first one is, the later steps stay locked.
 - The fourth tool is the **Database Manager** (`dbmanager`).
-  - **Opening:** the user opens a SQLite file (never created by the app),
-    optionally with a TOML config. The config marks tables, fields and
-    many-to-many relations editable, read-only or hidden, and sets field
-    bounds.
-  - **Defaults:** anything the config does not mention is editable. A config
-    the app cannot use makes everything read-only until it is fixed.
+  - **Opening:** the user opens a SQLite file (never created by the app), by
+    Open, Recent databases, or dropping it on the window.
+  - **The config:** one app-wide TOML config at
+    `%ProgramData%\FileManager\dbmanager.toml`.
+    - The user never chooses it, and the app only reads it and reloads it
+      automatically when it changes.
+    - It marks tables (editable, read-only, hidden, or pickable lookup
+      tables), fields and many-to-many relations, and sets field bounds.
+  - **Defaults:** anything the config does not mention is editable. With no
+    config file, everything is editable, and a calm banner says so (no
+    prompt). A config the app cannot use makes everything read-only until it
+    is fixed.
   - **Values:** booleans are checkboxes; durations are typed as `1h30m`;
     there are no dates.
   - **Writes:** saves are explicit and transactional. The first write of each
     session is preceded by a backup beside the database. Deleting is opt-in
-    per table, and always shows its impact first.
+    per table, and always shows its impact first. Closing the window with
+    unsaved edits asks first.
 
 ## Brand Commitments
 
