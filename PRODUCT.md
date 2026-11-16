@@ -26,11 +26,18 @@ no native control vocabulary of its own.
   manifests.
 - They use the app at a desk, alongside an editor and a terminal, in short
   repeated visits. The next visit is minutes away. *(inferred)*
+- **Database Manager users:** the same people, when they keep the data in a
+  SQLite file correct: fixing a value, adding a row, linking two objects, or
+  removing a stale one. They know the data, and do not want to write SQL or
+  read foreign-key integers in a grid. A maintainer writes the TOML config
+  that decides what is editable. *(inferred from the Database Manager plan,
+  2026-11-16)*
 
 ## Product Purpose
 
 FileManager is a portable Windows desktop app that hosts several independent
-file tools. The first is the **Tar Packager** (`tarpack`). It builds a Linux
+file tools: the **Pipeline**, the **Tar Packager**, the **Schedule Creator**
+and the **Database Manager**. The first was the **Tar Packager** (`tarpack`). It builds a Linux
 archive from Windows files, as listed in a TOML manifest, with the exact Linux
 paths, modes, owners, and line-ending treatment the target needs.
 
@@ -44,6 +51,16 @@ A generic archiver on Windows cannot show Linux permissions, owners, or
 absolute target paths before it writes them. The Tar Packager makes these the
 subject of the screen: one row per manifest file, each with an explicit status,
 and a build that verifies the archive before anything replaces the output.
+
+The **Database Manager** (`dbmanager`) shows the objects in a SQLite file
+through an object editor rather than a database grid, for people who would
+otherwise need SQL or a generic browser that shows raw ids:
+
+- each object is a form of typed fields;
+- references are the referenced object's label, a link you can follow and
+  come back from;
+- many-to-many relations are checklists of every object on the other side;
+- a delete lists everything it takes with it before it happens.
 
 ## Operating Context
 
@@ -79,11 +96,23 @@ and a build that verifies the archive before anything replaces the output.
   once (stopping at the first that does not pass); the ones that change
   things ask first. The steps themselves are not written yet; the UI says so,
   and until the first one is, the later steps stay locked.
+- The fourth tool is the **Database Manager** (`dbmanager`).
+  - **Opening:** the user opens a SQLite file (never created by the app),
+    optionally with a TOML config. The config marks tables, fields and
+    many-to-many relations editable, read-only or hidden, and sets field
+    bounds.
+  - **Defaults:** anything the config does not mention is editable. A config
+    the app cannot use makes everything read-only until it is fixed.
+  - **Values:** booleans are checkboxes; durations are typed as `1h30m`;
+    there are no dates.
+  - **Writes:** saves are explicit and transactional. The first write of each
+    session is preceded by a backup beside the database. Deleting is opt-in
+    per table, and always shows its impact first.
 
 ## Brand Commitments
 
 - The name is **FileManager**. The tools are the **Pipeline**, the **Tar
-  Packager**, and the **Schedule Creator**.
+  Packager**, the **Schedule Creator**, and the **Database Manager**.
 - Voice: plain, short, and exact. Controls name their action. Errors name the
   problem and the recovery.
 - The theme follows the system. No manual toggle (decided 2026-09-29).
@@ -92,6 +121,9 @@ and a build that verifies the archive before anything replaces the output.
 
 - The manifest format is documented in `docs/tarpack-manifest.md` (once M3
   lands).
+- The Database Manager's config format is documented in
+  `docs/dbmanager-config.md`, with an example schema and config in
+  `examples/dbmanager/`.
 - There are no screenshots, testimonials, or usage metrics, and none should be
   invented.
 

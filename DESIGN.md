@@ -138,6 +138,13 @@ decoration, headings, or hover.
 current place, and focus. A second blue button in the same region means one
 of them is not primary.
 
+**Planned (dbmanager U1): the one exception to the Status Is Earned Rule.**
+`--danger` also marks the **danger button** (below), used only for an action
+that destroys data or discards the user's work (Delete, Discard changes in
+the leave dialog), and inline field issues. Both always carry words. Form
+checkboxes take `accent-color: var(--accent)`: a checked box is a state,
+like focus.
+
 ## Typography
 
 **Body Font:** Segoe UI (with `system-ui`, then `sans-serif`)
@@ -178,13 +185,31 @@ Spacing follows the `--space-1…6` scale (4, 8, 12, 16, 24, 32 px): tight
 inside groups, with a wider gap between them. The view is padded
 `--space-4 --space-5`.
 
+**Planned (dbmanager U3): the Database Manager's panes.** The tool's
+workspace is an inline-size container:
+
+| Workspace width | Panes |
+| --- | --- |
+| ≥ 68rem | Tables (12rem) · Objects (18rem) · Sheet |
+| 46–68rem | two: Navigator (18rem, with the table picker as a disclosure) · Sheet |
+| < 46rem | one pane per place |
+
+- The panes are `--surface`, separated by 1 px `--border` rules, and each
+  scrolls on its own. Under 34rem tall the view scrolls as a whole.
+- The object sheet's property layout is label | value at ≥ 36rem sheet
+  width, else stacked.
+- A sticky save bar sits at the foot of the sheet, as the build bar does in
+  the Tar Packager.
+
 ## Elevation & Depth
 
 Flat. Depth is tonal: `--surface-sunken` is below and `--surface` is above,
 separated by 1 px `--border`. No component has a shadow at rest. Only
 surfaces that float over content have one: the **Recent** menu (landed, U2),
 the confirmation dialog (landed, U5, `ConfirmDialog`), and the shortcuts popover (landed,
-U6, `ShortcutsHelp`). They share one soft, offset shadow, `--shadow-overlay` (landed, U2):
+U6, `ShortcutsHelp`). **Planned (dbmanager):** the shared `MenuButton` list and `ShortcutsHelp`
+popover (U1), and the Database Manager's object picker (U7), join them.
+They share one soft, offset shadow, `--shadow-overlay` (landed, U2):
 `0 8px 24px rgb(0 0 0 / 0.18)` in light and `rgb(0 0 0 / 0.5)` in dark. The
 dialog also sits over a dimmed backdrop,
 `--scrim` (`rgb(0 0 0 / 0.4)` light, `rgb(0 0 0 / 0.6)` dark), used for
@@ -224,13 +249,68 @@ overlay border, and the 2 px focus outline with a 2 px offset.
   as more clickable than its enabled neighbours), and busy
   (`aria-busy="true"`, label unchanged).
 - **Menu trigger:** a chevron icon, never the `▾` glyph.
+- **Danger (Planned, dbmanager U1):** `--danger` label and 1 px `--danger`
+  border on `--surface`, with no fill; hover and active `--surface-sunken`
+  (`--danger` on it is asserted ≥ 4.5:1). It is never primary and never
+  sits beside a second danger button.
 
 ### Icons (Landed, U2)
 
 One authored inline-SVG set in `src/app/icons.tsx`: a 16 px grid, 1.5 px
-stroke, round joins, and `currentColor`. It is `aria-hidden` unless it is the
+stroke, round joins, and `currentColor`. **Planned (dbmanager U1)** adds
+`arrow-left`, `arrow-right`, `lock`, `plus`, `trash`, `search`,
+`chevron-left`, `chevron-right`, `undo` and `check`. It is `aria-hidden` unless it is the
 only content, which is never the case in this app. There are no Unicode or
 emoji stand-ins.
+
+### Form controls (Planned, dbmanager U1)
+
+- **`.input`** on `input`, `textarea` and `select`:
+  - `min-height: 2rem`, padding `--space-1 --space-2`, `--surface`, 1 px
+    `--border`, `--radius`;
+  - the placeholder in `--text-muted`;
+  - focus: the 2 px ring with a 1 px offset;
+  - `aria-invalid`: a `--danger` border.
+- **Read-only is marked, not faded:** `--surface-sunken`, no border,
+  full-strength `--text`, still focusable and selectable.
+- **Disabled** is at 60% opacity. **Textareas** resize vertically.
+- **`.checkbox`:** 1rem square (it scales at 200%), `accent-color:
+  var(--accent)`. A nullable boolean that is not set shows `indeterminate`
+  plus the words "Not set".
+- **Tags** (Database Manager, view-local): `--font-size-sm`, `--text-muted`,
+  1 px `--border`, `--radius`, padding `0 --space-1`. Each tag is a word
+  (Read-only with a lock icon, Edited, Required, Will be added, Will be
+  removed), never a colour alone.
+
+### Menu button (Planned, dbmanager U1)
+
+`app/MenuButton.tsx`: a secondary button with a trailing chevron that opens
+a `role="menu"` list under it:
+
+- the list is `--surface`, 1 px `--border`, `--radius`, `--shadow-overlay`,
+  min 16rem, scrolling at 60vh;
+- items are quiet buttons with an optional second line in `--text-muted`;
+- keys: ArrowDown opens; Up/Down wrap; Home/End jump; Escape and Tab close
+  and refocus the trigger.
+
+It uses the classes `.menu-button*`. The Tar Packager's Recent menu is a
+tool-local predecessor and keeps its `.tarpack .menu*` classes until it is
+migrated.
+
+### Confirmation dialog (Landed, U5; extended, Planned dbmanager U1)
+
+`ConfirmDialog` is a native modal `<dialog>`; focus starts on Cancel, Escape
+cancels, and focus returns to the opener. The extension adds:
+
+- a custom cancel label ("Keep editing", "Close");
+- a single-button form for outcomes that cannot be confirmed (a blocked
+  delete);
+- the danger confirm variant with an icon;
+- a busy confirm, during which Cancel and Escape are inert and focus rests on
+  the dialog;
+- a wide size, `min(40rem, …)`;
+- a scrolling content region below the short description. The region is not
+  part of the description.
 
 ### Banners (Landed, U2)
 
@@ -242,7 +322,12 @@ banner is a live region (`role="alert"`); the view announces info and warn
 banners through its always-mounted polite announcer, because a region that
 mounts with its text is not reliably read.
 
-### Shortcuts help and keys (Landed, U6)
+### Shortcuts help and keys (Landed, U6; shared, Planned dbmanager U1)
+
+**Planned (dbmanager U1):** `app/ShortcutsHelp.tsx` is the shared version.
+It takes a `shortcuts` list and uses the classes `.shortcuts-help*`, with the
+same values as below. The Tar Packager keeps its tool-local copy until it is
+migrated.
 
 - **Help button.** A quiet `Button` with the `keyboard` icon and the visible
   label "Keyboard shortcuts". It is the last header action, or sits beside
@@ -313,6 +398,8 @@ status color.
   banners, or callouts.
 - **Don't** add shadows, gradients, or glass to panels at rest.
 - **Don't** use Unicode glyphs (`▾`, `✓`, `⚠`) as icons.
-- **Don't** open a modal for anything but the overwrite confirmation.
+- **Don't** open a modal for anything but a confirmation: an overwrite, an
+  apply or run that changes files, a delete, or discarding unsaved changes.
+  Pickers, menus and help are non-modal overlays.
 - **Don't** animate for decoration. Motion shows state in 120–200 ms, and not
   at all under `prefers-reduced-motion`.
