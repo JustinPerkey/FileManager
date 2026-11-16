@@ -1,6 +1,7 @@
 //! Per-user application directories.
 
 use crate::error::{FmError, Result};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// Root of all persisted app state; each tool gets its own subdirectory.
@@ -53,4 +54,69 @@ pub(crate) fn is_valid_name(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some('a'..='z'))
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// The machine-wide `FileManager` configuration directory. The app only reads
+/// from it (developer tooling may create files there).
+///
+/// - Windows: `<ProgramData>\FileManager`, where `<ProgramData>` is the
+///   `ProgramData` environment variable (normally `C:\ProgramData`); it must be
+///   an absolute path.
+/// - Other platforms (development builds only): `/etc/filemanager`.
+///
+/// # Errors
+///
+/// [`FmError::NoProgramDataDir`] on Windows if the variable is unset, empty or
+/// not absolute.
+pub fn system_config_dir() -> Result<PathBuf> {
+    #[cfg(windows)]
+    {
+        system_config_dir_from(std::env::var_os("ProgramData"))
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(PathBuf::from("/etc/filemanager"))
+    }
+}
+
+/// The Windows rule of [`system_config_dir`], compiled on every platform.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn system_config_dir_from(program_data: Option<OsString>) -> Result<PathBuf> {
+    match program_data {
+        Some(p) if !p.is_empty() && Path::new(&p).is_absolute() => {
+            Ok(PathBuf::from(p).join("FileManager"))
+        }
+        _ => Err(FmError::NoProgramDataDir),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn system_config_dir_from_program_data() {
+        let tmp = tempfile::tempdir().unwrap();
+        let got = system_config_dir_from(Some(tmp.path().as_os_str().to_owned())).unwrap();
+        assert_eq!(got, tmp.path().join("FileManager"));
+        #[cfg(not(windows))]
+        assert_eq!(
+            system_config_dir().unwrap(),
+            PathBuf::from("/etc/filemanager")
+        );
+    }
+
+    #[test]
+    fn system_config_dir_rejects_missing_or_relative() {
+        for v in [
+            None,
+            Some(OsString::new()),
+            Some(OsString::from("relative/dir")),
+        ] {
+            assert!(matches!(
+                system_config_dir_from(v),
+                Err(FmError::NoProgramDataDir)
+            ));
+        }
+    }
 }

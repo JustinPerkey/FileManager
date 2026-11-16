@@ -7,7 +7,7 @@ pub mod hex;
 pub mod store;
 
 pub use atomic::atomic_write;
-pub use dirs::AppDirs;
+pub use dirs::{system_config_dir, AppDirs};
 pub use error::{FmError, Result};
 pub use hex::to_hex;
 pub use store::{StateData, Store, StoreWarning};
