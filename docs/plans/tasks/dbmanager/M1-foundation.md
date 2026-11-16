@@ -1,0 +1,223 @@
+# M1 — `fm-dbmanager` crate, bundled SQLite, and database opening
+
+Status: awaiting approval
+Project: dbmanager   Depends on: none
+
+## Goal
+
+Add the `fm-dbmanager` crate with a statically linked SQLite, a `Database`
+type that opens a user's SQLite file safely, and the tool's remembered state,
+and wire the crate into CI and `CLAUDE.md`.
+
+## Context
+
+FileManager is getting a fourth tool, the **Database Manager** (`dbmanager`):
+the user picks a SQLite file and, optionally, a TOML config that makes some
+tables and fields editable; the app shows tables as lists of objects and
+objects as forms. This milestone lays only the crate and its lowest layer.
+Later milestones add schema introspection, the config, validation, reads,
+writes and the Tauri module.
+
+Follow `CLAUDE.md` "Adding a tool", step 1, and its Invariants. In particular:
+
+- The crate has **no tauri dependency** and depends on no other tool crate
+  (`fm-tarpack`, `fm-schedule`, `fm-pipeline`). It may depend on `fm-core`.
+- `[lints] workspace = true`; `cargo fmt` clean; clippy pedantic with
+  `-D warnings`. Silence only with a scoped
+  `#[expect(clippy::<lint>, reason = "...")]`.
+- Tests that touch the filesystem run in a temp dir they create
+  (`tempfile`, a workspace dependency).
+- Paths are `PathBuf`/`&Path`, never display strings, except where a string
+  is shown to the user.
+
+### Bundled, static SQLite
+
+- Use `rusqlite` with features `bundled` and `backup` (the backup API is used
+  by a later milestone). `bundled` compiles SQLite's C amalgamation through
+  the `cc` crate on every platform, so tests never depend on a system SQLite.
+- Pick the newest `rusqlite` whose declared `rust-version` is not newer than
+  the workspace's `rust-version = "1.90"` (root `Cargo.toml`). Commit the
+  updated `Cargo.lock` (CI runs with `--locked`).
+- `.cargo/config.toml` already sets `+crt-static` for
+  `x86_64-pc-windows-msvc`, so `cc` builds SQLite with `/MT` exactly like
+  zstd and liblzma. Do not set `RUSTFLAGS` anywhere and do not touch
+  `tauri.conf.json`'s `staticVCRuntime`.
+- The Windows CI job runs `dumpbin /dependents` on the exe and fails on a
+  forbidden DLL. Add `sqlite3\S*\.dll` to its regex and to its step name/error
+  text. (The shell will only link this crate's code from a later milestone;
+  the check is in place before then.)
+
+### `Database` (`src/db.rs`)
+
+```rust
+pub struct Database { /* rusqlite::Connection, path, read_only reason */ }
+
+pub enum OpenError {
+    NotAbsolute,          // relative paths resolve against an invisible cwd
+    NotAFile,             // missing, or a directory
+    NotUnicode,           // SQLite on Windows needs a UTF-8 path
+    NotADatabase(String), // SQLite says "file is not a database", or similar
+    Io(String),           // anything else, with SQLite's message
+}
+
+impl Database {
+    pub fn open(path: &Path) -> Result<Database, OpenError>;
+    pub fn path(&self) -> &Path;
+    /// Some(reason) when the file could only be opened read-only.
+    pub fn read_only_reason(&self) -> Option<&str>;
+    pub fn conn(&self) -> &rusqlite::Connection;
+    pub fn conn_mut(&mut self) -> &mut rusqlite::Connection;
+    /// PRAGMA schema_version.
+    pub fn schema_version(&self) -> rusqlite::Result<i64>;
+}
+```
+
+Rules for `open`:
+
+1. `path` must be absolute and an existing regular file; check before calling
+   SQLite.
+2. Open with `SQLITE_OPEN_READ_WRITE` and **without** `SQLITE_OPEN_CREATE`
+   and without `SQLITE_OPEN_URI` (a file name must never be interpreted as a
+   URI). Never create a file.
+3. If read-write fails with `SQLITE_READONLY` or `SQLITE_CANTOPEN` while the
+   file exists, retry with `SQLITE_OPEN_READ_ONLY` and record a reason
+   ("the file or its folder is read-only"). Also treat a read-write open
+   whose first write probe is refused as read-only: after opening, check
+   `conn.is_readonly(DatabaseName::Main)`.
+4. Prove it is a database: `SELECT count(*) FROM sqlite_schema`. A failure
+   (for example SQLITE_NOTADB) is `NotADatabase`.
+5. Apply, in this order: `PRAGMA foreign_keys = ON` (off by default per
+   connection), `busy_timeout` 3000 ms (`conn.busy_timeout`),
+   `PRAGMA trusted_schema = OFF`, and `SQLITE_DBCONFIG_DEFENSIVE` on
+   (`conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)`).
+   **Never change `journal_mode`** or any persistent setting of the file.
+6. A path that is not valid Unicode is `NotUnicode` (check with
+   `path.to_str()` before opening, on every platform).
+
+`OpenError` implements `Display` (a sentence naming the path via
+`path.display()`) and `std::error::Error`. It is not a boundary type; a later
+milestone maps it to the UI error.
+
+### `RememberedState` (`src/state.rs`)
+
+Persisted through `fm_core::Store` (see `crates/fm-core/src/store.rs`) at
+`<app data>/dbmanager/state.json` (tool `"dbmanager"`, name `"state"`).
+
+```rust
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RememberedState {
+    /// Most recent first, unique by database path, at most MAX_RECENT.
+    pub recent: Vec<RecentPair>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentPair { pub database: PathBuf, pub config: Option<PathBuf> }
+pub const MAX_RECENT: usize = 10;
+impl StateData for RememberedState { const SCHEMA_VERSION: u32 = 1; }
+impl RememberedState {
+    /// Moves (database, config) to the front, replacing any entry with the same
+    /// database path; truncates to MAX_RECENT. Paths that are not valid
+    /// Unicode are ignored (the list must stay serialisable).
+    pub fn touch(&mut self, database: &Path, config: Option<&Path>);
+    pub fn forget(&mut self, database: &Path);
+}
+```
+
+"Same database path" compares paths case-insensitively on Windows
+(`#[cfg(windows)]`, ASCII case fold of the `to_str()` form) and exactly
+elsewhere. Do not canonicalise (a file on a missing share must still be
+recognised).
+
+### CI and documentation
+
+- `.github/workflows/ci.yml`, linux job, step "fm-* crates must not depend on
+  tauri": add `fm-dbmanager` to the `for c in ...` list.
+- `.github/workflows/ci.yml`, windows job, dumpbin step: forbid
+  `sqlite3\S*\.dll` too.
+- `CLAUDE.md`:
+  - Status: mention the Database Manager (`dbmanager`) as in progress
+    ("crate only; UI to come" style, matching how the other tools are
+    described).
+  - Layout: add a `crates/fm-dbmanager/` entry ("Database Manager domain
+    library. Depends on fm-core only. No tauri dependency. `db.rs` opens a
+    SQLite file; `state.rs` is the recent list, persisted as dbmanager/state").
+  - Commands → native prerequisites: `fm-dbmanager` depends on `rusqlite`
+    with `bundled`, which compiles SQLite's C source with the same toolchain
+    and static CRT as zstd/liblzma; the dumpbin check forbids `sqlite3*.dll`.
+  - The CI paragraph that lists forbidden DLLs: add `sqlite3*`.
+  - The Linux note that cargo can be scoped to `-p fm-core -p fm-tarpack`:
+    add `-p fm-dbmanager`.
+
+## Files
+
+Create:
+
+- `crates/fm-dbmanager/Cargo.toml` (workspace package fields as in
+  `crates/fm-schedule/Cargo.toml`; deps `fm-core` by path, `rusqlite`
+  (`bundled`, `backup`), `serde` with `derive`; dev-dep `tempfile`
+  (workspace); `[lints] workspace = true`)
+- `crates/fm-dbmanager/src/lib.rs` (module docs: "Database Manager domain
+  library. Must never depend on tauri.")
+- `crates/fm-dbmanager/src/db.rs`, `crates/fm-dbmanager/src/state.rs`, and
+  their tests (inline `#[cfg(test)] mod tests` or `src/tests/…`)
+
+Edit: `Cargo.lock`, `.github/workflows/ci.yml`, `CLAUDE.md`.
+
+Do not touch `apps/desktop/` (no shell dependency yet), any other crate, or
+anything under `docs/plans/`.
+
+## Acceptance criteria
+
+- `cargo build -p fm-dbmanager` compiles SQLite from source (no system
+  library) on Linux.
+- `Database::open` never creates a file: opening a missing path returns
+  `NotAFile` and the path still does not exist afterwards.
+- A text file renamed `.db` fails with `NotADatabase`.
+- After `open`, `PRAGMA foreign_keys` returns 1 and `PRAGMA trusted_schema`
+  returns 0; `PRAGMA journal_mode` is unchanged from before the open (test a
+  database created in WAL mode stays WAL, and one in DELETE stays DELETE).
+- A database file marked read-only (`std::fs::Permissions::set_readonly`)
+  opens with `read_only_reason()` set; a normal one opens with `None`.
+- A relative path is `NotAbsolute`.
+- `RememberedState::touch` keeps most-recent-first order, de-duplicates by
+  database path (replacing the config of the old entry), caps at 10;
+  `forget` removes; a `Store` round trip preserves it.
+- `cargo tree -p fm-dbmanager -i tauri -e normal,build,dev` reports that
+  tauri matches no packages.
+- CI's two edits are present; `CLAUDE.md` describes the crate.
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+  warnings`, and `cargo test --workspace` pass.
+
+## Tests proving completion
+
+In `fm-dbmanager`, each in its own temp dir:
+
+- `open_rejects_relative_path`, `open_missing_file_is_not_created`,
+  `open_directory_is_not_a_file`, `open_non_database_fails`
+- `open_sets_pragmas` (foreign_keys = 1, trusted_schema = 0)
+- `open_preserves_journal_mode_wal`, `open_preserves_journal_mode_delete`
+- `open_readonly_file_falls_back_to_read_only` (skip with a printed note when
+  running as root on Unix, where permissions do not bind)
+- `schema_version_changes_after_ddl`
+- `recent_touch_orders_dedupes_and_caps`, `recent_forget_removes`,
+  `recent_round_trips_through_store`
+
+Run: `cargo test -p fm-dbmanager`, then the full workspace commands in
+`CLAUDE.md`.
+
+## Out of scope
+
+- Schema introspection (M2), the TOML config (M3), values and validation
+  (M4), and anything that reads or writes user tables.
+- Any Tauri, shell, or frontend change. The shell does not depend on the crate
+  yet.
+- The backup itself (the `backup` feature is only enabled here).
+
+## Risks
+
+- `rusqlite`'s MSRV moving past 1.90: pick the version accordingly.
+- `libsqlite3-sys` must pick up `+crt-static` through `cc`; the dumpbin check
+  proves it once the shell links the crate (M10). If the Windows job fails on
+  CRT imports then, the fix is in the build configuration, not by dropping
+  the check.
+- `is_readonly` and the read-only retry must not mask other open failures:
+  only `SQLITE_READONLY`/`SQLITE_CANTOPEN` on an existing file retry.
