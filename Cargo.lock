@@ -1097,9 +1097,12 @@ name = "fm-dbmanager"
 version = "0.1.0"
 dependencies = [
  "fm-core",
+ "regex",
  "rusqlite",
  "serde",
  "tempfile",
+ "toml 1.1.7+spec-1.1.0",
+ "ts-rs",
 ]
 
 [[package]]
