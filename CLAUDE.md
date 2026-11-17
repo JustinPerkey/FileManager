@@ -83,7 +83,7 @@ docs/pipeline.md              the Pipeline's flow and where its step hooks go
 docs/manual/user-manual.md    end-user manual; images/ are its screenshots, regenerated
                               by screenshots/shoot.js (real frontend, mocked backend)
 apps/desktop/
-  package.json, vite.config.ts, tsconfig.json, eslint.config.js, index.html
+  package.json, vite.config.ts, tsconfig.json, .oxlintrc.json, index.html
   src-tauri/                  package and binary name: filemanager
     Cargo.toml                (incl. notify-debouncer-mini: manifest file watcher)
     build.rs                  tauri_build::build()
@@ -135,7 +135,7 @@ npm run tauri:build                                # portable Windows exe (tauri
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings   # includes clippy::pedantic (workspace lints)
 cargo test --workspace
-npm run typecheck && npm run lint && npm run test  # frontend (vitest; lint includes jsx-a11y)
+npm run typecheck && npm run lint && npm run test  # frontend (vitest; lint: oxlint, jsx-a11y)
 UPDATE_GENERATED=1 cargo test -p filemanager --lib generated_types_are_current   # regenerate lib/generated/
 ```
 
