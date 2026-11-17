@@ -1,8 +1,8 @@
 # M2 — Schema introspection and identifier quoting
 
-Status: implemented; the reviewer requested changes. **Run "Review round 1"
-(end of this plan)** on this task plan; the rules below are already corrected
-for it. (Approved 2026-11-17.)
+Status: done (2026-11-17). Review round 1 applied; the reviewer approved.
+Note for M5: a FK to the parent's rowid by name (`REFERENCES parent(rowid)`,
+no alias) gets `target: None`, not `is_key: false`. (Approved 2026-11-17.)
 Project: dbmanager   Depends on: M1 (landed)
 
 ## Goal
