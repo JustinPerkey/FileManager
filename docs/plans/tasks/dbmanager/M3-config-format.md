@@ -1,6 +1,9 @@
 # M3 — Config format: parsing, structural validation, reference doc, examples
 
-Status: approved (2026-11-17) (revised 2026-11-16: editable defaults, durations,
+Status: implemented from an outdated draft; the reviewer requested changes.
+**Run "Review round 1" (end of this plan)** on this task plan; the sections
+above are the approved scope and already include its decisions. (Approved
+2026-11-17; revised 2026-11-16: editable defaults, durations,
 link fields; then the human's final answers: the `pickable` table mode, one
 fixed app-wide config file that reloads automatically, a starter file)
 Project: dbmanager   Depends on: M1 (landed). Can run in parallel with M2.
@@ -117,7 +120,7 @@ pub enum TableMode { Editable, ReadOnly, Hidden, Pickable }   // serde "pickable
 pub enum FieldMode { Editable, ReadOnly, Hidden, CreateOnly }
 pub enum RelationMode { Editable, ReadOnly, Hidden }
 pub enum DurationUnit { Milliseconds, Seconds, Minutes, Hours, Days }
-pub enum TableEntry { Valid(TableConfig), Rejected { name, at, hidden: bool } }
+pub enum TableEntry { Valid(TableConfig), Rejected { name, at, hidden: bool, fields: Vec<FieldEntry> } }
 pub enum FieldEntry { Valid(FieldConfig), Rejected { name, at, hidden: bool } }
 pub enum M2mEntry  { Valid(M2mConfig),   Rejected { name, at } }
 pub struct LabelTemplate { pub parts: Vec<LabelPart> }  // Literal(String) | Column(String)
@@ -128,6 +131,12 @@ pub enum AllowedValues { Integers(Vec<(i64, Option<String>)>), Texts(Vec<(String
 `Rejected` is the **fail-closed** rule. An entry with any error is dropped,
 and its subject becomes **read-only**, not the editable default. It becomes
 hidden instead if the entry's own `mode` key was valid and said `hidden`.
+
+A rejected **table** entry still keeps its parsed field entries in `fields`,
+whether they are valid or rejected. The model uses them only to keep hidden
+fields hidden. Otherwise a table-level typo would reveal a column the user
+had marked `mode = "hidden"`. Every other effect of those field entries is
+dropped, and the table's fields are read-only.
 
 Durations: this milestone checks that a `Bound::Duration` string matches the
 duration grammar (see "Durations" below; write a small parser in
@@ -168,7 +177,13 @@ that a database does not have are warnings, not errors, so one file can
 describe several databases.
 
 UTF-8 TOML, optional BOM. Top-level keys: `version`, `defaults`, `tables`,
-`many_to_many`. Any other key is an error and is ignored.
+`many_to_many`.
+
+Any other top-level key (for example the typo `[table.secrets]`) is an error,
+is ignored, and **narrows all three defaults to `read-only`**, as a
+wrong-typed `defaults`, `tables` or `many_to_many` does. A misspelt section
+could otherwise leave the tables it meant to restrict editable. Entries that
+parsed correctly still apply.
 
 - `version = 1`. If it is missing: a warning, read as 1. Any other value: an
   error. The whole config is ignored and **everything is read-only** until it
@@ -249,8 +264,8 @@ field entry:
 - a duration bound string that does not match the duration grammar;
 - a `pattern` that Rust's `regex` crate cannot compile when anchored;
 - `allowed` that is empty, mixes strings and integers, contains a duplicate
-  value, has an inline table with keys other than `value`/`label`, or is
-  missing a `value`;
+  value, has an inline table with keys other than `value`/`label`, is
+  missing a `value`, or has an empty (all-whitespace) `label`;
 - an empty (all-whitespace) `display_name`, `help`, `description` or
   `object_name`.
 
@@ -457,7 +472,8 @@ for hidden). The database always opens and can be browsed.
 | TOML syntax error, `version` ≠ 1 | error | whole config ignored; everything read-only (fail closed) |
 | invalid `[defaults]` | error | all defaults `read-only` |
 | missing `version` | warning | read as 1 |
-| unknown key, wrong type, invalid value (any rule above) | error | that table/field/relation entry rejected: its subject is read-only |
+| unknown top-level key, or a wrong-typed `defaults`/`tables`/`many_to_many` | error | ignored; all defaults narrowed to `read-only`; valid entries still apply |
+| unknown key, wrong type, invalid value (any rule above) | error | that table/field/relation entry rejected: its subject is read-only; a rejected table keeps its fields' `hidden` |
 | unknown table, field, or junction | warning | entry ignored |
 | names a view, virtual, shadow or internal table | warning | entry ignored |
 | bound, `type` or `unit` not valid for the field's kind or affinity, or set on a foreign-key field | error | field read-only |
@@ -699,3 +715,102 @@ Run `cargo test -p fm-dbmanager`, then the workspace commands in `CLAUDE.md`.
   exact, because later milestones point at it.
 - Editable defaults make a missing entry permissive. The doc's Defaults
   section must say so plainly, and show the one-line read-only alternative.
+
+## Review round 1
+
+**The first run implemented an outdated draft of this plan.** The approved
+scope above is authoritative. Bring the implementation up to it, and apply
+the review decisions below, in one run.
+
+### Missing approved scope (add all of it)
+
+- **`TableMode::Pickable`** (serde `"pickable"`):
+  - it is valid as a table `mode`;
+  - `[defaults] table_mode = "pickable"` is an error that invalidates
+    `[defaults]`, so all defaults become read-only;
+  - test `pickable_mode`.
+- **`examples/dbmanager/starter.toml`:** commented and inert, as specified
+  under "Examples", with test `starter_is_inert`.
+- **`examples/dbmanager/example.toml`:** `publisher` gets `mode =
+  "pickable"`. The doc's copy of the example changes too, so
+  `doc_contains_example` keeps passing.
+- **`docs/dbmanager-config.md`, "File" section,** as specified above. It
+  covers:
+  - the fixed location (Windows and other platforms);
+  - that the app only reads the file;
+  - developer mode's **Edit config** and the starter file;
+  - automatic reload, with drafts kept and re-checked;
+  - one config for all databases;
+  - the "no config in use" notice when the file is missing;
+  - the fail-closed cases.
+- **The Tables `mode` row** with `pickable`, and **the pickable diagnostics
+  rows**, as in the tables above.
+- **`CLAUDE.md`:** list `examples/dbmanager/starter.toml` in the layout.
+
+### Review decisions
+
+**R1 — a rejected table keeps its hidden fields** (plan gap).
+
+- `TableEntry::Rejected` gains `fields: Vec<FieldEntry>`, the table's field
+  entries as parsed: valid or rejected, each with its own `hidden` flag.
+- Test `rejected_table_keeps_field_entries`. In it,
+  `[tables.author] mode = "editable"` and `bogus = 1` sit together with
+  `[tables.author.fields.internal_note] mode = "hidden"`. Assert:
+  - the table is `Rejected`;
+  - its `fields` contain `internal_note` with hidden mode;
+  - the error is reported at `bogus`.
+- The model milestone applies this. A field whose entry asks for `hidden`
+  stays hidden, and everything else in the table is read-only.
+
+**R2 — an unknown top-level key narrows the defaults.**
+
+- Any unknown top-level key is an error, as before. It now also narrows all
+  three defaults to `read-only`, the same as a wrong-typed `defaults`,
+  `tables` or `many_to_many` section. The diagnostics row and the File
+  section above already say so.
+- Test `unknown_top_level_key_narrows_defaults`. `[table.secrets] mode =
+  "hidden"` gives:
+  - one error at `table`;
+  - `Defaults` all `ReadOnly`;
+  - other valid entries kept.
+
+**R3 — `allowed` labels must not be empty.**
+
+- An all-whitespace `label` in an `allowed` inline table is an error that
+  rejects the field entry. This matches `display_name`.
+- Extend `allowed_invalid` with this case.
+
+**R4 — `CLAUDE.md` alignment.** The `src/config/` layout line is out by two
+columns. Align its description column with the neighbouring lines. Only the
+whitespace changes.
+
+### Accepted implementer choices (record only; do not change)
+
+- `Option<Located<T>>` for optional settings. It records explicit-vs-inherited
+  and the position.
+- A wrong-typed top-level section narrows the defaults to read-only.
+- A non-integer `version` fails closed.
+- NaN, infinite and overflowing numeric bounds are errors.
+- Duration `min > max` is checked only when both bounds have the same form.
+- A scoped `#[expect(clippy::large_enum_variant, reason = …)]`.
+- Cross-key error positions:
+  - `min > max` is reported at `min`;
+  - `min_length > max_length` at `min_length`;
+  - `unit` without a duration type at `unit`.
+- The duration grammar lives in `src/config/duration.rs` until the rules
+  milestone moves it to `src/rules/duration.rs`.
+
+### Acceptance criteria (review round 1)
+
+- Everything in "Missing approved scope" is present.
+- `pickable_mode`, `starter_is_inert`, `doc_contains_example` (with the
+  pickable publisher), `rejected_table_keeps_field_entries`,
+  `unknown_top_level_key_narrows_defaults` and the extended `allowed_invalid`
+  pass, as do all existing tests.
+- The doc's File section, Tables `mode` row and diagnostics table match this
+  plan.
+- `CLAUDE.md` lists `starter.toml`, and the `src/config/` line is aligned.
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+  warnings` and `cargo test --workspace` pass.
+- The diff goes back to the reviewer.
+

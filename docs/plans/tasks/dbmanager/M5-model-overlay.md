@@ -45,7 +45,8 @@ Builds on:
 - M3, `src/config/`:
   - `parse`, `ConfigReport`, `Config`;
   - `Defaults { table_mode, field_mode, relation_mode }`;
-  - `TableEntry`/`FieldEntry`/`M2mEntry` (`Valid` | `Rejected { hidden }`),
+  - `TableEntry`/`FieldEntry`/`M2mEntry` (`Valid` | `Rejected { hidden }`; a
+    rejected table also carries `fields: Vec<FieldEntry>`),
     with explicit-vs-inherited flags on `mode`, `allow_create` and
     `allow_delete`;
   - `Config::fail_closed()` (all defaults read-only, used after a syntax
@@ -68,7 +69,15 @@ Rules that bind this task:
   entry would have.
   - A rejected or erroneous field is read-only, even though the default is
     editable. It is hidden only if its own valid entry asked for hidden.
-  - A rejected table entry makes the table read-only.
+  - A rejected table entry makes the table read-only (or hidden, if it
+    validly asked for hidden). **Its field entries, kept in
+    `TableEntry::Rejected.fields`, still hide their fields:** a field whose
+    entry (valid or rejected) asks for `hidden` stays hidden, and every other
+    field of the table is read-only. A table-level typo must never reveal a
+    hidden column.
+  - Diagnostics that narrow the defaults (an unknown top-level key, a
+    wrong-typed `defaults`/`tables`/`many_to_many`) arrive as read-only
+    `Defaults`. Apply them like any defaults.
   - A rejected relation entry makes the relation read-only.
 - **Hidden never leaks.**
   - Hidden fields are absent from every view.
@@ -427,6 +436,12 @@ resolve with zero diagnostics, and:**
   - `forced_read_only_inherited_is_silent`
   - `primary_key_inherited_becomes_create_only`
   - `fail_closed_rejected_table`
+  - `rejected_table_keeps_hidden_fields`: with `[tables.author]` carrying an
+    unknown key and `internal_note` set to `mode = "hidden"`, `author` is
+    read-only, `internal_note` is absent from `TableView.fields`, and the
+    other fields are read-only
+  - `unknown_top_level_key_is_read_only_policy`: `[table.secrets]` makes
+    every unconfigured table read-only
   - `fail_closed_rejected_field`
   - `field_in_read_only_table_warns`
 - Rules:
