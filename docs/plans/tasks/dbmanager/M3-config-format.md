@@ -1,6 +1,6 @@
 # M3 — Config format: parsing, structural validation, reference doc, examples
 
-Status: awaiting approval (revised 2026-11-16: editable defaults, durations,
+Status: approved (2026-11-17) (revised 2026-11-16: editable defaults, durations,
 link fields; then the human's final answers: the `pickable` table mode, one
 fixed app-wide config file that reloads automatically, a starter file)
 Project: dbmanager   Depends on: M1 (landed). Can run in parallel with M2.
