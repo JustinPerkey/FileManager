@@ -1,8 +1,11 @@
 # M3 — Config format: parsing, structural validation, reference doc, examples
 
-Status: implemented from an outdated draft; the reviewer requested changes.
-**Run "Review round 1" (end of this plan)** on this task plan; the sections
-above are the approved scope and already include its decisions. (Approved
+Status: done (2026-11-17). Review round 1 applied; the reviewer approved.
+Open nits for later milestones: re-wrap two long prose lines in
+`docs/dbmanager-config.md` (M12); phrase the starter-file location for end
+users (M12); `starter.toml` shows `pickable` only in prose and its duration
+sample uses an invented `talk_length` column; `example_parses_clean` does not
+assert `publisher` is `Pickable`. (Approved
 2026-11-17; revised 2026-11-16: editable defaults, durations,
 link fields; then the human's final answers: the `pickable` table mode, one
 fixed app-wide config file that reloads automatically, a starter file)
