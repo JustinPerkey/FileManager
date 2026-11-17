@@ -105,7 +105,10 @@
     "no-unused-expressions": "error",
     "no-unused-labels": "error",
     "no-unused-private-class-members": "error",
-    "no-unused-vars": "error",
+    "no-unused-vars": [
+      "error",
+      { "varsIgnorePattern": "^$", "argsIgnorePattern": "^$" }
+    ],
     "no-useless-assignment": "error",
     "no-useless-backreference": "error",
     "no-useless-catch": "error",
