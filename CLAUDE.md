@@ -55,7 +55,7 @@ crates/
                               duration.rs (the duration grammar, parse, format; config
                               reuses the grammar)
     src/config/               the TOML config overlay: parse (text -> Config with
-                              line/col diagnostics), model, duration grammar. Checks
+                              line/col diagnostics), model, validation. Checks
                               what the text alone shows; schema-dependent rules come later
   fm-tarpack/                 Tar Packager domain library. Depends on fm-core only.
                               No tauri dependency.
@@ -75,12 +75,12 @@ crates/
                               subdirectories() lists the units of work; one hook
                               per step (verify, batch, schedule, tarpack), all
                               stubs returning StepError::NotImplemented
-examples/dbmanager/           example config and schema, plus validation-cases.json: the
-                              shared validate vectors (Rust test now, vitest mirror later)
 examples/tarpack/             example manifests, valid, used by tests through include_str!
-examples/dbmanager/           schema.sql (example database), example.toml (its config) and
-                              starter.toml (the inert commented starter file); used by
-                              tests through include_str!
+examples/dbmanager/           schema.sql (example database), example.toml (its config),
+                              starter.toml (the inert commented starter file), and
+                              validation-cases.json (the shared validate vectors: Rust
+                              test now, vitest mirror later); used by tests through
+                              include_str!
 docs/tarpack-manifest.md      the manifest, archive-layout, and extraction reference
 docs/tarpack-e2e.md           manual end-to-end release checklist (Windows exe to Linux target)
 docs/dbmanager-config.md      the Database Manager config reference (the format's only home)
