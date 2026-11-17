@@ -117,24 +117,26 @@ fn read_table(
     let mut pk: Vec<(u32, usize)> = Vec::new();
     {
         let mut stmt = conn.prepare(
-            "SELECT name, type, \"notnull\", dflt_value, pk, hidden \
+            "SELECT cid, name, type, \"notnull\", dflt_value, pk, hidden \
              FROM pragma_table_xinfo(?1, 'main') ORDER BY cid",
         )?;
         let rows = stmt.query_map([&e.name], |r| {
             Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, Option<String>>(1)?,
-                r.get::<_, i64>(2)? != 0,
-                r.get::<_, Option<String>>(3)?,
-                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, i64>(3)? != 0,
+                r.get::<_, Option<String>>(4)?,
                 r.get::<_, i64>(5)?,
+                r.get::<_, i64>(6)?,
             ))
         })?;
         for row in rows {
-            let (name, ty, not_null, default_sql, pk_pos, hidden) = row?;
-            if hidden == 1 {
-                continue;
-            }
+            let (cid, name, ty, not_null, default_sql, pk_pos, hidden) = row?;
+            // Columns are addressed by position, which must equal `cid`.
+            // Hidden (virtual-table) columns would break that, but virtual
+            // tables are skipped before we get here.
+            debug_assert_eq!(usize::try_from(cid).ok(), Some(columns.len()));
             let declared_type = ty.unwrap_or_default();
             let pk_position = u32::try_from(pk_pos).ok().filter(|p| *p > 0);
             if let Some(p) = pk_position {
@@ -160,11 +162,17 @@ fn read_table(
             columns: primary_key.clone(),
         }
     } else {
+        // `INTEGER PRIMARY KEY DESC` is not an alias: SQLite gives it an
+        // automatic index with origin 'pk'.
+        let pk_index: bool = conn
+            .prepare("SELECT 1 FROM pragma_index_list(?1, 'main') WHERE origin = 'pk'")?
+            .exists([&e.name])?;
         let alias_column = match primary_key.as_slice() {
-            [i] if columns[*i]
-                .declared_type
-                .trim()
-                .eq_ignore_ascii_case("INTEGER") =>
+            [i] if !pk_index
+                && columns[*i]
+                    .declared_type
+                    .trim()
+                    .eq_ignore_ascii_case("INTEGER") =>
             {
                 Some(*i)
             }
@@ -213,7 +221,9 @@ fn read_unique_keys(
 ) -> rusqlite::Result<Vec<Vec<usize>>> {
     let mut keys: Vec<Vec<usize>> = Vec::new();
     if !primary_key.is_empty() {
-        keys.push(primary_key.to_vec());
+        let mut pk = primary_key.to_vec();
+        pk.sort_unstable();
+        keys.push(pk);
     }
     let names: Vec<String> = conn
         .prepare(
@@ -228,6 +238,10 @@ fn read_unique_keys(
             .query_map([&name], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
         let key: Option<Vec<usize>> = cids.into_iter().map(index).collect();
+        let key = key.map(|mut k| {
+            k.sort_unstable();
+            k
+        });
         if let Some(key) = key.filter(|k| !k.is_empty()) {
             if !keys.contains(&key) {
                 keys.push(key);
@@ -284,6 +298,11 @@ fn read_foreign_keys(
         let fk = fks.last_mut().expect("just pushed");
         if let Some(i) = from_idx {
             fk.from.push(i);
+        } else {
+            // SQLite guarantees the FK's `from` column exists, so a miss
+            // means introspection is wrong, not the database. Skip it in
+            // release builds, fail loudly in debug builds.
+            debug_assert!(false, "FK column {from:?} not found in table {table:?}");
         }
         if let Some(to) = to {
             fk.to_columns.push(to);
@@ -315,7 +334,16 @@ fn resolve_targets(schema: &mut Schema) {
                 let pt = &schema.tables[p];
                 let cols: Option<Vec<usize>> = to_columns.iter().map(|c| pt.column(c)).collect();
                 cols.filter(|c| !c.is_empty() && c.len() == fk.from.len())
-                    .map(|columns| FkTarget { table: p, columns })
+                    .map(|columns| {
+                        let mut set = columns.clone();
+                        set.sort_unstable();
+                        let is_key = pt.unique_keys.contains(&set);
+                        FkTarget {
+                            table: p,
+                            columns,
+                            is_key,
+                        }
+                    })
             });
             resolved.push((ti, fi, to_columns, target));
         }

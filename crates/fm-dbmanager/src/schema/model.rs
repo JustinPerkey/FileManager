@@ -39,6 +39,8 @@ pub struct Table {
     pub identity: Identity,
     pub foreign_keys: Vec<ForeignKey>,
     /// Column indexes of each unique key; the primary key counts as one.
+    /// Keys are sets: each is sorted by column index, its order is not
+    /// meaningful, and equal sets appear once.
     pub unique_keys: Vec<Vec<usize>>,
     pub has_triggers: bool,
 }
@@ -121,6 +123,10 @@ pub struct FkTarget {
     /// Index into `Schema::tables`.
     pub table: usize,
     pub columns: Vec<usize>,
+    /// The referenced columns, as a set, equal the parent's primary key or
+    /// one of its unique keys. When false, `SQLite` raises "foreign key
+    /// mismatch" on any write that touches the FK.
+    pub is_key: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

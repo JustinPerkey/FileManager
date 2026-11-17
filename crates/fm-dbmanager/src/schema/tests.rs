@@ -89,8 +89,22 @@ fn rowid_alias_detection() {
         "CREATE TABLE a (id INTEGER PRIMARY KEY, v);
          CREATE TABLE b (id INT PRIMARY KEY, v);
          CREATE TABLE c (x INTEGER, y INTEGER, PRIMARY KEY (x, y));
-         CREATE TABLE d (id INTEGER PRIMARY KEY) WITHOUT ROWID;",
+         CREATE TABLE d (id INTEGER PRIMARY KEY) WITHOUT ROWID;
+         CREATE TABLE t (id INTEGER PRIMARY KEY DESC, x);
+         INSERT INTO t(x) VALUES (1);",
     );
+    let t = s.table("t").unwrap();
+    assert!(!t.columns[0].is_rowid_alias);
+    match &t.identity {
+        Identity::Rowid {
+            accessor,
+            alias_column,
+        } => {
+            assert_eq!(*alias_column, None);
+            assert_eq!(accessor.as_str(), "rowid");
+        }
+        Identity::PrimaryKey { .. } => panic!(),
+    }
     assert!(s.table("a").unwrap().columns[0].is_rowid_alias);
     assert!(!s.table("b").unwrap().columns[0].is_rowid_alias);
     assert!(s
@@ -156,7 +170,8 @@ fn foreign_keys_grouped_and_resolved() {
         multi.target,
         Some(FkTarget {
             table: 0,
-            columns: vec![0, 1]
+            columns: vec![0, 1],
+            is_key: true
         })
     );
     let single = child
@@ -257,4 +272,78 @@ fn awkward_identifiers_round_trip() {
 fn quoted_doubles_quotes() {
     let s = schema_of("CREATE TABLE \"a\"\"b\" (x);");
     assert_eq!(s.tables[0].name.quoted(), "\"a\"\"b\"");
+}
+
+#[test]
+fn rowid_alias_desc_null_key() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = open(
+        tmp.path(),
+        "CREATE TABLE t (id INTEGER PRIMARY KEY DESC, x); INSERT INTO t(x) VALUES (1);",
+    );
+    let row: (Option<i64>, i64) = db
+        .conn()
+        .query_row("SELECT id, rowid FROM t", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(row, (None, 1));
+}
+
+#[test]
+fn rowid_alias_asc_explicit() {
+    let s = schema_of("CREATE TABLE t (id INTEGER PRIMARY KEY ASC, x);");
+    let t = s.table("t").unwrap();
+    assert!(t.columns[0].is_rowid_alias);
+    assert!(matches!(
+        t.identity,
+        Identity::Rowid {
+            alias_column: Some(0),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn unique_keys_deduplicated_as_sets() {
+    let s = schema_of(
+        "CREATE TABLE t (a, b, c, UNIQUE (a, b), UNIQUE (b, a), PRIMARY KEY (c, a));
+         CREATE UNIQUE INDEX i ON t (a, c);",
+    );
+    let mut keys = s.table("t").unwrap().unique_keys.clone();
+    keys.sort();
+    assert_eq!(keys, [vec![0, 1], vec![0, 2]]);
+}
+
+#[test]
+fn fk_target_is_key() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("t.db");
+    rusqlite::Connection::open(&p)
+        .unwrap()
+        .execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             CREATE TABLE parent (id INTEGER PRIMARY KEY, u UNIQUE, n);
+             CREATE TABLE child (a, b, c,
+                 FOREIGN KEY (a) REFERENCES parent (id),
+                 FOREIGN KEY (b) REFERENCES parent (u),
+                 FOREIGN KEY (c) REFERENCES parent (n));",
+        )
+        .unwrap();
+    let s = introspect(&Database::open(&p).unwrap()).unwrap();
+    let key_of = |from: usize| {
+        s.table("child")
+            .unwrap()
+            .foreign_keys
+            .iter()
+            .find(|f| f.from == [from])
+            .unwrap()
+            .target
+            .as_ref()
+            .unwrap()
+            .is_key
+    };
+    assert!(key_of(0));
+    assert!(key_of(1));
+    assert!(!key_of(2));
 }

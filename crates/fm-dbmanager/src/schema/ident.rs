@@ -10,7 +10,10 @@ use std::fmt;
 pub struct Ident(String);
 
 impl Ident {
-    pub(crate) fn new(name: String) -> Ident {
+    /// No code outside `src/schema/` may construct an `Ident`; the compiler
+    /// enforces this. Later modules only ever receive `&Ident` from the
+    /// schema.
+    pub(in crate::schema) fn new(name: String) -> Ident {
         Ident(name)
     }
 
