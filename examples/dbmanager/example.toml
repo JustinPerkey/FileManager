@@ -1,0 +1,172 @@
+# Database Manager config for the library database in schema.sql.
+#
+# The database supplies table structure, column types and foreign keys. This
+# file is an overlay: it says what is editable, read-only or hidden, and adds
+# labels, bounds and durations. Anything it does not mention is editable
+# (except columns that can never be edited, such as a rowid).
+
+version = 1
+
+# What applies to every table, field and many-to-many relation not mentioned
+# below. These are the built-in values, written out for the reader. To make the
+# whole database read-only unless stated otherwise, use one line instead:
+#   table_mode = "read-only"
+[defaults]
+table_mode = "editable"
+field_mode = "editable"
+relation_mode = "editable"
+
+# --- author ---------------------------------------------------------------
+[tables.author]
+display_name = "Authors"
+object_name = "author"                     # "New author"
+label = "{last_name}, {first_name}"        # an author's title in lists and links
+order_by = ["last_name", "first_name"]
+allow_delete = true                        # off unless asked for
+
+[tables.author.fields.first_name]
+min_length = 1
+max_length = 100
+
+[tables.author.fields.last_name]
+min_length = 1
+max_length = 100
+
+[tables.author.fields.born]
+min = 1000
+max = 2100
+
+[tables.author.fields.internal_note]
+mode = "hidden"                            # never shown
+
+# --- book -----------------------------------------------------------------
+[tables.book]
+object_name = "book"
+label = "{title}"
+allow_delete = true
+field_order = ["title", "author_id", "isbn", "format"]   # these first
+
+[tables.book.fields.title]
+max_length = 200
+
+[tables.book.fields.isbn]
+mode = "create-only"                       # set when creating, read-only after
+display_name = "ISBN"
+help = "13 digits, starting 978 or 979."
+pattern = '97[89][0-9]{10}'                # the whole value must match
+
+[tables.book.fields.author_id]
+display_name = "Author"
+
+[tables.book.fields.publisher_id]
+display_name = "Publisher"
+
+[tables.book.fields.format]
+allowed = [
+  { value = "hardcover", label = "Hardcover" },
+  { value = "paperback", label = "Paperback" },
+  { value = "ebook", label = "E-book" },
+]
+
+[tables.book.fields.pages]
+min = 1
+max = 10000
+
+[tables.book.fields.price]
+min = 0.0
+max = 1000.0
+
+[tables.book.fields.in_print]
+display_name = "In print"
+
+# A duration is stored as an integer count of its unit (here seconds) and
+# shown as, for example, 7h30m.
+[tables.book.fields.audio_length]
+type = "duration"
+unit = "seconds"
+min = "1m"
+max = "100h"
+display_name = "Audiobook length"
+
+[tables.book.fields.summary]
+multiline = true
+max_length = 4000
+
+[tables.book.fields.revision]
+mode = "read-only"
+
+# --- genre ----------------------------------------------------------------
+# No label: the default is the `name` column. Delete is off by default.
+[tables.genre]
+object_name = "genre"
+
+[tables.genre.fields.code]
+mode = "create-only"
+pattern = '[a-z-]+'
+max_length = 20
+
+# --- publisher ------------------------------------------------------------
+# A lookup table: books can pick a publisher, but nothing here changes.
+[tables.publisher]
+display_name = "Publishers"
+object_name = "publisher"
+mode = "read-only"
+
+# --- member ---------------------------------------------------------------
+[tables.member]
+object_name = "member"
+allow_delete = true
+
+[tables.member.fields.name]
+min_length = 1
+
+[tables.member.fields.email]
+pattern = '[^@\s]+@[^@\s]+'
+max_length = 254
+
+# --- loan -----------------------------------------------------------------
+[tables.loan]
+object_name = "loan"
+allow_delete = true
+
+[tables.loan.fields.book_id]
+display_name = "Book"
+
+[tables.loan.fields.member_id]
+display_name = "Member"
+
+[tables.loan.fields.loan_period]
+type = "duration"
+unit = "seconds"
+min = "1d"
+max = "90d"
+display_name = "Loan period"
+
+[tables.loan.fields.returned]
+type = "bool"                              # an INTEGER column holding 0 or 1
+
+# --- audit_log ------------------------------------------------------------
+[tables.audit_log]
+mode = "hidden"
+
+# --- many-to-many ---------------------------------------------------------
+# book_genre is detected as many-to-many without any entry; this one only names
+# the checklist headings (keyed by the table each checklist appears on).
+[many_to_many.book_genre]
+headings = { book = "Genres", genre = "Books" }
+
+# contribution has extra columns, so it must be declared. Its other columns
+# (role, position) are the link fields, configured like any field.
+[many_to_many.contribution]
+headings = { book = "Contributors", author = "Contributions" }
+
+[tables.contribution.fields.role]
+allowed = [
+  { value = "editor", label = "Editor" },
+  { value = "translator", label = "Translator" },
+  { value = "illustrator", label = "Illustrator" },
+]
+
+[tables.contribution.fields.position]
+min = 1
+max = 99

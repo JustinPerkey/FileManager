@@ -8,9 +8,12 @@ publish.workspace = true
 
 [dependencies]
 fm-core = { path = "../fm-core" }
+regex = "1"
 rusqlite = { version = "0.43", features = ["bundled", "backup"] }
 serde = { version = "1", features = ["derive"] }
 tempfile = { workspace = true }
+toml = { version = "1.1.6", features = ["parse", "serde"] }
+ts-rs = { workspace = true }
 
 [lints]
 workspace = true
