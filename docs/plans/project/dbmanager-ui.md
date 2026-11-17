@@ -1,9 +1,20 @@
 # UI project plan: the Database Manager view
 
 Status: **awaiting approval.** Written 2026-11-16 by the `ui-designer`.
+Revised the same day for the human's final answers and the planner's contract
+revision (`dbmanager.md` §2.4, §2.7–§2.11, §7.1):
+
+- one fixed app-wide config, which reloads by itself;
+- pickable tables;
+- recent databases instead of database/config pairs;
+- `configHash` on every write;
+- developer-mode Edit config (M13);
+- a prompt on closing the window with unsaved edits (M14, new task U13).
+
+The human confirmed this plan's design questions (§11).
 Backend project plan: [`dbmanager.md`](dbmanager.md) (its §7 is the handoff
 this plan answers). Task plans: [`../tasks/dbmanager/`](../tasks/dbmanager/)
-`U1`–`U12`.
+`U1`–`U13`.
 
 **Method.** `impeccable` 4.9.0. The launcher (`impeccable context`) ran from
 `apps/desktop` and loaded the root `PRODUCT.md` and `DESIGN.md`; no surface
@@ -17,14 +28,17 @@ structured question tool and no decision page, so the discovery round and the
 structure lock could not be put to the human. Discovery was answered from the
 backend plan's §1 and §7 (the human's own answers are recorded there), and the
 structure was chosen by the designer (§1.1). Assumptions are marked
-*(assumed)*. §11 asks the human to confirm or steer them.
+*(assumed)*. The human has since confirmed the structure and every open
+design question (§11).
 
 **Stack (decided).** Tauri v2 shell; React + TypeScript + Vite in
 `apps/desktop/src/`; tokens in `apps/desktop/src/styles/tokens.css`. The
 backend `implementer` owns `apps/desktop/src/lib/`; the `ui-implementer` owns
 the rest of `apps/desktop/src/`. **No U task starts before M10 lands.** Inline
 validation uses M11's `lib/dbmanagerValidation.ts`, so U5 onwards also depend
-on M11. M12 (docs, manual, screenshots) runs after U12.
+on M11. The config reload event and Edit config come from **M13**, and the
+window-close wrappers from **M14**. M12 (docs, manual, screenshots) runs after
+the last U task.
 
 ## 1. Design brief
 
@@ -39,10 +53,13 @@ on M11. M12 (docs, manual, screenshots) runs after U12.
    shown as the referenced object's **label** (never a bare id), the object's
    whole neighbourhood (what it points to, what points to it, what it is linked
    with) on one sheet, unsaved changes marked field by field, and a delete that
-   lists exactly what else goes with it. What is uniquely true here: the config
-   decides what is editable, so the sheet must show *why* a field is read-only,
-   and an unconfigured database is fully editable, so the editable state is the
-   calm default and read-only is the marked exception.
+   lists exactly what else goes with it. What is uniquely true here:
+   - **one app-wide config** decides what is editable. It lives at
+     `%ProgramData%\FileManager\dbmanager.toml`, the user never chooses it,
+     and it reloads by itself;
+   - so the sheet must show *why* a field is read-only;
+   - without a config file everything is editable, so the editable state is
+     the calm default, and read-only is the marked exception.
 3. **Selected direction.** Extend the established world. Structure (§1.1): a
    **master–detail editor** of up to three panes, *Tables | Objects | Object
    sheet*, collapsing to two and then one as the window narrows. Navigation is
@@ -77,9 +94,10 @@ on M11. M12 (docs, manual, screenshots) runs after U12.
    - Many-to-many: the other side may have thousands of objects (paged, 25 per
      page), any number linked, 0 to about 6 link fields.
    - Delete impact: 0 to 10 000+ affected rows across many groups.
-   - Session states: nothing open, opening, open, read-only database, config
-     diagnostics, config failed closed (everything read-only), config changed
-     on disk, schema changed, busy, restore failed.
+   - Session states: nothing open, opening, open, read-only database, the
+     config (loaded with diagnostics / missing / failed closed, so everything
+     is read-only), config reloaded automatically, schema changed, busy,
+     restore failed.
 6. **Interaction and layout.** §2 (layout) and §3 (interaction model).
 7. **Constraints and open decisions.** WCAG 2.2 AA; keyboard first; 800×560
    minimum window; 200% text; light and dark; the CSP and capabilities do not
@@ -140,19 +158,37 @@ The human may steer this choice (§11, question 1).
    - `h1`: the database file name ("library.db"), or "Database Manager" when
      nothing is open.
    - Under it: the full database path, in mono at `--font-size-sm` and
-     `--text-muted`, wrapping (`overflow-wrap: anywhere`); the config line
-     ("Config: library.toml" or "No config: everything is editable unless
-     the database prevents it"); a **Read-only** tag when the database is open
-     read-only; and the backup line once a backup exists ("Backup:
-     library.db.20261116T101500Z.bak", full path in `title` and visually hidden
-     text).
+     `--text-muted`, wrapping (`overflow-wrap: anywhere`).
+   - The **config status line** comes from `session.config`, and shows even
+     when no database is open. It is a status, not a choice:
+
+     | `config.status` | Line |
+     | --- | --- |
+     | `loaded` | "Config: " + the path in mono |
+     | `missing` | "No config file: everything is editable unless the database prevents it." |
+     | `failClosed` | "Config: {path} has a problem, so everything is read-only." When `path` is null: "Config location unknown, so everything is read-only." |
+
+   - A **Read-only** tag when the database is open read-only.
+   - The backup line once a backup exists ("Backup:
+     library.db.20261116T101500Z.bak", full path in `title` and visually
+     hidden text).
    - Actions on the right, wrapping onto a second line when narrow: **Open
-     database…**, **Recent** (menu), **Config** (menu: Choose config…, Open
-     without config), **Reload**, **Close database**, **Keyboard shortcuts**.
-2. **Banners**, in a fixed order: command error; config failed closed
-   (everything read-only); config changed on disk; schema changed; read-only
-   database; state warning; backup created; deleted. Then the **config
-   problems** panel (diagnostics) when there are any.
+     database…**, **Recent** (a menu of recent databases), **Reload**,
+     **Close database**, **Edit config** (developer mode only,
+     `useDevMode()`), **Keyboard shortcuts**.
+2. **Banners**, in a fixed order:
+   1. command error;
+   2. config failed closed (everything read-only);
+   3. no config file (calm, info, dismissible per session, no prompt);
+   4. config changed on disk (the fallback, only when the watcher missed it);
+   5. schema changed;
+   6. read-only database;
+   7. state warning;
+   8. notices: config reloaded, backup created, deleted, starter config
+      created.
+
+   Then the **config problems** panel (diagnostics), when there are any,
+   with a database open or not.
 3. **Workspace**, the only region that grows: the panes (2.2).
 
 ### 2.2 Panes and breakpoints
@@ -258,20 +294,29 @@ call `resetDbmanagerStore()`.
   - body "Your changes to “Dune” are not saved. If you leave now, they are
     discarded.";
   - **Keep editing** (focused), **Discard changes** (danger variant).
-- **Reload, a config change (Choose config…, Open without config, a dropped
-  `.toml`) and resolving a schema change keep the draft.** The view re-reads
-  the object afterwards:
+- **Reload, the automatic config reload (`onConfigChanged`, M13), a
+  `ConfigChangedOnDisk` refusal and resolving a schema change keep the
+  draft.** The view re-reads the session and the object afterwards:
   - same version → the draft is rebased; edits to fields that are gone or no
     longer editable are dropped, and a notice lists them;
   - a different version → the conflict panel;
   - the object or table is gone → the draft is dropped with a notice.
 
-  The view is built this way because saving is refused until the user reloads
-  (`ConfigChangedOnDisk`), so a reload that discarded edits would punish the
-  user for doing what the app asked.
-- Closing the app window with a dirty draft loses it without a prompt (the
-  window close event needs a capability the CSP plan does not grant; nothing
-  is written, so this is the safe direction). §11, question 4.
+  The user did not cause the reload, so it must never cost them their work.
+  Each re-check ends in one notice:
+  - "The config was reloaded." when the draft is unaffected;
+  - "The config was reloaded. These changes no longer apply and were removed:
+    {names}." when edits were dropped.
+- **Closing the window with a dirty draft asks** (U13, M14):
+  - the shared `CloseGuard` in the app shell asks every registered tool
+    whether it has unsaved work, through `guardWindowClose`;
+  - if any tool does, the window stays open and the dialog "Close FileManager
+    with unsaved changes?" opens. Its body names the tool and the object
+    ("Database Manager: your changes to “Dune” are not saved."), with **Keep
+    editing** (focused) and **Close without saving** (danger), which calls
+    `closeWindow()`.
+  - The guard works even when another tool is showing, because the draft
+    lives in the store.
 
 ### 3.4 Fields
 
@@ -342,6 +387,8 @@ value, a hint line, and then issues and problems.
   plus the problem line.
 - **Not navigable** (the target is hidden): the stored value in mono and "(in
   a table that is not shown)". There is no link.
+- **A pickable target** (a lookup table, `TableView.mode === "pickable"`) is
+  an ordinary followable link. Its object opens **read-only** (§3.12).
 - **NULL:** "Not set".
 - **Editable:** **Change…** opens the **object picker** (a non-modal popover
   with a search combobox over `list(targetTable, …)`, 25 per page, "Show
@@ -413,7 +460,8 @@ value, a hint line, and then issues and problems.
   link-level `issues` on the row itself. They also appear in the sheet's
   error summary.
 - **A `Conflict` with `conflictLink`:**
-  1. The view reloads that relation's page and re-reads its option.
+  1. The view re-reads that one option with `m2mOptions(…, { only: other,
+     … })`, and also the relation's current page.
   2. It **rebases** the staged change for that link (table below).
   3. It keeps every other edit, and shows a notice on the section: "Ada
      Lovelace's link was changed by another program. Nothing was saved. Your
@@ -433,8 +481,9 @@ value, a hint line, and then issues and problems.
 1. **Ctrl+S** or **Save**. If any changed field or staged link has inline
    issues, or `missingRequiredOnCreate` reports a missing field, nothing is
    sent. Every issue is shown, and the error summary takes focus.
-2. Otherwise the view builds the `SaveRequest`: only the changed fields, plus
-   `links`. While saving:
+2. Otherwise the view builds the `SaveRequest`: only the changed fields,
+   `links`, and `configHash` = the `session.config.hash` the draft was last
+   checked against. While saving:
    - editors are read-only, so focus stays where it is;
    - Save is busy ("Saving…");
    - navigation and other writes are disabled;
@@ -453,8 +502,15 @@ value, a hint line, and then issues and problems.
      focus.
    - **`Conflict`:** the conflict panel (below), or the link rebase (§3.6)
      when `conflictLink` is set.
-   - **`ConfigChangedOnDisk`:** the session is re-read, so the "config
-     changed" banner shows.
+   - **`ConfigChangedOnDisk`:** the config changed and the backend has already
+     reloaded it.
+     1. Re-read the session, so the request picks up the new `config.hash`.
+     2. Re-check the draft as for a reload (§3.3).
+     3. Show the sheet banner "The config changed while you were editing and
+        was reloaded. Nothing was saved. Check your changes and save again.".
+
+     The view never retries automatically: the user saves again under rules
+     they have seen.
    - **`SchemaChanged`:** a banner with **Reload**.
    - **`Busy`:** a banner with **Try again**, which repeats the same save.
    - **Anything else:** the error banner, with Details.
@@ -486,6 +542,11 @@ value, a hint line, and then issues and problems.
 - The bar shows "Not saved yet", **Cancel** (discards and goes Back) and
   **Create** (primary, Ctrl+S).
 
+**The New button's noun.** It reads "New {objectName}" when
+`TableView.objectName` is set ("New author"); the form title is then "New
+author". Otherwise it reads "New", with the accessible name "New object in
+{displayName}", and the title "New object".
+
 ### 3.9 Deleting
 
 - **Delete…** (danger variant, trash icon) is in the sheet header. The
@@ -510,6 +571,12 @@ value, a hint line, and then issues and problems.
   - the list re-reads, and focus moves to the object list heading.
 - If the object being deleted has a dirty draft, the dialog adds "Your unsaved
   changes to it are discarded."
+- **The confirmed delete carries `configHash`.**
+  `deleteObject(table, key, impact.version, impact.token, session.config.hash)`.
+  On `ConfigChangedOnDisk`, the dialog re-reads the session, runs the preview
+  again, and stays open with the notice "The config changed and was
+  reloaded. Review the delete again.".
+- Pickable tables never offer Delete (`canDelete` is false).
 
 ### 3.10 Focus rules
 
@@ -523,6 +590,7 @@ value, a hint line, and then issues and problems.
 | A dialog opens / closes | the dialog's first button (Cancel) / the control that opened it (shared `ConfirmDialog`) |
 | The picker closes | the **Change…** button |
 | A delete succeeds | the object list's `h2` |
+| The close prompt opens / Keep editing | Keep editing / the element focused before the close request |
 
 Headings that take focus have `tabIndex={-1}`. The view has one
 always-mounted polite announcer, as the other tools do.
@@ -532,8 +600,8 @@ always-mounted polite announcer, as the other tools do.
 | Keys | Action | Active when |
 | --- | --- | --- |
 | Ctrl+O | Open database… | always |
-| Ctrl+Shift+O | Choose config… | a database is open |
-| F5 or Ctrl+R | Reload | a database is open |
+| F5 or Ctrl+R | Reload (re-reads the config and the database) | a database is open |
+| Ctrl+E | Edit config | developer mode is on |
 | F8 | Show config problems | the config has problems |
 | Ctrl+S | Save (Create on a new object) | the sheet has unsaved changes |
 | Ctrl+N | New object | the table allows creating |
@@ -549,10 +617,28 @@ always-mounted polite announcer, as the other tools do.
 - Every button with a shortcut has `aria-keyshortcuts` and a `title`
   "Shortcut: …".
 - Shortcuts with Ctrl or Alt work from anywhere in the view, including inside
-  inputs, except Ctrl+N and Ctrl+F, which also work there. Plain keys
+  inputs. Plain keys
   (Delete, Enter, PageUp/PageDown) act only on the list that has focus.
 - F5 and Ctrl+R always have their default prevented, so the webview never
   reloads the page.
+
+### 3.12 Pickable tables
+
+- **Not in the table list.** `session.tables` includes pickable tables with
+  `mode: "pickable"`; the table list leaves them out.
+- **Where they appear:** in FK pickers (U7), as followable links (U4), and as
+  the other side of checklists (U9).
+- **Following a link to a pickable object** pushes an ordinary `object`
+  place:
+  - the objects pane shows that table's object list (searchable, paged, no
+    New), headed "{displayName}" with the tag **Lookup table**;
+  - the table list has no current item; the two-pane disclosure reads "Table:
+    {displayName} (lookup)";
+  - the sheet is entirely read-only: the reason line "This is a lookup table:
+    its objects can be picked, but not changed here.", no save bar, no
+    Delete…;
+  - its checklists and Referenced by are read-only.
+- **Back** returns to where the user came from, as for any place.
 
 ## 4. Design tokens touched
 
@@ -599,6 +685,7 @@ later, separate change.
 | `ShortcutsHelp` | `app/ShortcutsHelp.tsx` | `shortcuts: { keys: string[][]; action; when; devOnly? }[]`, `onOpenChange?` | closed, open |
 | `Icon` (extended) | `app/icons.tsx` | new names: `arrow-left`, `arrow-right`, `lock`, `plus`, `trash`, `search`, `chevron-left`, `chevron-right`, `undo`, `check` | — |
 | Form controls | `styles/controls.css` | classes `.input` (input, textarea, select), `.checkbox` | default, hover, focus, invalid, read-only, disabled |
+| `CloseGuard` (U13, not U1) | `app/closeGuard.tsx`, rendered once by `app/AppShell.tsx` | `registerUnsavedWork(id, () => { toolLabel, description } \| null): () => void` (module-level; a tool registers from its store, so it works while another tool is showing); the component registers `guardWindowClose` once and shows the prompt | idle, prompting, closing |
 
 ### 5.2 View-local
 
@@ -607,12 +694,12 @@ later, separate change.
 | `DbmanagerView` | `DbmanagerView.tsx` | — | loading, restore failed, nothing open, opening, open | U2 |
 | store | `store.ts` | `useDbmanager()`, actions, `resetDbmanagerStore()` | — | U2 (places U3, drafts U5) |
 | error copy | `errorMessages.ts` | `errorMessage(e, context)`, `toDbmanagerError(e)`, `issueMessage(issue, field)`, `problemMessage(fieldValue, field)` | one entry per kind/code | U2, U4, U5 |
-| `SessionHeader` | `SessionHeader.tsx` | `session`, the action callbacks | nothing open, open, read-only database, backup | U2 |
-| `EmptyState` | `EmptyState.tsx` | `recent`, `onOpen`, `onOpenRecent` | no recent, recent list | U2 |
+| `SessionHeader` | `SessionHeader.tsx` | `session`, `devMode`, the action callbacks | nothing open, open, read-only database, backup; config loaded / missing / failed closed; Edit config in developer mode | U2 |
+| `EmptyState` | `EmptyState.tsx` | `recent: string[]`, `configPath`, `onOpen`, `onOpenRecent` | no recent, recent databases | U2 |
 | `SessionBanners` | `SessionBanners.tsx` | `session`, notices, the actions | each banner of §2.1 | U2 |
 | `ConfigProblems` | `ConfigProblems.tsx` | `diagnostics`, `errorCount`, `warningCount`, `expanded`, `onToggle` | none, warnings only, errors | U2 |
 | `Workspace` | `Workspace.tsx` | `session` | three / two / one pane | U3 |
-| `TableNav` | `TableNav.tsx` | `tables`, `current`, `onChoose`, `variant` | none listed, list, read-only items; rail or disclosure | U3 |
+| `TableNav` | `TableNav.tsx` | `tables` (pickable ones filtered out), `current`, `onChoose`, `variant` | none listed, list, read-only items, current is a lookup table (no current item); rail or disclosure | U3 |
 | `ObjectList` | `ObjectList.tsx` | `table: TableView`, list state, `currentId`, `onOpen`, `onNew`, `onDelete` | first load (skeleton), loading (kept items), empty table, no match, error, page | U3 |
 | `LocationBar` | `LocationBar.tsx` | history, `onBack`, `onForward`, `onTable` | back/forward enabled or not | U3 |
 | `ObjectSheet` | `ObjectSheet.tsx` | place, `TableView`, `ObjectView` | empty (no object), loading, gone, error, read, edit, create | U3 (shell), U4 (read), U5–U8 |
@@ -627,7 +714,8 @@ later, separate change.
 | `ConflictPanel` | `ConflictPanel.tsx` | `rows`, `otherChanged`, `onReapply`, `onDiscard` | shown | U6 |
 | `M2mChecklist` | `M2mChecklist.tsx` | `table`, `objectKey \| null`, `view: M2mView`, `linkedCount`, staged links, `onStage`, `onOpen` | loading, empty, no match, error, read-only, page, staged | U9, U10 |
 | `LinkFieldEditors` | `LinkFieldEditors.tsx` | `fields: FieldView[]`, values, `objectLabel`, `phase: "add" \| "update"`, `onChange` | add, existing, read-only, invalid | U10 |
-| `DeleteDialog` | `DeleteDialog.tsx` | `impact`, `notice?`, `busy`, `dirty`, `firstWrite`, `onConfirm`, `onCancel` | confirmable, blocked, impact changed, busy | U11 |
+| `DeleteDialog` | `DeleteDialog.tsx` | `impact`, `notice?`, `busy`, `dirty`, `firstWrite`, `onConfirm`, `onCancel` | confirmable, blocked, impact changed, config changed, busy | U11 |
+| unsaved-work registration | `store.ts` → `registerUnsavedWork("dbmanager", …)` | describes the dirty draft for the close prompt | — | U13 |
 | shortcuts | `shortcuts.ts`, `useDbmanagerShortcuts.ts` | `SHORTCUTS` (the §3.11 table) | — | U2 (first rows), U12 (complete) |
 | keys and drafts | `keys.ts`, `draft.ts`, `linkDraft.ts` | `objectId`; `toDbValue`, `isChanged`, `rebaseDraft`; `rebaseLinkChange` | pure | U3, U5, U9 |
 
@@ -635,8 +723,8 @@ later, separate change.
 
 | Surface | Loading | Empty | Error | Success |
 | --- | --- | --- | --- | --- |
-| Session | `aria-busy`, "Opening library.db…", header actions disabled | "Open a SQLite database" + recent pairs + drop hint | restore failed (warn banner + Try again); the database slot error (error banner); config unreadable or failed closed (error banner, everything read-only) | the header and workspace |
-| Table list | (comes with the session) | "This database has no tables to show. The config may hide them." | — | the list, with Read-only tags |
+| Session | `aria-busy`, "Opening library.db…", header actions disabled | "Open a SQLite database" + recent databases + drop hint (one database file) + the config line | restore failed (warn banner + Try again); the database slot error (error banner); config failed closed (error banner, everything read-only); Edit config failed (`OpenerFailed`) | the header and workspace; config missing (calm info banner); config reloaded (notice) |
+| Table list | (comes with the session) | "This database has no tables to show. The config may hide them." | — | the list, with Read-only tags; pickable tables left out |
 | Object list | 6 skeleton rows on first load; afterwards the old items stay with `aria-busy` and "Loading…" | "Books has no objects yet." + New; "No objects match “xyz”." + Clear search | an inline error line + Try again | the page, pager, current item |
 | Sheet | skeleton field rows | "Choose an object from the list" (+ "or create one with New" when allowed) | "This object no longer exists…" + Back; a read error + Try again | read, edit, create |
 | Referenced by | "Loading…" in the open disclosure | "none" | an inline error + Try again | links + Show more |
@@ -662,8 +750,9 @@ in the other tools.
 | `NotAbsolute` | Enter the full path, starting with the drive letter, for example C:\\. |
 | `NotAFile` | No file was found at this path. |
 | `DatabaseUnreadable` | This file could not be opened as a SQLite database. Check that it is a SQLite file and that you can read it. |
-| `ConfigUnreadable` | The config file could not be read, so everything is read-only. Check that it exists and is saved as UTF-8 text, then reload. |
-| `DropAmbiguous` | Drop one database file, one .toml config, or one of each. Nothing was changed. |
+| `OpenerFailed` | The config file could not be opened in an editor. Open it yourself: {session.config.path}. |
+| `DropAmbiguous` | Drop one database file at a time. Nothing was changed. |
+| `ConfigNotDroppable` | The config can't be chosen by dropping it: the app always uses {session.config.path, or "its fixed config file"}. Nothing was changed. |
 | `UnknownTable` | This table is no longer available. Reload to see the current tables. |
 | `UnknownObject` | This object no longer exists. Another program may have deleted it. |
 | `UnknownRelation` | This relation is no longer available. Reload to continue. |
@@ -671,7 +760,7 @@ in the other tools.
 | `ValidationFailed` | Nothing was saved. Fix the problems below and save again. |
 | `Conflict` | “{label}” was changed by another program after you opened it. Nothing was saved. *(delete: Nothing was deleted.)* |
 | `SchemaChanged` | The database's structure changed. Reload to continue. Nothing was changed. |
-| `ConfigChangedOnDisk` | The config file changed. Reload it before saving. Nothing was changed. |
+| `ConfigChangedOnDisk` | The config changed while you were editing and was reloaded. Nothing was changed. Check your changes and save again. *(delete: Review the delete again.)* |
 | `DatabaseReadOnly` | The database is open read-only, so it can't be changed. Nothing was changed. |
 | `Busy` | The database is busy: another program is using it. *(write: Nothing was changed.)* Try again in a moment. |
 | `BackupFailed` | The backup copy could not be written, so nothing was changed. Check that the database's folder is writable and has free space. |
@@ -750,12 +839,28 @@ time it appears on a sheet.
 - **No impact:** "Nothing else references it."
 - **Banners:**
   - Backup: "A backup of the database was saved before this first change:
-    {path}."
+    {path}." The header's backup line follows `session.backupPath`:
+    - Reload keeps it, and no second backup is taken;
+    - Close and Open clear it, and the backup notice is removed with it.
   - Config failed closed: "Everything is read-only: {configFailClosed}. Fix
-    the config and reload, or open without a config." Actions: **Reload**,
-    **Open without config**.
-  - Config changed: "The config file changed on disk. Reload to apply it;
-    saving is paused until you do." Action: **Reload**.
+    the config file ({config.path}); it reloads by itself." Action:
+    **Edit config** in developer mode only. Not dismissible.
+  - No config file (`config.status === "missing"`, info, dismissible for the
+    session, no prompt): "No config file was found, so everything is
+    editable unless the database prevents it. An administrator can add one
+    at {config.path}."
+  - Config changed on disk (the fallback, when `configChanged` is still true
+    after a session read, which means the watcher missed it): "The config
+    file changed on disk. Reload to apply it." Action: **Reload**.
+  - Config reloaded (notice, from `onConfigChanged`): "The config was
+    reloaded." plus, when a draft lost edits, " These changes no longer apply
+    and were removed: {names}." When the new status is `failClosed`, the
+    failed-closed banner replaces it.
+  - Starter config created (notice, from `editConfig` with `created: true`):
+    "A starter config was created at {path} and opened in your editor. It
+    changes nothing until you edit it."
+  - A dropped `.toml`: the `ConfigNotDroppable` error banner. The current
+    database stays open, and nothing else changes.
   - Schema changed: "The database's structure changed. Reload to continue."
     Action: **Reload**.
   - Read-only database: "This database is open read-only: {reason}. You can
@@ -764,6 +869,11 @@ time it appears on a sheet.
   - Deleted: "Deleted “{label}”{ and N related rows}."
   - Reload notice (dropped edits): "After the reload, these changes no longer
     apply and were removed: {field names}."
+- **Close prompt (U13):**
+  - title "Close FileManager with unsaved changes?";
+  - body: one line per tool with unsaved work ("Database Manager: your
+    changes to “Dune” are not saved.");
+  - **Keep editing** (focused) · **Close without saving** (danger).
 - **Config problems:** the summary reads "Config: 2 errors, 1 warning.
   Entries with errors are read-only." Each item shows the severity word and
   icon, then "Line 12, column 3" (or "Table book, field isbn"), then the
@@ -774,24 +884,28 @@ time it appears on a sheet.
 | # | Task plan | Goal | Depends on |
 | --- | --- | --- | --- |
 | U1 | [`U1-shared-controls.md`](../tasks/dbmanager/U1-shared-controls.md) | Shared vocabulary: danger button, extended `ConfirmDialog`, `MenuButton`, generic `ShortcutsHelp`, new icons, form-control styles | M10 |
-| U2 | [`U2-view-and-session.md`](../tasks/dbmanager/U2-view-and-session.md) | Registry entry, view scaffold, store, session header, empty state, open/recent/config/reload/close, drop, banners, config problems, error copy | U1, M10 |
-| U3 | [`U3-navigator-and-history.md`](../tasks/dbmanager/U3-navigator-and-history.md) | Responsive panes, table nav, paged searchable object list, places and Back/Forward, sheet shell | U2, M10 |
-| U4 | [`U4-object-sheet-read.md`](../tasks/dbmanager/U4-object-sheet-read.md) | The object sheet read view: typed values, tags, problems, followable references, Referenced by | U3, M10 |
+| U2 | [`U2-view-and-session.md`](../tasks/dbmanager/U2-view-and-session.md) | Registry entry, view scaffold, store, session header with config status, empty state, open/recent databases/reload/close, drop, banners (no config, failed closed, reloaded), config problems, dev-mode Edit config, error copy | U1, M10, M13 |
+| U3 | [`U3-navigator-and-history.md`](../tasks/dbmanager/U3-navigator-and-history.md) | Responsive panes, table nav (pickable left out), paged searchable object list, places and Back/Forward, sheet shell | U2, M10 |
+| U4 | [`U4-object-sheet-read.md`](../tasks/dbmanager/U4-object-sheet-read.md) | The object sheet read view: typed values, tags, problems, followable references, pickable objects read-only, Referenced by | U3, M10 |
 | U5 | [`U5-field-editors.md`](../tasks/dbmanager/U5-field-editors.md) | Typed field editors, the draft, dirty markers, inline validation | U4, M10, M11 |
-| U6 | [`U6-save-and-conflicts.md`](../tasks/dbmanager/U6-save-and-conflicts.md) | Save bar, save flow, error summary, conflict panel, leave guard, reload rebase, backup notice | U5, M10, M11 |
+| U6 | [`U6-save-and-conflicts.md`](../tasks/dbmanager/U6-save-and-conflicts.md) | Save bar, save flow with `configHash`, error summary, conflict panel, leave guard, draft re-check on reload / automatic config reload / `ConfigChangedOnDisk`, backup notice | U5, M10, M11, M13 |
 | U7 | [`U7-reference-picker.md`](../tasks/dbmanager/U7-reference-picker.md) | Editing FK fields with the object picker | U6, M10 |
 | U8 | [`U8-create.md`](../tasks/dbmanager/U8-create.md) | New object: create form, defaults, required, open after create | U7, M10, M11 |
 | U9 | [`U9-m2m-checklist.md`](../tasks/dbmanager/U9-m2m-checklist.md) | Many-to-many checklists: paging, search, linked only, staged add/remove, saving links, link conflicts | U8, M10 |
 | U10 | [`U10-link-fields.md`](../tasks/dbmanager/U10-link-fields.md) | Link-field editors on links: defaults, create-only, removal with data, link errors | U9, M10, M11 |
-| U11 | [`U11-delete.md`](../tasks/dbmanager/U11-delete.md) | Delete with impact confirmation, blocked, impact changed | U6, M10 |
-| U12 | [`U12-keyboard-and-audit.md`](../tasks/dbmanager/U12-keyboard-and-audit.md) | Complete shortcuts and help, F6 regions, 200%/800×560 pass, `/impeccable audit` + detector, a11y sweep | U1–U11 |
+| U11 | [`U11-delete.md`](../tasks/dbmanager/U11-delete.md) | Delete with impact confirmation (button and Delete key), `configHash`, blocked, impact changed | U6, M10 |
+| U13 | [`U13-window-close-guard.md`](../tasks/dbmanager/U13-window-close-guard.md) | Shared `CloseGuard` in the app shell: prompt on window close with unsaved edits | U6, M14 |
+| U12 | [`U12-keyboard-and-audit.md`](../tasks/dbmanager/U12-keyboard-and-audit.md) | Complete shortcuts and help, F6 regions, 200%/800×560 pass, `/impeccable audit` + detector, a11y sweep | U1–U11, U13 |
 
 **Backend alignment:**
 
 - Every U task depends on **M10**. U5, U6, U8 and U10 also use **M11**.
-- U2's config-failed-closed banner needs the M10 revision requested in §10.1.
+- U2 and U6 use **M13** (`onConfigChanged`, `editConfig`).
+- U13 uses **M14** (`guardWindowClose`, `closeWindow`).
+- U13 is numbered after U12 (to keep the existing numbers), but runs
+  **before** it: U12 is the final audit.
 - **M12** runs after U12.
-- U11 can run in parallel with U7–U10 once U6 lands.
+- U11 and U13 can run in parallel with U7–U10 once U6 lands.
 
 ## 9. Screenshot scenarios for M12
 
@@ -801,8 +915,9 @@ noted; 1000×700 is the default window (two panes).
 
 | Shot | Window | Shows |
 | --- | --- | --- |
-| `dbmanager-empty` | 1000×700 | nothing open: the empty state with two recent pairs |
-| `dbmanager-tables` | 1366×800 | the three panes: the table rail (Publishers tagged Read-only), Authors' object list, no object open |
+| `dbmanager-empty` | 1000×700 | nothing open: the empty state with two recent databases and the config line |
+| `dbmanager-no-config` | 1366×800 | a database open with no config file: the calm "No config file" banner and the header line |
+| `dbmanager-tables` | 1366×800 | the three panes: the table rail (a read-only table tagged Read-only; Publishers absent, because it is pickable), Authors' object list, no object open |
 | `dbmanager-object` | 1366×800 | book "Dune": Author as a link, Publisher, Format (enum), In print (checkbox), Audiobook length `1h30m` (duration with hint), Revision read-only, the Genres checklist below |
 | `dbmanager-object-two-pane` | 1000×700 | the same book in the two-pane layout |
 | `dbmanager-narrow` | 800×560 | one pane: the sheet with Back |
@@ -813,82 +928,65 @@ noted; 1000×700 is the default window (two panes).
 | `dbmanager-link-remove` | 1366×800 | a contributor unticked: "Will be removed with its fields: Role translator, Position 1" + Undo |
 | `dbmanager-create` | 1366×800 | a new book: defaults prefilled, Required tags, the Create button |
 | `dbmanager-conflict` | 1366×800 | the conflict panel after a save: Yours / Now |
+| `dbmanager-pickable` | 1366×800 | the publisher "Acme Press" opened from a book's link: the Lookup table tag, the read-only reason line, no save bar, Back |
 | `dbmanager-referenced-by` | 1366×800 | an author with "Books · via Author · 2" opened |
 | `dbmanager-delete` | 1366×800 | the delete dialog for an author: also deleted, links removed with link data lost, through the objects above |
-| `dbmanager-delete-blocked` | 1366×800 | the blocked dialog for a publisher (config allowing delete) |
+| `dbmanager-delete-blocked` | 1366×800 | the blocked dialog for a publisher (a mock config making `publisher` editable with delete allowed) |
 | `dbmanager-diagnostics` | 1366×800 | the config problems panel expanded: one error with line/col, one warning |
 | `dbmanager-readonly-config` | 1366×800 | a config with a syntax error: the everything-read-only banner and read-only fields |
-| `dbmanager-config-changed` | 1366×800 | the config-changed banner with Reload |
+| `dbmanager-config-reloaded` | 1366×800 | a dirty book after the automatic reload: the notice "The config was reloaded. These changes no longer apply and were removed: Pages." |
+| `dbmanager-edit-config` | 1366×800 | developer mode: Edit config in the header and the "starter config was created" notice |
 | `dbmanager-backup` | 1366×800 | the backup banner after the first save, the backup line in the header |
 | `dbmanager-leave` | 1366×800 | the "Discard unsaved changes?" dialog |
+| `dbmanager-close-prompt` | 1366×800 | the "Close FileManager with unsaved changes?" dialog (the mock fires a close request) |
 | `dbmanager-shortcuts` | 1366×800 | the keyboard shortcuts popover |
 
 Accessible names the shots rely on:
 
-- **Header and session:** "Open database…", "Recent", "Config", "Reload",
-  "Close database", "Keyboard shortcuts".
-- **Navigation:** "Back", "Forward", "New" (accessible name "New object in
-  {table}"), "Search {table}", "Linked only".
+- **Header and session:** "Open database…", "Recent", "Reload", "Close
+  database", "Edit config" (developer mode), "Keyboard shortcuts".
+- **Navigation:** "Back", "Forward", "New {objectName}" or "New"
+  (accessible name "New object in {table}"), "Search {table}", "Linked
+  only".
 - **Sheet:** "Save", "Create", "Discard changes", "Delete…", "Change…",
   "Clear", "Show more".
 - **Dialogs and banners:** "Delete", "Cancel", "Close", "Keep editing",
-  "Re-apply my changes", "Discard my changes".
+  "Re-apply my changes", "Discard my changes", "Close without saving".
 
 ## 10. Requests to the planner (contract)
 
-These are requests, not edits to the backend plans.
+**Applied (`dbmanager.md` §8.4):**
 
-1. **Required by U2: a flag for "config failed closed".** The UI must say
-   prominently when a config syntax error, an unsupported `version`, or an
-   unreadable file has made *everything* read-only. Today it can tell only
-   the unreadable case (the config slot's `ConfigUnreadable`). A syntax error
-   arrives as one error diagnostic, and the UI must not infer the
-   whole-config consequence from message text.
-   - Please add `DbmanagerSession.configFailClosed: string | null` (Rust
-     `config_fail_closed: Option<String>`): a short reason for display ("line
-     3, column 7: expected `=`", "unsupported version 2", "the file could not
-     be read"), `null` otherwise.
-   - Pin it in M10's snapshot tests.
-2. **Pin the client function names in M10** so the task plans name them
-   exactly. U tasks assume `session`, `open`, `setConfig`, `openDropped`,
-   `reload`, `close`, `list`, `object`, `m2mOptions`, `save`,
-   `deletePreview` and `deleteObject`, plus the helpers `boolValue`,
-   `durationValue`, `linkKey`, `isConfirmDeleteAllowed` and
-   `isDbmanagerError`. If M10 lands other names, the ui-designer updates the
-   task plans before they run.
-3. **Confirm that `dbmanager_session()` is cheap and side-effect free after
-   the first call** and recomputes `configChanged`. The view calls it when the
-   window regains focus, so editing the config in an editor surfaces the
-   banner without a click (M12 checklist step 8).
-4. **Optional:** an object noun per table (for example `TableView.objectName`
-   from a config key `object_name = "book"`). Display names are often plural
-   ("Authors"), so v1 copy avoids "New Author" and uses "New object in
-   Authors" / "New object". With a noun, the copy becomes "New book". Not
-   needed for v1.
+1. `configFailClosed`;
+2. the pinned client names;
+3. `session()` is cheap after the first call;
+4. `objectName`;
+5. `M2mQuery.only`, which U9 now uses for a link conflict instead of paging.
 
-5. **Optional: find one link by key.** After a `Conflict` with
-   `conflictLink`, U9 needs that link's fresh `linkVersion` and
-   `linkValues`. Without a lookup, it pages through `linkedOnly` results
-   (limit 500) until it finds the link, which is linear in the number of
-   links.
-   - An `M2mQuery.only: ObjectKey[] | null` filter (or the fresh option
-     carried in the error, for example `DbmanagerError.conflictOption`) would
-     make this one call.
-   - U9 works without it.
+**Settled by the planner (`dbmanager.md` §2.8, §8.3; M10, M13):**
 
-## 11. Open questions for the human
+1. `reload()` keeps `backupPath` and takes no second backup. `close()` and
+   `open()` start a fresh session and clear it. The header line and the
+   backup notice follow the snapshot.
+2. `dbmanager://config-changed` fires only after the reload completes, so
+   `session()` from the handler sees the new state.
+3. A dropped `.toml` is refused with the new kind `ConfigNotDroppable`,
+   before any open, and the current database stays open. There are now 22
+   kinds.
 
-1. **Structure.** The designer chose three panes (Tables | Objects | Object
-   sheet) collapsing to two and one, with Back/Forward history as the main way
-   to move (§1.1), without a human lock on the roll. Confirm, or steer: for
-   example, objects opening in tabs, or a single page per object.
-2. **Opening an object from the list.** Up/Down moves focus and Enter opens
-   (predictable, and no prompt storm when a draft is dirty). Some editors open
-   the focused item as you arrow ("selection follows focus"). Keep Enter?
-3. **Delete shortcut.** The Delete key on a focused object-list item opens
-   the confirmation (never deletes directly). Keep it, or button only?
-4. **Closing the window with unsaved edits** loses them silently (nothing is
-   written). Prompting needs the window-close capability. Worth a capability
-   change (a reviewed CSP/capability decision)?
-5. **Discarding on Open without config.** "Open without config" makes every
-   table editable at once. Should it ask first?
+No requests remain.
+
+## 11. Questions for the human: answered (2026-11-16)
+
+1. **Structure:** three panes with Back/Forward history. **Confirmed.**
+2. **Opening from the list:** the arrow keys move and Enter opens.
+   **Confirmed.**
+3. **Delete key:** on a focused object, it opens the delete confirmation.
+   **Yes** (U11).
+4. **Window close with unsaved edits:** prompt. **Yes**, through M14's
+   `guardWindowClose` / `closeWindow` (U13).
+5. **No config:** show a clear banner, with no prompt. (The question was
+   about "Open without config", which no longer exists: the config is fixed.
+   A missing config file gives the calm "No config file" banner, §7.3.)
+
+No questions remain open.

@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          for c in fm-core fm-tarpack; do
+          for c in fm-core fm-tarpack fm-dbmanager; do
             if ! cargo pkgid --locked -p "$c" >/dev/null; then
               echo "::error::no workspace package named $c"; exit 1
             fi
@@ -65,7 +65,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: npm run tauri:build
-      - name: Exe must import no C runtime, zstd, liblzma, or WebView2Loader DLL
+      - name: Exe must import no C runtime, zstd, liblzma, sqlite3, or WebView2Loader DLL
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -77,7 +77,7 @@ jobs:
           Write-Host $out
           if ($LASTEXITCODE -ne 0) { Write-Error "dumpbin failed"; exit 1 }
           if ($out -notmatch '(?i)KERNEL32\.dll') { Write-Error "dumpbin output looks wrong"; exit 1 }
-          $bad = [regex]::Matches($out, '(?im)^\s*(vcruntime\S*\.dll|msvcp\S*\.dll|api-ms-win-crt-\S*|zstd\S*\.dll|liblzma\S*\.dll|WebView2Loader\.dll)\s*$')
+          $bad = [regex]::Matches($out, '(?im)^\s*(vcruntime\S*\.dll|msvcp\S*\.dll|api-ms-win-crt-\S*|zstd\S*\.dll|liblzma\S*\.dll|sqlite3\S*\.dll|WebView2Loader\.dll)\s*$')
           if ($bad.Count -gt 0) {
             Write-Error ("Forbidden dependencies: " + (($bad | ForEach-Object { $_.Value.Trim() }) -join ', '))
             exit 1

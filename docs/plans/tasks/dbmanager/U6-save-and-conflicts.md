@@ -1,7 +1,9 @@
 # U6 — Saving, conflicts, and leaving with unsaved changes
 
-Status: awaiting approval
-Project: dbmanager   Depends on: U5 (landed), M10 (landed), M11 (landed)
+Status: awaiting approval (revised 2026-11-16: `configHash` on writes,
+automatic config reload, the new meaning of `ConfigChangedOnDisk`)
+Project: dbmanager   Depends on: U5 (landed), M10 (landed), M11 (landed),
+M13 (landed)
 
 ## Goal
 
@@ -29,8 +31,10 @@ Earlier tasks built:
 - U2: the store (`useDbmanager()`), the session header and banners (including
   the `notices` list and the `schemaChanged` flag), and `errorMessages.ts`
   (`errorMessage(e, "read" | "write")`, `toDbmanagerError`, `issueMessage`,
-  `problemMessage`). U2 also built the session actions: Open, Recent, drop,
-  Choose config, Open without config, Reload and Close.
+  `problemMessage`). U2 also built the session actions (Open, Recent, drop,
+  Reload, Close) and the store action `configReloaded()`. That action runs
+  on every `onConfigChanged` event (M13): the app-wide config reloads by
+  itself whenever its file changes.
 - U3: places, history, `navigate(intent)` (all navigation goes through it),
   the sheet shell, and `current: ObjectView`.
 - U4: `FieldRow` and the read representations (`values.ts`:
@@ -50,6 +54,14 @@ import each other.
 - Versions are opaque. Echo `current.version` back.
 - Saving validates only changed fields, so send only changed fields.
 - Every write failure means nothing was changed, and the copy says so.
+- **Every save carries the config hash.** `configHash` is
+  `session.config.hash`, the hash of the config the draft was last checked
+  against. It is opaque: echo it.
+- **`ConfigChangedOnDisk`** means the config changed after the draft was
+  checked. **The backend has already reloaded it.** The UI re-reads the
+  session, re-checks the draft against the new rules, and lets the user save
+  again. **Never retry automatically**: the user must save under rules they
+  have seen.
 
 ### The API used
 
@@ -70,6 +82,7 @@ import each other.
 ```ts
 type SaveRequest = { table: string; key: ObjectKey | null;   // null: create (U8)
   version: string | null;                                    // required when key is set
+  configHash: string;                                        // session.config.hash
   changes: FieldChange[]; links?: LinkChange[] };            // links: U9/U10 (send [] or omit)
 type FieldChange = { column: string; input: FieldInput };
 type FieldInput = { type: "value"; value: DbValue } | { type: "reference"; key: ObjectKey | null };
@@ -88,7 +101,7 @@ If the generated `links` field is required rather than optional, send `links:
 | --- | --- | --- |
 | `ValidationFailed` | `fieldErrors` (always present), `linkErrors` (U10) | the save was refused |
 | `Conflict` | `current` (the object as it is now); `conflictLink` (U9) | the object changed since it was read |
-| `ConfigChangedOnDisk` | — | the config changed; writes are refused until a reload |
+| `ConfigChangedOnDisk` | — | the config changed and was reloaded since the draft was checked; re-check and save again |
 | `SchemaChanged` | — | the structure changed; reload |
 | `Busy` | — | the database is locked |
 | `DatabaseReadOnly`, `NotEditable`, `BackupFailed`, `ConstraintFailed`, `UnknownObject`, `Io` | — | shown as an error |
@@ -136,8 +149,8 @@ anywhere in the view, including inputs):
      "1 problem");
    - move focus to it;
    - send nothing.
-2. **Request:** `{ table, key: current.key, version: current.version, changes,
-   links: [] }`. `changes` holds one `{ column, input: { type: "value",
+2. **Request:** `{ table, key: current.key, version: current.version,
+   configHash: session.config.hash, changes, links: [] }`. `changes` holds one `{ column, input: { type: "value",
    value: toDbValue(field, edit) } }` per changed field (`isChanged`), in field
    order.
 3. **While saving:**
@@ -165,9 +178,15 @@ anywhere in the view, including inputs):
      - a `fieldErrors` column that matches no visible field is listed with
        its column name.
    - **`Conflict`** without `conflictLink`: the **conflict panel** (below).
-   - **`ConfigChangedOnDisk`:** re-read the session (U2's config-changed
-     banner appears), and show a sheet banner with `errorMessage(e,
-     "write")`.
+   - **`ConfigChangedOnDisk`:**
+     1. re-read the session;
+     2. run the **draft re-check** (below);
+     3. show a sheet banner with `errorMessage(e, "write")`: "The config
+        changed while you were editing and was reloaded. Nothing was changed.
+        Check your changes and save again.";
+     4. move focus to the banner.
+
+     Do **not** resend. The next Save uses the new `config.hash`.
    - **`SchemaChanged`:** set the store's `schemaChanged` flag (U2's banner,
      with Reload).
    - **`Busy`:** a sheet error banner with `errorMessage(e, "write")` and a
@@ -225,27 +244,44 @@ dropped: string[] }`** in `draft.ts`, pure:
 
   Confirm discards the draft and performs the pending intent. Cancel leaves
   everything as it was, and focus returns to the control that asked.
-- A drop is checked **after** it arrives. A drop of only a `.toml` file is a
-  config change (below) and does not ask.
+- A drop is checked **after** it arrives, before `openDropped` is called.
 - Switching to another tool does not ask: the store keeps the draft, and it
   is still there on return.
 
-**Drafts survive config changes and reloads.**
+**Drafts survive config changes and reloads: the draft re-check.**
 
-- After a successful **Reload**, **Choose config…**, **Open without config**,
-  a config-only drop, or a reload that resolves `schemaChanged`, the view
-  does the following when a draft is dirty:
-  1. Re-read the object with `object(table, key)`.
-  2. **Same version:** `rebaseDraft` onto the fresh object. If anything was
-     dropped, push a notice: "After the reload, these changes no longer apply
-     and were removed: {names}."
-  3. **Different version:** the conflict panel.
-  4. **`UnknownObject` / `UnknownTable`:** drop the draft, and push a notice
-     "“{label}” is no longer available; your unsaved changes were
-     discarded."
-- These actions never ask first. Saving is refused until the user reloads,
-  so discarding on reload would punish the user for doing what the app
-  asked.
+One store action, `recheckDraft(trigger)`, runs when a draft is dirty after
+any of these:
+
+- `configReloaded()` (the automatic reload, from `onConfigChanged`);
+- a successful **Reload**, including one that resolves `schemaChanged`;
+- a `ConfigChangedOnDisk` refusal (above).
+
+Steps:
+
+1. With the fresh session's `TableView` for the draft's table (missing →
+   step 4), re-read the object with `object(table, key)`. A create draft
+   (`key: null`) skips the read and rebases against the fresh `TableView`
+   alone.
+2. **Same version:** `rebaseDraft` onto the fresh object.
+3. **Different version:** the conflict panel.
+4. **`UnknownObject` / `UnknownTable`, or the table is gone:** drop the
+   draft.
+
+Each re-check ends in **one** message, replacing U2's plain "The config was
+reloaded." for that event:
+
+| Outcome | Automatic reload (notice) | Reload button (notice) |
+| --- | --- | --- |
+| nothing dropped | "The config was reloaded. Your unsaved changes still apply." | (none) |
+| fields dropped | "The config was reloaded. These changes no longer apply and were removed: {names}." | "After the reload, these changes no longer apply and were removed: {names}." |
+| conflict | the conflict panel (its own message) | the conflict panel |
+| object gone | "“{label}” is no longer available; your unsaved changes were discarded." | the same |
+
+After a `ConfigChangedOnDisk` refusal, the dropped names (if any) are added
+to the sheet banner instead of a separate notice. A clean draft gets U2's
+plain notice. None of these ask first: the user did not cause the reload, so
+it must never cost them their work.
 
 **Shortcut row added** to `shortcuts.ts`:
 
@@ -299,7 +335,8 @@ Edit:
 **Saving:**
 
 - Save (button or Ctrl+S, from inside an input) sends exactly `{ table:
-  "book", key, version, changes: [title, pages], links: [] }`. Unchanged and
+  "book", key, version, configHash: <session.config.hash>, changes: [title,
+  pages], links: [] }`. Unchanged and
   legacy-problem fields are not sent.
 - While the save is pending:
   - editors are read-only and keep focus;
@@ -309,6 +346,9 @@ Edit:
   object, and the list re-reads.
 - If `backupCreated` is set, the notice shows the path and the header gains
   its backup line (after a session re-read). A second save adds no notice.
+- After a Reload, a save returns `backupCreated: null`. The backend keeps the
+  session's backup across reloads, so no second notice appears and the
+  header line is unchanged.
 
 **Errors:**
 
@@ -322,8 +362,13 @@ Edit:
   - Yours and Now for each edited field, and the "other fields" count;
   - Save is blocked with the reason;
   - Re-apply keeps the edits on the new version; Discard loads `current`.
-- `Busy` shows a banner whose Try again repeats the save. `ConfigChangedOnDisk`
-  re-reads the session. `SchemaChanged` sets the flag. Every write error's
+- `Busy` shows a banner whose Try again repeats the save.
+- `ConfigChangedOnDisk`:
+  - re-reads the session and re-checks the draft;
+  - shows its banner, with focus on it;
+  - sends nothing further;
+  - the next Save carries the new hash.
+- `SchemaChanged` sets the flag. Every write error's
   copy says nothing was changed.
 
 **The leave guard:**
@@ -338,6 +383,10 @@ Edit:
 
 **Reloads:**
 
+- An `onConfigChanged` event with a dirty draft keeps the edits, with "The
+  config was reloaded. Your unsaved changes still apply.".
+- An event that makes Pages read-only removes that edit and names it in the
+  notice.
 - Reload with a dirty draft and an unchanged version keeps the edits.
 - A field that became read-only in the new config is dropped, with the
   notice listing it.
@@ -369,7 +418,8 @@ Edit:
   - `backup notice once and header refresh`;
   - `validation failed maps server issues`;
   - `busy retry`;
-  - `config changed refreshes session`;
+  - `request carries configHash`;
+  - `config changed on disk re-checks and does not resend`;
   - `schema changed flag`;
   - `pending blocks navigation and double submit`;
   - `focus after save`.
@@ -385,6 +435,9 @@ Edit:
   - `clean never asks`;
   - `tool switch keeps draft`;
   - `reload keeps draft`;
+  - `automatic config reload keeps draft with notice`;
+  - `automatic config reload drops fields with notice`;
+  - `create draft re-check without object read`;
   - `reload drops fields with notice`;
   - `reload conflict`;
   - `reload object gone`.
@@ -394,8 +447,9 @@ Run: `npm run typecheck && npm run lint && npm run test`.
 ## States covered
 
 - **Save bar:** clean, dirty, saving, saved, blocked.
-- **Errors:** client invalid, server invalid, conflict, busy, config changed,
-  schema changed, any other write error.
+- **Errors:** client invalid, server invalid, conflict, busy, config changed
+  on disk (re-check), schema changed, any other write error.
+- **Config reloaded:** draft kept, fields dropped, conflict, object gone.
 - **Success:** saved, saved with backup.
 - **Leave:** asked, kept, discarded.
 
@@ -405,3 +459,5 @@ Run: `npm run typecheck && npm run lint && npm run test`.
 - Create (U8): `key: null`, `Create` label, `missingRequiredOnCreate`.
 - Link changes and `linkErrors` / `conflictLink` (U9, U10).
 - Delete (U11).
+- The window-close prompt (U13). Keep `dirtyCount()` and the open object's
+  label readable from the store, because U13 registers them.

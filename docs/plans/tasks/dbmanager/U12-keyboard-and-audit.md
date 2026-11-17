@@ -1,7 +1,9 @@
 # U12 — Keyboard completeness, layout pass, and audit
 
-Status: awaiting approval
-Project: dbmanager   Depends on: U1–U11 (landed), M10 (landed), M11 (landed)
+Status: awaiting approval (revised 2026-11-16: the fixed config, Edit config,
+pickable tables, the window-close prompt)
+Project: dbmanager   Depends on: U1–U11 (landed), U13 (landed), M10 (landed),
+M11 (landed), M13 (landed), M14 (landed)
 
 ## Goal
 
@@ -16,15 +18,20 @@ Finish the Database Manager to its accessibility and keyboard bar:
 
 **The product.** FileManager is a portable Windows desktop app (Tauri v2;
 React + TypeScript + Vite in `apps/desktop/src/`). The **Database Manager**
-(`dbmanager`) is an **object editor** over a SQLite file. U2–U11 built it in
-`apps/desktop/src/tools/dbmanager/`:
+(`dbmanager`) is an **object editor** over a SQLite file, with one app-wide
+config that the user never chooses and that reloads by itself. U2–U11 and
+U13 built it, in `apps/desktop/src/tools/dbmanager/` and, for the
+window-close prompt, `app/closeGuard.tsx`:
 
-- the session header and banners;
+- the session header with the config status, and developer-mode Edit config;
+- the banners: no config, everything read-only, config reloaded;
 - the panes (Tables · Objects · Sheet) with Back/Forward history;
 - the object sheet with typed editors, references and their picker,
   "Referenced by", many-to-many checklists with link fields;
 - save with conflicts and the leave guard;
-- create and delete.
+- pickable (lookup) objects opened read-only;
+- create and delete;
+- the close prompt when the window closes with unsaved edits.
 
 Its shortcuts are collected in `shortcuts.ts` (`SHORTCUTS`) and handled in
 `useDbmanagerShortcuts.ts`. The shared `ShortcutsHelp` (`app/ShortcutsHelp.tsx`,
@@ -47,9 +54,9 @@ Accessibility is a requirement, not polish (`CLAUDE.md`, `PRODUCT.md`):
 | Keys | Action | Active when |
 | --- | --- | --- |
 | Ctrl+O | Open database… | Always |
-| Ctrl+Shift+O | Choose config… | A database is open |
-| F5 or Ctrl+R | Reload | A database is open |
+| F5 or Ctrl+R | Reload the config and the database | A database is open |
 | F8 | Show config problems | The config has problems |
+| Ctrl+E | Edit config (a `devOnly` row: listed and handled only in developer mode) | Developer mode is on |
 | Ctrl+S | Save (Create on a new object) | The object has unsaved changes |
 | Ctrl+N | New object | The table allows creating |
 | Ctrl+F | Search objects | The table is searchable |
@@ -89,6 +96,8 @@ Accessibility is a requirement, not polish (`CLAUDE.md`, `PRODUCT.md`):
 | The picker closes | Change… |
 | A delete succeeds | the object list's `h2` |
 | Save succeeds with focus on Save | the sheet's `h2` |
+| The close prompt opens / Keep editing | Keep editing / the element focused before the close request |
+| `ConfigChangedOnDisk` on save | the sheet banner |
 
 ### Layout targets
 
@@ -175,7 +184,11 @@ references by hand, and say so.
 - No violations in these states:
   - nothing open;
   - open with diagnostics;
+  - config missing (the no-config banner);
   - config failed closed;
+  - config reloaded, with a dropped-edits notice;
+  - developer mode with Edit config;
+  - a pickable object opened read-only;
   - a book open (two panes);
   - editing with inline issues and the error summary;
   - the conflict panel;
@@ -183,7 +196,8 @@ references by hand, and say so.
   - a checklist with staged links and link fields;
   - the create form;
   - the delete dialog (confirmable and blocked);
-  - the leave dialog.
+  - the leave dialog;
+  - the close prompt.
 
 **Layout:**
 

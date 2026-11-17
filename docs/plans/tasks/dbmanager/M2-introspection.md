@@ -1,6 +1,6 @@
 # M2 — Schema introspection and identifier quoting
 
-Status: awaiting approval
+Status: approved (2026-11-17)
 Project: dbmanager   Depends on: M1 (landed)
 
 ## Goal

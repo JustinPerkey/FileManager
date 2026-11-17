@@ -1,7 +1,8 @@
 # M3 — Config format: parsing, structural validation, reference doc, examples
 
-Status: awaiting approval (revised 2026-11-16: editable defaults, durations,
-link fields)
+Status: approved (2026-11-17) (revised 2026-11-16: editable defaults, durations,
+link fields; then the human's final answers: the `pickable` table mode, one
+fixed app-wide config file that reloads automatically, a starter file)
 Project: dbmanager   Depends on: M1 (landed). Can run in parallel with M2.
 
 ## Goal
@@ -112,7 +113,7 @@ reports explicit and inherited settings differently.
 pub struct Config { pub defaults: Defaults, pub tables: Vec<TableEntry>, pub many_to_many: Vec<M2mEntry> }
 pub struct Defaults { pub table_mode: TableMode, pub field_mode: FieldMode, pub relation_mode: RelationMode }
 // Defaults::default(): all three Editable
-pub enum TableMode { Editable, ReadOnly, Hidden }
+pub enum TableMode { Editable, ReadOnly, Hidden, Pickable }   // serde "pickable"; never valid in [defaults]
 pub enum FieldMode { Editable, ReadOnly, Hidden, CreateOnly }
 pub enum RelationMode { Editable, ReadOnly, Hidden }
 pub enum DurationUnit { Milliseconds, Seconds, Minutes, Hours, Days }
@@ -147,6 +148,25 @@ Everything below is normative.
 
 ### File
 
+There is **one config for the whole app**, at a fixed location the user does
+not choose:
+
+- Windows: `%ProgramData%\FileManager\dbmanager.toml` (normally
+  `C:\ProgramData\FileManager\dbmanager.toml`);
+- other platforms (development builds only): `/etc/filemanager/dbmanager.toml`.
+
+The app only reads it; it never writes it, except that developer mode
+(Ctrl+Alt+Shift+D) offers **Edit config**, which opens the file in the system
+editor and, if the file does not exist yet, first creates a commented starter
+file there (never replacing an existing file). Saved edits are picked up
+**automatically**: the app watches the file and reloads it, keeping unsaved
+edits in the form and re-checking them against the new rules. A save that was
+prepared against the old config is refused once and can be retried.
+
+The same config applies to every database the app opens. Table and field names
+that a database does not have are warnings, not errors, so one file can
+describe several databases.
+
 UTF-8 TOML, optional BOM. Top-level keys: `version`, `defaults`, `tables`,
 `many_to_many`. Any other key is an error and is ignored.
 
@@ -157,8 +177,9 @@ UTF-8 TOML, optional BOM. Top-level keys: `version`, `defaults`, `tables`,
   ignored and **everything is read-only** until it is fixed.
 - A config file that cannot be read (I/O error, not UTF-8): everything is
   read-only.
-- No config at all: the built-in defaults apply, so everything is editable
-  except forced read-only columns.
+- No config file at all: the built-in defaults apply, so everything is
+  editable except forced read-only columns, and the app says that no config
+  is in use.
 
 ### Defaults
 
@@ -186,7 +207,7 @@ read-only"), and an entry with an error makes its subject read-only.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `mode` | `"editable" \| "read-only" \| "hidden"` | `defaults.table_mode` | `hidden`: never listed or linked. `read-only`: browsable, nothing changes. `editable`: fields per their modes. For a junction used as many-to-many, see "Many-to-many". |
+| `mode` | `"editable" \| "read-only" \| "hidden" \| "pickable"` | `defaults.table_mode` | `hidden`: never listed or linked. `read-only`: listed and browsable, nothing changes. `pickable`: **not listed**, but its objects are offered in pickers for foreign keys into it, appear as links (following one opens the object read-only), and appear as the other side of many-to-many checklists; nothing in it changes (a lookup table). `editable`: fields per their modes. `pickable` is not valid in `[defaults]`. For a junction used as many-to-many, see "Many-to-many". |
 | `display_name` | string | the SQL name | shown for the table |
 | `description` | string | none | shown with the table |
 | `object_name` | string | none | the singular noun for one object, lower case as it reads mid-sentence (`"author"`), so the app can say "New author" instead of "New object in Authors" |
@@ -443,8 +464,10 @@ for hidden). The database always opens and can be browsed.
 | duration bound not a whole number of the unit | error | field read-only |
 | `nullable = true` on a `NOT NULL` column | error | field read-only |
 | explicit `editable`/`create-only` on a forced-read-only column | error | field read-only |
-| field explicitly `editable`/`create-only` in a read-only table | warning | stays read-only |
-| `allow_create`/`allow_delete` set explicitly on a non-editable table | warning | ignored |
+| field explicitly `editable`/`create-only` in a read-only or pickable table | warning | stays read-only |
+| `allow_create`/`allow_delete` set explicitly on a non-editable (read-only, pickable, hidden) table | warning | ignored |
+| `table_mode = "pickable"` in `[defaults]` | error | `[defaults]` invalid (all defaults read-only) |
+| `mode = "pickable"` on a junction used as many-to-many | warning | treated as not listed |
 | a `NOT NULL` column that is neither `editable` nor `create-only`, has no default and is not a rowid alias, while create is on | error if `allow_create` was explicit, warning if inherited | create disabled |
 | a junction `NOT NULL` column without default that no editable/create-only link field supplies, while the relation is editable | error if the relation `mode` was explicit, warning if inherited | relation read-only |
 | label/order_by/field_order names an unknown or hidden column | error | that key ignored, default used |
@@ -538,8 +561,8 @@ editable defaults and states only what differs:
   - `code`: create-only, `pattern = '[a-z-]+'`, max 20;
   - the default label is `{name}`, and delete is not allowed (default).
 - `publisher`: `display_name = "Publishers"`, `object_name = "publisher"`,
-  `mode = "read-only"` (a
-  pickable lookup table).
+  `mode = "pickable"` (a lookup table: not listed, picked from, linked to,
+  opened read-only).
 - `member`:
   - `object_name = "member"`, `allow_delete = true`;
   - `name`: min 1;
@@ -561,6 +584,17 @@ editable defaults and states only what differs:
 
 Comment the file so it teaches the format.
 
+`starter.toml` is the commented starter file that developer mode's **Edit
+config** writes when no config exists (a later milestone embeds it with
+`include_str!`). It has `version = 1` and nothing else active: `[defaults]`,
+a table, fields, durations, `pickable` and a many-to-many entry are all shown
+**commented out**, each with a one-line explanation, and a header comment
+naming the file's location, saying the app reloads it automatically, and
+pointing to `docs/dbmanager-config.md`. It must parse with **zero
+diagnostics** to exactly `Config::default()`'s behaviour (built-in editable
+defaults, no entries), so creating it changes nothing until the user edits
+it.
+
 ## Files
 
 Create:
@@ -569,7 +603,8 @@ Create:
   validate.rs, tests.rs}`;
 - `docs/dbmanager-config.md`;
 - `examples/dbmanager/schema.sql`;
-- `examples/dbmanager/example.toml`.
+- `examples/dbmanager/example.toml`;
+- `examples/dbmanager/starter.toml`.
 
 Edit:
 
@@ -642,6 +677,8 @@ Do not touch the shell, the frontend, other crates, or `docs/plans/`.
 - `order_by_forms`
 - `m2m_entry_rules`
 - `bom_accepted`
+- `starter_is_inert` (zero diagnostics, no entries, editable defaults)
+- `pickable_mode` (parses on a table; rejected in `[defaults]`)
 - `doc_contains_example`
 
 Run `cargo test -p fm-dbmanager`, then the workspace commands in `CLAUDE.md`.

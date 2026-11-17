@@ -1,6 +1,6 @@
 # U4 — The object sheet: reading an object
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-16: pickable tables open read-only)
 Project: dbmanager   Depends on: U3 (landed), M10 (landed)
 
 ## Goal
@@ -125,8 +125,18 @@ that applies:
 1. the session's `readOnlyReason` → "The database is open read-only.";
 2. `configFailClosed` → "The config has an error, so everything is
    read-only.";
-3. the table's `mode` is `read-only` → "This table is read-only in the
+3. the table's `mode` is `pickable` → "This is a lookup table: its objects
+   can be picked, but not changed here.";
+4. the table's `mode` is `read-only` → "This table is read-only in the
    config.".
+
+`TableView.mode` is `"editable" | "read-only" | "pickable"`. A **pickable**
+(lookup) table is never in the table list, but its objects open here when the
+user follows a reference to one. Such an object is **entirely read-only**
+(the backend already makes all its fields read-only): it has no editors, no
+save bar, no Delete…, and its Referenced by lists are plain links. Find the
+open object's `TableView` in `session.tables` by name; pickable tables are
+included there.
 
 **Fields: the property sheet.** The sheet pane is its own inline-size
 container (`sheet`):
@@ -145,8 +155,8 @@ Each `FieldRow`:
   `--border`, `--radius`, padding `0 var(--space-1)`), each a word, with an
   icon only where stated:
   - **Read-only** with the `lock` icon, when the table is editable and the
-    field's mode is `read-only`. A read-only table already carries the tag
-    in the header, so its fields do not repeat it.
+    field's mode is `read-only`. A read-only or pickable table already
+    carries the tag in the header, so its fields do not repeat it.
   - **Set when created**, when the mode is `create-only` on an existing
     object.
   - **Key**, when `isKey`.
@@ -207,6 +217,8 @@ Each `FieldRow`:
 - `link` with `navigable` and `key: null` (dangling): the stored value in
   `.mono` and the words "Missing object", plus the `danglingReference`
   problem line.
+- A link into a **pickable** table is an ordinary navigable link. Following
+  it opens the lookup object read-only (above).
 - `link` with `navigable: false`: the stored value in `.mono` and "(in a table
   that is not shown)", with no link.
 - `value` NULL (no `link`): "Not set" in `--text-muted`.
@@ -263,7 +275,7 @@ Edit `ObjectSheet.tsx`, `errorMessages.ts` (add `problemMessage`),
 | `author_id` | "Author", FK → `author`, link "Herbert, Frank" |
 | `isbn` | create-only, "ISBN", with help |
 | `format` | allowed hardcover / paperback / ebook with labels; value "paperback" → "Paperback" |
-| `publisher_id` | FK → Publishers |
+| `publisher_id` | FK → Publishers (a pickable table), link "Acme Press" |
 | `pages` | 1–10000 |
 | `price` | real 0.0–1000.0 |
 | `in_print` | bool, checked true |
@@ -320,8 +332,14 @@ Author "Herbert, Frank" has a reverse relation "Books · via Author · 2".
 
 **Read-only tables:**
 
-- A Publishers object shows the reason line "This table is read-only in the
-  config." and **no** per-field Read-only tags.
+- An object of a `read-only` table shows the reason line "This table is
+  read-only in the config." and **no** per-field Read-only tags.
+- **Pickable objects:**
+  - Following the book's Publisher link opens "Acme Press" (Publishers,
+    pickable);
+  - it shows "This is a lookup table: its objects can be picked, but not
+    changed here.", with no per-field tags;
+  - Back returns to the book.
 
 **Referenced by:**
 
@@ -374,7 +392,8 @@ Author "Herbert, Frank" has a reverse relation "Books · via Author · 2".
   - `error and retry`.
 - `ObjectSheet.read.test.tsx`:
   - `book Dune renders as a property sheet`;
-  - `reason line precedence`;
+  - `reason line precedence, including pickable`;
+  - `publisher link opens the lookup object read-only`;
   - `follow and back`.
 
 Run: `npm run typecheck && npm run lint && npm run test`.

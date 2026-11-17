@@ -1,6 +1,7 @@
 # U9 — Many-to-many checklists
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-16: `M2mQuery.only`, pickable
+other sides)
 Project: dbmanager   Depends on: U8 (landed), M10 (landed)
 
 ## Goal
@@ -73,7 +74,10 @@ import each other.
 type M2mView = { relation: string; otherTable: string; heading: string;
   mode: "editable" | "read-only";            // this side
   linkFields: FieldView[] };                 // U10
-type M2mQuery = { search: string | null; offset: number; limit: number; linkedOnly: boolean };
+type M2mQuery = { search: string | null; offset: number; limit: number; linkedOnly: boolean;
+  only?: ObjectKey | null };   // fetch exactly this one other-side object: the page holds it
+                               // (with linked, linkValues, linkVersion), or nothing if it no
+                               // longer exists; search/offset/linkedOnly ignored; total 0 or 1
 type M2mPage = { items: M2mOption[]; total: number; linkedTotal: number; offset: number };
 type M2mOption = { key: ObjectKey; label: string; linked: boolean;
   linkValues: FieldValue[] | null;           // linked only ([] for no link fields)
@@ -89,7 +93,10 @@ type LinkError = { relation: string; other: ObjectKey; fields: FieldError[]; iss
 
 `TableView.manyToMany: M2mView[]` gives the relations of the open table; the
 other table's `TableView` (for `searchable` and `displayName`) is
-`session.tables.find(t => t.name === view.otherTable)`. If the generated
+`session.tables.find(t => t.name === view.otherTable)`. The other side may
+be a **pickable** (lookup) table: it is in `session.tables` with `mode:
+"pickable"` and works like any other side. Opening one of its objects shows
+it read-only (U4). If the generated
 optional/required shapes differ (for example, a required `add: []`), the
 generated file wins.
 
@@ -223,7 +230,8 @@ meta line):
 
 **Save integration** (U6's `saveDraft`):
 
-- `links: buildLinkChanges(Object.values(draft.links))`.
+- `links: buildLinkChanges(Object.values(draft.links))`, in the same request
+  as U6's `configHash` and field changes.
 - A links-only save is a valid save: the bar counts staged links.
 - **On success:** staged links clear; every open checklist and
   `ObjectView.manyToMany` refresh from the returned object and a re-read of
@@ -239,11 +247,14 @@ meta line):
   The error summary lists "{heading}: {label}: {message}". Its button focuses
   the row's checkbox (or the Undo button in the pinned group).
 - **`Conflict` with `conflictLink`:**
-  1. Find the fresh option: re-read the relation's current page. If the link
-     is not on it, page through `m2mOptions(..., { search: null, offset,
-     limit: 500, linkedOnly: true })` until it is found (a linked option, by
-     `linkKey`) or the pages run out (not linked). The other object's
-     existence is unknown in that case: treat it as not linked.
+  1. Find the fresh option with one call: `m2mOptions(table, key, relation,
+     { search: null, offset: 0, limit: 1, linkedOnly: false, only:
+     conflictLink.other })`.
+     - `items[0]` is the fresh option;
+     - an empty page means the other object no longer exists (`fresh =
+       null`).
+
+     Also re-read the relation's current page.
   2. Rebase that one link with `rebaseLinkChange`, but **set it aside**:
      show a warn notice in the section, "{label}'s link was changed by
      another program. Nothing was saved. Your change to it was set aside.",
@@ -339,8 +350,9 @@ Fixtures from the example:
 
 **Link conflicts:**
 
-- A `Conflict` naming Poetry (staged add, now linked by someone else) shows
-  the "already linked" notice.
+- A `Conflict` naming Poetry (staged add, now linked by someone else)
+  re-reads it with `only: poetryKey` and shows the "already linked" notice.
+- An empty `only` page gives the "already gone" notice.
 - A `Conflict` on a staged remove whose version changed shows Re-apply,
   which stages a remove with the fresh version.
 - Every other staged link and every field edit is kept in both cases.
@@ -379,6 +391,8 @@ Fixtures from the example:
   - `link-level errors on row and summary`;
   - `conflict already linked`;
   - `conflict reapply remove`;
+  - `conflict refetch uses only`;
+  - `conflict other object gone`;
   - `other edits kept`.
 
 Run: `npm run typecheck && npm run lint && npm run test`.
