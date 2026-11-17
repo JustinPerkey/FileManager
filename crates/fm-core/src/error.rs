@@ -33,6 +33,9 @@ pub enum FmError {
     /// The system app-data directory could not be determined.
     #[error("could not determine the app data directory")]
     NoAppDataDir,
+    /// The machine-wide `ProgramData` directory is unset, empty, or relative.
+    #[error("could not determine the ProgramData directory")]
+    NoProgramDataDir,
 }
 
 impl FmError {
@@ -45,6 +48,7 @@ impl FmError {
             FmError::Io { .. } => "Io",
             FmError::Json(_) => "Json",
             FmError::NoAppDataDir => "NoAppDataDir",
+            FmError::NoProgramDataDir => "NoProgramDataDir",
         }
     }
 

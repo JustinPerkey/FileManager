@@ -1,6 +1,6 @@
 # U7 — Editing references with the object picker
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-16: pickable targets)
 Project: dbmanager   Depends on: U6 (landed), M10 (landed)
 
 ## Goal
@@ -19,8 +19,10 @@ React + TypeScript + Vite in `apps/desktop/src/`). The **Database Manager**
 (`dbmanager`) edits a SQLite file as an **object editor**. A foreign key is
 shown as the referenced object's **label**, never a bare id, and editing it
 means **picking another object**, not typing a number. Picking from a
-read-only table is allowed: a lookup table such as Publishers is read-only but
-still pickable.
+read-only table is allowed. So is picking from a **pickable** (lookup) table
+such as Publishers: it is not in the table list, but it is in
+`session.tables` with `mode: "pickable"`, and its objects are listed in
+pickers like any other.
 
 Earlier tasks built:
 
@@ -78,7 +80,10 @@ type TableView = { name; displayName; searchable: boolean; mode; … };   // fro
 - `isChanged`: true when the user picked or cleared, and
   `objectId(fk.table, picked)` (or null) differs from the base link's.
 - `canEdit` now admits FK fields when `foreignKey.navigable` and the target
-  table is in `session.tables`; the other conditions from U5 stay.
+  table is in `session.tables` (any mode, pickable included); the other
+  conditions from U5 stay.
+- The save request already carries `configHash` (U6); references change
+  nothing about that.
 - U6's `saveDraft` sends `{ type: "reference", key }` for changed FK fields,
   and `{ type: "value", … }` for every other field.
 
@@ -181,7 +186,7 @@ Edit:
 Fixtures:
 
 - the book "Dune": Author → Authors (250 generated, searchable); Publisher →
-  Publishers (read-only, 2 objects, nullable);
+  Publishers (`mode: "pickable"`, 2 objects, nullable);
 - a field whose target is not searchable;
 - a dangling Author.
 

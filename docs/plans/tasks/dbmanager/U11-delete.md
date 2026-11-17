@@ -1,6 +1,7 @@
 # U11 — Deleting objects, with the impact confirmation
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-16: `configHash` on the delete,
+the Delete key confirmed by the human, pickable tables)
 Project: dbmanager   Depends on: U6 (landed), M10 (landed). Can run in
 parallel with U7–U10 once U6 has landed; if it runs after them, keep their
 behaviour intact.
@@ -68,8 +69,11 @@ import each other.
 
 - `deletePreview(table: string, key: ObjectKey): Promise<DeleteImpact>`;
 - `deleteObject(table: string, key: ObjectKey, version: string, impactToken:
-  string): Promise<DeleteResult>`. **Always call `deletePreview` first**, and
-  pass back its `version` and `token`;
+  string, configHash: string): Promise<DeleteResult>`. **Always call
+  `deletePreview` first**, and pass back its `version` and `token`, plus
+  `session.config.hash` (the config the preview was shown under; opaque).
+  `ConfigChangedOnDisk` means the app-wide config changed, and the backend has
+  already reloaded it: re-read the session and preview again;
 - `isConfirmDeleteAllowed(impact): boolean` (`!impact.blocked`).
 
 ```ts
@@ -143,7 +147,8 @@ sections, in this order, contain only the groups that apply:
   Save. It is a danger `Button` with the `trash` icon.
 - It is shown only when `table.canDelete`, the session is writable (no
   `readOnlyReason`, no `configFailClosed`), and the place is an existing
-  object (never on the create form).
+  object (never on the create form). Pickable (lookup) tables never have
+  `canDelete`.
 - **The Delete key** on a focused object-list item (U3's roving list) starts
   the same flow for that item, under the same conditions. It never deletes
   directly.
@@ -189,7 +194,8 @@ sections, in this order, contain only the groups that apply:
 | `ImpactChanged` | keep the dialog open with `error.impact` (new token and version). Show a warn notice at the top of `children`: "What this delete affects changed. Review it again." Move focus to that notice (`tabIndex={-1}`). |
 | `DeleteBlocked` | keep the dialog open, switched to the blocked state with `error.impact` |
 | `Conflict` | close the dialog. Show `error.current` in the sheet (as the base; rebase a draft through U6's `rebaseDraft`), and a sheet banner: "“{label}” was changed by another program. Nothing was deleted. Review it and try again." |
-| `ConfigChangedOnDisk`, `SchemaChanged` | close the dialog, then U6's handling (session re-read / schema flag), with `errorMessage(e, "write")` in a sheet banner |
+| `ConfigChangedOnDisk` | keep the dialog open. Re-read the session, then call `deletePreview` again. If the new session no longer allows the delete (`canDelete` false, or the session read-only), close the dialog with a sheet banner, `errorMessage(e, "write")`. Otherwise show the fresh impact with a warn notice at the top, "The config changed and was reloaded. Review the delete again.", and focus it. The next Delete carries the new hash. Never delete without the user confirming again. |
+| `SchemaChanged` | close the dialog, set the schema flag (U2's banner), and show `errorMessage(e, "write")` in a sheet banner |
 | `Busy` | close the dialog. A sheet banner with `errorMessage(e, "write")` and **Try again**, which restarts from the preview. |
 | any other error | close the dialog. A sheet banner with `errorMessage(e, "write")` and Details. |
 
@@ -254,8 +260,8 @@ The other fixtures:
 **Where Delete is offered:**
 
 - Delete… appears on author, book, member and loan objects (`canDelete`).
-- It does not appear on genre objects, on any create form, or anywhere when
-  the session is read-only.
+- It does not appear on genre objects, publisher objects (pickable), any
+  create form, or anywhere when the session is read-only.
 
 **Starting:**
 
@@ -274,7 +280,8 @@ The other fixtures:
 
 **Confirming:**
 
-- Delete calls `deleteObject(table, key, impact.version, impact.token)`.
+- Delete calls `deleteObject(table, key, impact.version, impact.token,
+  session.config.hash)`.
 - While pending: Deleting…, with Cancel and Escape disabled.
 - On success: the place becomes the table, focus is on the list `h2`, the
   deleted notice and the backup notice show, and the list re-reads.
@@ -291,6 +298,11 @@ The other fixtures:
 - `DeleteBlocked` switches the dialog to blocked.
 - `Conflict` closes the dialog and shows the sheet banner with `current`.
 - `Busy` shows Try again, which restarts from the preview.
+- `ConfigChangedOnDisk`:
+  - re-reads the session, previews again, and shows the notice with focus on
+    it;
+  - the next Delete carries the new hash;
+  - if delete is no longer allowed, the dialog closes with the banner.
 
 **Copy:**
 
@@ -333,7 +345,9 @@ The other fixtures:
   - `busy state`.
 - `delete.flow.test.tsx`:
   - `offered only when allowed`;
-  - `preview then confirm calls deleteObject with version and token`;
+  - `preview then confirm calls deleteObject with version, token and config hash`;
+  - `config changed re-previews and asks again`;
+  - `config changed that removes delete closes the dialog`;
   - `success navigates, notices, focus`;
   - `impact changed`;
   - `delete blocked`;

@@ -1,6 +1,6 @@
 # U5 — Typed field editors, the draft, and inline validation
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-16: pickable tables)
 Project: dbmanager   Depends on: U4 (landed), M10 (landed), M11 (landed)
 
 ## Goal
@@ -105,7 +105,8 @@ type FieldIssueCode = "required" | "wrongType" | "notInteger" | "notReal" | "not
 these hold:
 
 - the session is writable: no `readOnlyReason` and no `configFailClosed`;
-- `table.mode === "editable"`;
+- `table.mode === "editable"`. This excludes `read-only` and `pickable`
+  (lookup) tables, whose objects open fully read-only;
 - the field's mode is `editable`, or `create-only` in the `create` phase
   (U8 uses the create phase);
 - `field.foreignKey === null`: references are edited in U7;
@@ -299,7 +300,8 @@ nullable text field with `emptyIsNull: false`.
   print, Format, Audiobook length and Summary are editors.
 - ISBN (create-only), Revision and Id keep U4's read form.
 - Author and Publisher (FKs) keep U4's form.
-- A Publishers object (read-only table) has no editors.
+- An object of a read-only table, and a Publishers object (a pickable lookup
+  table), have no editors.
 - With `readOnlyReason` or `configFailClosed` set, no field anywhere is an
   editor.
 

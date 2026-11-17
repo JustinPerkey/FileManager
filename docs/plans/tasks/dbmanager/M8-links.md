@@ -1,6 +1,7 @@
 # M8 — Many-to-many link writes with link fields
 
-Status: awaiting approval (new 2026-11-16, split from the save milestone)
+Status: awaiting approval (new 2026-11-16, split from the save milestone;
+revised the same day for `pickable` tables and the config hash on saves)
 Project: dbmanager   Depends on: M7 (landed)
 
 ## Goal
@@ -235,7 +236,12 @@ detected many-to-many with no link fields.
 - With a test config where a `NOT NULL`, no-default link field is hidden,
   adding gives `NotEditable` (the relation cannot add links).
 - With `mode = "read-only"` on the relation, any link change gives
-  `NotEditable`. The same holds on a side whose table is read-only.
+  `NotEditable`. The same holds on a side whose table is read-only or
+  `pickable`; a pickable table is still a valid **other** side (linking a
+  book to a pickable table's object works from the book).
+- A save with only link changes and a stale `config_hash` gives
+  `ConfigChangedOnDisk` (M7's step 1 covers the whole request), nothing
+  written.
 - A relation that is not this table's gives `UnknownRelation`.
 - A link field that is a duration validates and stores like an object
   duration field (test schema).
@@ -278,6 +284,8 @@ Field and relation restrictions:
 - `hidden_required_link_field_blocks_add`
 - `read_only_relation_refused`
 - `read_only_side_refused`
+- `pickable_other_side_links`
+- `links_only_stale_config_hash`
 - `unknown_relation`
 - `duplicate_other_rejected`
 - `link_duration_field`

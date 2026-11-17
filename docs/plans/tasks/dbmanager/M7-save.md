@@ -1,7 +1,9 @@
 # M7 — Saving objects: backup, update, create, conflicts
 
 Status: awaiting approval. Revised 2026-11-16: link writes were split out
-into M8, durations were added, and the defaults are now editable.
+into M8, durations were added, and the defaults are now editable. Then:
+writes carry the config hash (the config now reloads automatically), and
+`pickable` tables are never written.
 Project: dbmanager   Depends on: M6 (landed)
 
 ## Goal
@@ -43,7 +45,8 @@ Builds on:
 - M6 `src/session/`:
   - `Session` and `SessionError`;
   - `ObjectKey`, `ObjectView`, version hashing, `object()`;
-  - freshness checks and `config_changed()`;
+  - freshness checks, `config()` (`LoadedConfig` with `hash()`) and
+    `config_changed()`;
   - `src/session/sql.rs`, the only module that assembles SQL text.
 
 Rules that bind this task:
@@ -70,6 +73,10 @@ pub struct SaveRequest {
     pub table: String,
     pub key: Option<ObjectKey>,        // None: create
     pub version: Option<String>,       // required when key is Some
+    /// The config hash the client's draft was checked against
+    /// (`DbmanagerSession.config.hash`). The config reloads automatically when its
+    /// file changes, so a save prepared under old rules must not slip through.
+    pub config_hash: String,
     pub changes: Vec<FieldChange>,
 }
 pub struct FieldChange { pub column: String, pub input: FieldInput }
@@ -98,9 +105,12 @@ can add link details without breaking callers:
 
 Nothing is written until step 6.
 
-1. If the database is read-only → `ReadOnlyDatabase`. If `config_changed()`
-   → `ConfigChangedOnDisk`. If the table is hidden or unknown →
-   `UnknownTable`.
+1. If the database is read-only → `ReadOnlyDatabase`. If
+   `request.config_hash` differs from `self.config().hash()`, **or**
+   `config_changed()` (the file changed and the automatic reload has not run
+   yet) → `ConfigChangedOnDisk`: the caller reloads the config (the shell does
+   this itself) and the client re-checks its draft and retries. If the table is
+   hidden or unknown → `UnknownTable`.
 2. Permissions: an update needs the table to be `editable`, and a create
    needs `can_create`. Otherwise → `NotEditable`.
 3. Check each change:
@@ -185,6 +195,15 @@ fields belong to an object table:
 - The app never deletes backups.
 - `pub(crate) fn ensure_backup(&mut self) -> Result<Option<PathBuf>,
   SessionError>` returns the path only when it made one.
+- **A reload does not reset the backup.** "Session" here means "this
+  database, opened once in this app run, until it is closed or another
+  database is opened". The shell's reload reopens the same file as a new
+  `Session` value, so add `pub fn adopt_backup(&mut self, backup: PathBuf)`.
+  It marks the backup as already taken and sets `backup_path()` to it,
+  without writing anything. The caller uses it only for the same database
+  path. Test `adopted_backup_is_not_retaken`: after `adopt_backup`, the next
+  save creates no backup, returns `backup_created: None`, and `backup_path()`
+  is the adopted path.
 
 Exports: `SaveRequest`, `SaveResult`, and the types they reference.
 
@@ -235,7 +254,8 @@ leaves most fields editable by default.
 
 Each check in steps 1–5 has a test, including:
 
-- `NotEditable` for an update of `publisher` (`mode = "read-only"`);
+- `NotEditable` for an update of `publisher` (`mode = "pickable"`), and for
+  a create in it;
 - `notEditable` for `book.isbn` (create-only) and for `book.revision`
   (read-only) on update;
 - `unknownField` for `author.internal_note` (hidden);
@@ -263,7 +283,9 @@ Each check in steps 1–5 has a test, including:
 **Refusals**
 
 - `ReadOnlyDatabase` for a read-only file.
-- `ConfigChangedOnDisk` after editing the config.
+- `ConfigChangedOnDisk` when `config_hash` is stale (after `set_config` with a
+  different config), and when the file was edited but not yet reloaded; a
+  retry with the current hash after `set_config` succeeds.
 - `SchemaChanged` after DDL from another connection.
 - `Busy` when a second connection holds `BEGIN EXCLUSIVE`, after the
   timeout. Set a short timeout in the test via `conn().busy_timeout`.

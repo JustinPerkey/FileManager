@@ -185,7 +185,9 @@ Spacing follows the `--space-1…6` scale (4, 8, 12, 16, 24, 32 px): tight
 inside groups, with a wider gap between them. The view is padded
 `--space-4 --space-5`.
 
-**Planned (dbmanager U3): the Database Manager's panes.** The tool's
+**Planned (dbmanager U3): the Database Manager's panes.** Pickable (lookup)
+tables are not listed. Their objects open read-only, with a **Lookup table**
+tag. The tool's
 workspace is an inline-size container:
 
 | Workspace width | Panes |
@@ -312,6 +314,18 @@ cancels, and focus returns to the opener. The extension adds:
 - a scrolling content region below the short description. The region is not
   part of the description.
 
+**Planned (dbmanager U13): the close prompt.** `app/closeGuard.tsx` holds a
+module-level registry of unsaved work (`registerUnsavedWork`). The app shell
+renders one `CloseGuard`, which intercepts the window close (M14's
+`guardWindowClose`).
+
+- When any tool reports unsaved work, the guard keeps the window open and
+  shows this dialog:
+  - "Close FileManager with unsaved changes?";
+  - one line per tool;
+  - **Keep editing** (focused) and **Close without saving** (danger).
+- There is no Save in the prompt.
+
 ### Banners (Landed, U2)
 
 `--surface` fill with a 1 px border in the tone color, a tone icon, and the
@@ -399,7 +413,8 @@ status color.
 - **Don't** add shadows, gradients, or glass to panels at rest.
 - **Don't** use Unicode glyphs (`▾`, `✓`, `⚠`) as icons.
 - **Don't** open a modal for anything but a confirmation: an overwrite, an
-  apply or run that changes files, a delete, or discarding unsaved changes.
+  apply or run that changes files, a delete, discarding unsaved changes, or
+  closing the window with unsaved changes.
   Pickers, menus and help are non-modal overlays.
 - **Don't** animate for decoration. Motion shows state in 120–200 ms, and not
   at all under `prefers-reduced-motion`.

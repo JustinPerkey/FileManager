@@ -1,7 +1,8 @@
 # M9 — Delete: impact preview and confirmed delete
 
 Status: awaiting approval (renumbered from M8 and revised 2026-11-16: link
-fields, editable defaults)
+fields, editable defaults; then the config hash on writes and `pickable`
+tables)
 Project: dbmanager   Depends on: M8 (landed)
 
 ## Goal
@@ -91,8 +92,10 @@ pub struct DeleteResult { pub table: String, pub label: String, pub impact: Dele
                           pub backup_created: Option<String> }
 impl Session {
     pub fn delete_preview(&self, table: &str, key: &ObjectKey) -> Result<DeleteImpact, SessionError>;
-    pub fn delete(&mut self, table: &str, key: &ObjectKey, version: &str, token: &str)
-        -> Result<DeleteResult, SessionError>;
+    /// `config_hash`: the config hash the caller's preview was shown under
+    /// (the config reloads automatically; a stale hash is refused).
+    pub fn delete(&mut self, table: &str, key: &ObjectKey, version: &str, token: &str,
+                  config_hash: &str) -> Result<DeleteResult, SessionError>;
 }
 ```
 
@@ -134,8 +137,10 @@ Breadth-first over rows, starting from the object:
 
 ### Deleting
 
-1. `ReadOnlyDatabase`, `ConfigChangedOnDisk`, `UnknownTable`, `NotEditable`
-   (unless `can_delete`) — checked first, nothing written.
+1. `ReadOnlyDatabase`; `ConfigChangedOnDisk` when `config_hash` differs from
+   `self.config().hash()` or `config_changed()` is true; `UnknownTable`;
+   `NotEditable` (unless `can_delete`; a `pickable` table never can) — checked
+   first, nothing written.
 2. Backup if this is the session's first write (`BackupFailed` → stop).
 3. `BEGIN IMMEDIATE`; `schema_version` check (`SchemaChanged`); re-read the
    row (`UnknownObject` if gone); version differs → `Conflict { current,
@@ -175,7 +180,7 @@ Against `examples/dbmanager/schema.sql` + `example.toml` in a temp dir:
   creates the backup if it is the session's first write.
 - Preview deleting a publisher referenced by a book: `blocks` on the `book`
   group (`RESTRICT`), `blocked: true`; `delete` → `DeleteBlocked`, nothing
-  changed. (`publisher` is read-only in the example: test with a config where
+  changed. (`publisher` is pickable in the example: test with a config where
   it is editable and `allow_delete = true`.)
 - Preview deleting a member with loans: `loan` group `SetNull`, not blocking
   (nullable `member_id`); after delete those loans have `member_id` NULL.
@@ -186,7 +191,9 @@ Against `examples/dbmanager/schema.sql` + `example.toml` in a temp dir:
 - Adding a referencing row between preview and delete → `ImpactChanged` with
   the new impact; nothing deleted.
 - Editing the object between preview and delete → `Conflict`.
-- `NotEditable` when `can_delete` is false: `genre` in the example (editable,
+- `ConfigChangedOnDisk` for a stale `config_hash`; nothing deleted.
+- `NotEditable` for `publisher` (pickable), and when `can_delete` is false:
+  `genre` in the example (editable,
   `allow_delete` left at its default `false`), and every table with no
   config at all.
 - A self-referencing table (`parent_id REFERENCES node ON DELETE CASCADE`)
@@ -206,7 +213,7 @@ Against `examples/dbmanager/schema.sql` + `example.toml` in a temp dir:
 `impact_truncates`, `impact_flags_triggers`, `delete_applies_cascade`,
 `delete_backs_up_first`, `delete_blocked_changes_nothing`,
 `delete_impact_changed`, `delete_conflict`, `delete_not_allowed`,
-`delete_off_by_default`,
+`delete_off_by_default`, `delete_stale_config_hash`, `delete_pickable_refused`,
 `delete_read_only_database`, `delete_awkward_identifiers`.
 
 Run: `cargo test -p fm-dbmanager`; regenerate; `cargo test --workspace`;

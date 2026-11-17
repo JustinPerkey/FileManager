@@ -1,7 +1,7 @@
 # M5 — The model: overlay the config on the schema
 
 Status: awaiting approval (revised 2026-11-16: editable defaults, durations,
-link fields)
+link fields; then the `pickable` table mode)
 Project: dbmanager   Depends on: M2 (landed), M3 (landed), M4 (landed)
 
 ## Goal
@@ -109,6 +109,26 @@ Rules that bind this task:
 - **Table modes:** the valid entry's `mode`. Otherwise not listed, for a
   junction used as many-to-many. Otherwise `defaults.table_mode`. A
   rejected entry makes the table read-only (or hidden).
+- **Pickable tables** (`mode = "pickable"`, a lookup table the human asked
+  for): not in the table list, but otherwise visible. In detail:
+  - every field is read-only (an explicit `editable`/`create-only` field entry
+    is a warning, as in a read-only table); `can_create` and `can_delete` are
+    false (an explicit `allow_create`/`allow_delete` is a warning);
+  - it **is** a valid FK target: FK fields into it are editable (picking from
+    it) and **navigable**; following such a link opens the object
+    **read-only**. Reason: the user must be able to see what they picked, and
+    a lookup table hidden from the list must not become editable by the back
+    door of a link;
+  - it is a valid other side of a many-to-many checklist (the checklist shows
+    on the other table's objects); on a pickable object's own (read-only) view,
+    its checklists and reverse relations show read-only;
+  - it is **not** hidden: its rows are labelled in delete impact like any
+    visible table;
+  - `mode = "pickable"` on a junction used as many-to-many is a warning and
+    means "not listed".
+  - `TableView` is produced for it (the UI needs its fields to show an object
+    opened through a link) with `mode: "pickable"`; the UI leaves it out of
+    the table list by that mode. `Model::table(name)` returns it.
 - **Field modes:**
   - The entry's `mode`, otherwise `defaults.field_mode`.
   - A read-only table makes every field read-only. An explicit
@@ -207,7 +227,7 @@ The internal shapes are up to you, but M6–M9 need all of this per table:
 pub fn resolve(schema: &Schema, config: &ConfigReport) -> Model;
 impl Model {
     pub fn diagnostics(&self) -> &[ConfigDiagnostic];
-    pub fn table_views(&self) -> Vec<TableView>;   // listed tables, schema order
+    pub fn table_views(&self) -> Vec<TableView>;   // listed and pickable tables, schema order
     pub fn table(&self, name: &str) -> Option<&ResolvedTable>;  // exact SQL name; hidden/unlisted junction → None
 }
 ```
@@ -218,7 +238,8 @@ The boundary views are exported:
 pub struct TableView {
     pub name: String, pub display_name: String, pub description: Option<String>,
     pub object_name: Option<String>,     // config `object_name`; None when not configured (no guessing)
-    pub mode: TableMode,                 // editable | read-only (never hidden here)
+    pub mode: TableMode,                 // editable | read-only | pickable (never hidden here);
+                                         // pickable tables are not shown in the table list
     pub can_create: bool, pub can_delete: bool, pub searchable: bool,
     pub has_triggers: bool,
     pub fields: Vec<FieldView>,          // display order (field_order, then column order)
@@ -288,8 +309,9 @@ resolve with zero diagnostics, and:**
   - `loan.loan_period` is a duration whose default value is `"14d"`.
 - Links:
   - `book.author_id` links to `author` and is navigable;
-  - `publisher` is a read-only table, and `book.publisher_id` is still
-    editable (picking from a read-only table is allowed).
+  - `publisher` is a **pickable** table (`TableView.mode == "pickable"`,
+    every field read-only), and `book.publisher_id` is still editable
+    (picking from a pickable table is allowed) and navigable.
 - Many-to-many:
   - `book` and `genre` each have an editable `M2mView` for `m2m:book_genre`,
     with headings "Genres" and "Books" and no link fields;
@@ -372,6 +394,10 @@ resolve with zero diagnostics, and:**
 - Defaults and configs:
   - `example_resolves_clean`
   - `no_config_is_editable`
+  - `pickable_table_semantics` (read-only fields, no create/delete, valid FK
+    target and navigable, valid m2m other side, warnings for explicit
+    editable fields and allow flags, error in `[defaults]`, warning on a
+    junction)
   - `syntax_error_config_is_read_only`
   - `read_only_default_policy`
 - Kinds:
