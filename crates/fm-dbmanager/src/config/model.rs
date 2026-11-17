@@ -45,6 +45,9 @@ pub enum TableMode {
     Editable,
     ReadOnly,
     Hidden,
+    /// Not listed, but offered in pickers and as links; nothing in it
+    /// changes. Never valid in `[defaults]`.
+    Pickable,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
@@ -90,6 +93,7 @@ impl TableMode {
             "editable" => Some(Self::Editable),
             "read-only" => Some(Self::ReadOnly),
             "hidden" => Some(Self::Hidden),
+            "pickable" => Some(Self::Pickable),
             _ => None,
         }
     }
@@ -206,13 +210,16 @@ impl Config {
 /// An entry with an error is `Rejected`: its subject becomes read-only, or
 /// hidden when the entry's own valid `mode` said `hidden`.
 #[derive(Clone, Debug, PartialEq)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "a Valid entry is the common case and is never moved around; boxing it would only add noise"
-)]
 pub enum TableEntry {
     Valid(TableConfig),
-    Rejected { name: String, at: At, hidden: bool },
+    /// `fields` are the table's field entries as parsed, valid or rejected.
+    /// They only keep hidden fields hidden; every other effect is dropped.
+    Rejected {
+        name: String,
+        at: At,
+        hidden: bool,
+        fields: Vec<FieldEntry>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]

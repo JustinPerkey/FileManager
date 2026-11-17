@@ -134,11 +134,12 @@ pattern = '[a-z-]+'
 max_length = 20
 
 # --- publisher ------------------------------------------------------------
-# A lookup table: books can pick a publisher, but nothing here changes.
+# A lookup table: books can pick a publisher, but nothing here changes. It is
+# not listed on its own.
 [tables.publisher]
 display_name = "Publishers"
 object_name = "publisher"
-mode = "read-only"
+mode = "pickable"                          # not listed; picked from, linked to, opened read-only
 
 # --- member ---------------------------------------------------------------
 [tables.member]
@@ -202,11 +203,35 @@ max = 99
 
 ## File
 
+There is **one config for the whole app**, at a fixed location the user does
+not choose:
+
+- Windows: `%ProgramData%\FileManager\dbmanager.toml` (normally
+  `C:\ProgramData\FileManager\dbmanager.toml`);
+- other platforms (development builds only): `/etc/filemanager/dbmanager.toml`.
+
+The app only reads it; it never writes it, except that developer mode
+(Ctrl+Alt+Shift+D) offers **Edit config**, which opens the file in the system
+editor and, if the file does not exist yet, first creates a commented starter
+file there (never replacing an existing file). The starter file is
+`examples/dbmanager/starter.toml`; it changes nothing until edited. Saved edits
+are picked up **automatically**: the app watches the file and reloads it,
+keeping unsaved edits in the form and re-checking them against the new rules. A
+save that was prepared against the old config is refused once and can be
+retried.
+
+The same config applies to every database the app opens. Table and field names
+that a database does not have are warnings, not errors, so one file can
+describe several databases.
+
 UTF-8 TOML, optional BOM. Top-level keys: `version`, `defaults`, `tables`,
-`many_to_many`. Any other key is an error and is ignored. A top-level key of
-the wrong type (for example `tables = 1`) is an error, the section is ignored,
-and all three defaults become `read-only` so that nothing becomes more
-editable than intended.
+`many_to_many`.
+
+Any other top-level key (for example the typo `[table.secrets]`) is an error,
+is ignored, and **narrows all three defaults to `read-only`**, as a wrong-typed
+`defaults`, `tables` or `many_to_many` does. A misspelt section could otherwise
+leave the tables it meant to restrict editable. Entries that parsed correctly
+still apply.
 
 - `version = 1`. If it is missing: a warning, read as 1. Any other value: an
   error. The whole config is ignored and **everything is read-only** until it
@@ -215,8 +240,9 @@ editable than intended.
   ignored and **everything is read-only** until it is fixed.
 - A config file that cannot be read (I/O error, not UTF-8): everything is
   read-only.
-- No config at all: the built-in defaults apply, so everything is editable
-  except forced read-only columns.
+- No config file at all: the built-in defaults apply, so everything is
+  editable except forced read-only columns, and the app says that no config is
+  in use.
 
 Positions in diagnostics are 1-based lines and columns, with columns counted in
 characters.
@@ -240,7 +266,7 @@ write one line:
 table_mode = "read-only"
 ```
 
-`create-only` is not a valid default. An invalid `[defaults]` (unknown key or
+`create-only` and `pickable` are not valid defaults. An invalid `[defaults]` (unknown key or
 bad value) is an error, and all three defaults become `read-only` (fail
 closed). The entries that are valid still apply.
 
@@ -254,7 +280,7 @@ read-only"), and an entry with an error makes its subject read-only.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `mode` | `"editable" \| "read-only" \| "hidden"` | `defaults.table_mode` | `hidden`: never listed or linked. `read-only`: browsable, nothing changes. `editable`: fields per their modes. For a junction used as many-to-many, see "Many-to-many". |
+| `mode` | `"editable" \| "read-only" \| "hidden" \| "pickable"` | `defaults.table_mode` | `hidden`: never listed or linked. `read-only`: listed and browsable, nothing changes. `pickable`: **not listed**, but its objects are offered in pickers for foreign keys into it, appear as links (following one opens the object read-only), and appear as the other side of many-to-many checklists; nothing in it changes (a lookup table). `editable`: fields per their modes. `pickable` is not valid in `[defaults]`. For a junction used as many-to-many, see "Many-to-many". |
 | `display_name` | string | the SQL name | shown for the table |
 | `description` | string | none | shown with the table |
 | `object_name` | string | none | the singular noun for one object, lower case as it reads mid-sentence (`"author"`), so the app can say "New author" instead of "New object in Authors" |
@@ -266,7 +292,8 @@ read-only"), and an entry with an error makes its subject read-only.
 | `fields` | table of field entries | none | `[tables.<name>.fields.<column>]` |
 
 Errors in a table's own keys reject the table entry (see "Diagnostics"); its
-field entries are then dropped with it. An error in one field entry rejects
+fields are then read-only, except that a field whose entry validly says
+`mode = "hidden"` stays hidden, so a typo never reveals a hidden column. An error in one field entry rejects
 only that field.
 
 ## Fields: `[tables.<table>.fields.<column>]`
@@ -302,8 +329,8 @@ field entry:
 - a duration bound string that does not match the duration grammar;
 - a `pattern` that Rust's `regex` crate cannot compile when anchored;
 - `allowed` that is empty, mixes strings and integers, contains a duplicate
-  value, has an inline table with keys other than `value`/`label`, or is
-  missing a `value`;
+  value, has an inline table with keys other than `value`/`label`, is
+  missing a `value`, or has an empty (all-whitespace) `label`;
 - an empty (all-whitespace) `display_name`, `help`, `description` or
   `object_name`.
 
@@ -513,18 +540,19 @@ for hidden). The database always opens and can be browsed.
 | --- | --- | --- |
 | TOML syntax error, `version` ≠ 1 | error | whole config ignored; everything read-only (fail closed) |
 | invalid `[defaults]` | error | all defaults `read-only` |
-| top-level `tables` or `many_to_many` of the wrong type | error | section ignored; all defaults `read-only` |
 | missing `version` | warning | read as 1 |
-| unknown top-level key | error | key ignored |
-| unknown key, wrong type, invalid value (any rule above) | error | that table/field/relation entry rejected: its subject is read-only |
+| unknown top-level key, or a wrong-typed `defaults`/`tables`/`many_to_many` | error | ignored; all defaults narrowed to `read-only`; valid entries still apply |
+| unknown key, wrong type, invalid value (any rule above) | error | that table/field/relation entry rejected: its subject is read-only (hidden if it validly asked for hidden); a rejected table keeps its fields' `hidden` |
 | unknown table, field, or junction | warning | entry ignored |
 | names a view, virtual, shadow or internal table | warning | entry ignored |
 | bound, `type` or `unit` not valid for the field's kind or affinity, or set on a foreign-key field | error | field read-only |
 | duration bound not a whole number of the unit | error | field read-only |
 | `nullable = true` on a `NOT NULL` column | error | field read-only |
 | explicit `editable`/`create-only` on a forced-read-only column | error | field read-only |
-| field explicitly `editable`/`create-only` in a read-only table | warning | stays read-only |
-| `allow_create`/`allow_delete` set explicitly on a non-editable table | warning | ignored |
+| field explicitly `editable`/`create-only` in a read-only or pickable table | warning | stays read-only |
+| `allow_create`/`allow_delete` set explicitly on a non-editable (read-only, pickable, hidden) table | warning | ignored |
+| `table_mode = "pickable"` in `[defaults]` | error | `[defaults]` invalid (all defaults read-only) |
+| `mode = "pickable"` on a junction used as many-to-many | warning | treated as not listed |
 | a `NOT NULL` column that is neither `editable` nor `create-only`, has no default and is not a rowid alias, while create is on | error if `allow_create` was explicit, warning if inherited | create disabled |
 | a junction `NOT NULL` column without default that no editable/create-only link field supplies, while the relation is editable | error if the relation `mode` was explicit, warning if inherited | relation read-only |
 | label/order_by/field_order names an unknown or hidden column | error | that key ignored, default used |

@@ -106,11 +106,12 @@ pattern = '[a-z-]+'
 max_length = 20
 
 # --- publisher ------------------------------------------------------------
-# A lookup table: books can pick a publisher, but nothing here changes.
+# A lookup table: books can pick a publisher, but nothing here changes. It is
+# not listed on its own.
 [tables.publisher]
 display_name = "Publishers"
 object_name = "publisher"
-mode = "read-only"
+mode = "pickable"                          # not listed; picked from, linked to, opened read-only
 
 # --- member ---------------------------------------------------------------
 [tables.member]

@@ -1,0 +1,38 @@
+# Database Manager config.
+#
+# This file lives at %ProgramData%\FileManager\dbmanager.toml (on Windows) and
+# applies to every database the app opens. The app reloads it automatically
+# when you save. Nothing below is active yet: everything is editable except
+# columns that can never be edited. Remove the leading "# " from a block to
+# turn it on. The full reference is docs/dbmanager-config.md.
+
+version = 1
+
+# Modes for everything not mentioned below: editable, read-only or hidden.
+# To make the whole database read-only unless stated otherwise:
+# [defaults]
+# table_mode = "read-only"
+
+# One table. A table's mode may also be "pickable": not listed, but offered in
+# pickers and as links (a lookup table).
+# [tables.author]
+# display_name = "Authors"
+# object_name = "author"                 # "New author"
+# label = "{last_name}, {first_name}"    # an object's title
+# allow_delete = true                    # off unless asked for
+
+# A field of that table: bounds, hiding, display text.
+# [tables.author.fields.born]
+# min = 1000
+# max = 2100
+
+# A duration: an integer count of its unit, written like "1h30m".
+# [tables.author.fields.talk_length]
+# type = "duration"
+# unit = "seconds"
+# min = "1m"
+# max = "10h"
+
+# Many-to-many: a junction table's checklist headings, keyed by table name.
+# [many_to_many.book_genre]
+# headings = { book = "Genres", genre = "Books" }

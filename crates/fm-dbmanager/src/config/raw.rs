@@ -18,6 +18,7 @@ use super::validate::{
 };
 
 const MODE_TABLE: &str = "`editable`, `read-only` or `hidden`";
+const MODE_TABLE_ENTRY: &str = "`editable`, `read-only`, `hidden` or `pickable`";
 const MODE_FIELD: &str = "`editable`, `read-only`, `hidden` or `create-only`";
 
 /// Reads everything but `version`. Returns the config; unreadable parts have
@@ -44,10 +45,15 @@ pub(super) fn read(ctx: &mut Ctx<'_>, top: &DeTable<'_>) -> Config {
                     narrow = true;
                 }
             }
-            other => ctx.error(
-                key.span().start,
-                format!("unknown top-level key `{other}` (ignored)"),
-            ),
+            other => {
+                ctx.error(
+                    key.span().start,
+                    format!(
+                        "unknown top-level key `{other}` (ignored; all defaults become read-only)"
+                    ),
+                );
+                narrow = true;
+            }
         }
     }
     if narrow {
@@ -98,13 +104,14 @@ fn read_defaults(ctx: &mut Ctx<'_>, v: &Val<'_>) -> Option<Defaults> {
     for (key, value) in sorted(table) {
         match key_name(key) {
             "table_mode" => {
+                let allowed = |s: &str| TableMode::parse(s).filter(|m| *m != TableMode::Pickable);
                 if let Some(m) = read_enum(
                     ctx,
                     scope,
                     "table_mode",
                     value,
-                    TableMode::parse,
-                    MODE_TABLE,
+                    allowed,
+                    "`editable`, `read-only` or `hidden` (`pickable` is not a valid default)",
                 ) {
                     d.table_mode = m;
                 }
@@ -154,13 +161,13 @@ fn read_table(ctx: &mut Ctx<'_>, key: &Key<'_>, v: &Val<'_>) -> TableEntry {
     let name = key_name(key).to_string();
     let at = ctx.at(key.span().start);
     let scope = format!("table `{name}`");
-    let rejected = |hidden| TableEntry::Rejected {
-        name: name.clone(),
-        at,
-        hidden,
-    };
     let Some(table) = expect_table(ctx, &scope, &name, v) else {
-        return rejected(false);
+        return TableEntry::Rejected {
+            name,
+            at,
+            hidden: false,
+            fields: Vec::new(),
+        };
     };
     let before = ctx.errors;
     let mut t = TableConfig {
@@ -182,7 +189,9 @@ fn read_table(ctx: &mut Ctx<'_>, key: &Key<'_>, v: &Val<'_>) -> TableEntry {
         let kn = key_name(k);
         match kn {
             "mode" => {
-                if let Some(m) = read_enum(ctx, &scope, kn, value, TableMode::parse, MODE_TABLE) {
+                if let Some(m) =
+                    read_enum(ctx, &scope, kn, value, TableMode::parse, MODE_TABLE_ENTRY)
+                {
                     t.mode = Some(located(ctx, k, m));
                 }
             }
@@ -232,13 +241,18 @@ fn read_table(ctx: &mut Ctx<'_>, key: &Key<'_>, v: &Val<'_>) -> TableEntry {
     if table_ok {
         TableEntry::Valid(t)
     } else {
-        rejected(matches!(
-            t.mode,
-            Some(Located {
-                value: TableMode::Hidden,
-                ..
-            })
-        ))
+        TableEntry::Rejected {
+            name,
+            at,
+            hidden: matches!(
+                t.mode,
+                Some(Located {
+                    value: TableMode::Hidden,
+                    ..
+                })
+            ),
+            fields: t.fields,
+        }
     }
 }
 
@@ -584,7 +598,7 @@ fn read_allowed(ctx: &mut Ctx<'_>, scope: &str, v: &Val<'_>) -> Option<AllowedVa
                 for (k, x) in sorted(t) {
                     match key_name(k) {
                         "value" => value = Some(x),
-                        "label" => label = expect_str(ctx, scope, "label", x).map(str::to_string),
+                        "label" => label = expect_text(ctx, scope, "label", x),
                         _ => ctx.error(
                             k.span().start,
                             format!(

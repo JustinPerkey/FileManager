@@ -607,6 +607,10 @@ fn allowed_invalid() {
         (3, 35)
     );
     assert_eq!(field_rejected("allowed = \"a\""), (3, 11));
+    assert_eq!(
+        field_rejected("allowed = [{ value = \"a\", label = \"  \" }]"),
+        (3, 35)
+    );
     // mixed via inline tables
     assert_eq!(
         field_rejected("allowed = [{ value = 1 }, { value = \"a\" }]"),
@@ -760,5 +764,69 @@ fn doc_contains_example() {
     assert!(
         DOC.contains(EXAMPLE),
         "docs/dbmanager-config.md is missing the example verbatim"
+    );
+}
+
+const STARTER: &str = include_str!("../../../../examples/dbmanager/starter.toml");
+
+#[test]
+fn starter_is_inert() {
+    let r = parse(STARTER);
+    assert_eq!(r.diagnostics, vec![]);
+    assert_eq!(r.config, Config::default());
+    assert_eq!(r.fail_closed, None);
+}
+
+#[test]
+fn pickable_mode() {
+    let r = parse("version = 1\n[tables.a]\nmode = \"pickable\"\n");
+    assert_eq!(r.diagnostics, vec![]);
+    assert_eq!(
+        valid_table(&r, "a").mode.as_ref().unwrap().value,
+        TableMode::Pickable
+    );
+    let r = parse(
+        "version = 1\n[defaults]\ntable_mode = \"pickable\"\n[tables.a]\nmode = \"hidden\"\n",
+    );
+    assert_eq!(errors(&r).len(), 1);
+    assert_eq!(pos(errors(&r)[0]), (3, 14));
+    assert_eq!(r.config.defaults, Config::fail_closed().defaults);
+    assert_eq!(r.fail_closed, None);
+    assert_eq!(
+        valid_table(&r, "a").mode.as_ref().unwrap().value,
+        TableMode::Hidden
+    );
+}
+
+#[test]
+fn rejected_table_keeps_field_entries() {
+    let r = parse(
+        "version = 1\n[tables.author]\nmode = \"editable\"\nbogus = 1\n[tables.author.fields.internal_note]\nmode = \"hidden\"\n",
+    );
+    assert_eq!(errors(&r).len(), 1);
+    assert_eq!(pos(errors(&r)[0]), (4, 1));
+    let TableEntry::Rejected { fields, hidden, .. } = table(&r, "author") else {
+        panic!("{:?}", table(&r, "author"));
+    };
+    assert!(!hidden);
+    assert_eq!(fields.len(), 1);
+    let FieldEntry::Valid(f) = &fields[0] else {
+        panic!("{fields:?}");
+    };
+    assert_eq!(f.name, "internal_note");
+    assert_eq!(f.mode.as_ref().unwrap().value, FieldMode::Hidden);
+}
+
+#[test]
+fn unknown_top_level_key_narrows_defaults() {
+    let r =
+        parse("version = 1\n[table.secrets]\nmode = \"hidden\"\n[tables.a]\nmode = \"hidden\"\n");
+    assert_eq!(errors(&r).len(), 1);
+    assert_eq!(pos(errors(&r)[0]), (2, 2));
+    assert_eq!(r.config.defaults, Config::fail_closed().defaults);
+    assert_eq!(r.fail_closed, None);
+    assert_eq!(
+        valid_table(&r, "a").mode.as_ref().unwrap().value,
+        TableMode::Hidden
     );
 }

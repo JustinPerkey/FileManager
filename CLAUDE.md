@@ -50,7 +50,7 @@ crates/
   fm-dbmanager/               Database Manager domain library. Depends on fm-core only.
                               No tauri dependency. `db.rs` opens a SQLite file;
                               `state.rs` is the recent list, persisted as dbmanager/state
-    src/config/             the TOML config overlay: parse (text -> Config with
+    src/config/               the TOML config overlay: parse (text -> Config with
                               line/col diagnostics), model, duration grammar. Checks
                               what the text alone shows; schema-dependent rules come later
   fm-tarpack/                 Tar Packager domain library. Depends on fm-core only.
@@ -72,8 +72,9 @@ crates/
                               per step (verify, batch, schedule, tarpack), all
                               stubs returning StepError::NotImplemented
 examples/tarpack/             example manifests, valid, used by tests through include_str!
-examples/dbmanager/           schema.sql (example database) and example.toml (its config),
-                              used by tests through include_str!
+examples/dbmanager/           schema.sql (example database), example.toml (its config) and
+                              starter.toml (the inert commented starter file); used by
+                              tests through include_str!
 docs/tarpack-manifest.md      the manifest, archive-layout, and extraction reference
 docs/tarpack-e2e.md           manual end-to-end release checklist (Windows exe to Linux target)
 docs/dbmanager-config.md      the Database Manager config reference (the format's only home)
