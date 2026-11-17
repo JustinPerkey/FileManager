@@ -29,6 +29,7 @@ let drag: (e: DragDrop) => void = () => undefined;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  drag = () => undefined;
   vi.mocked(onDragDrop).mockImplementation(async (h) => {
     drag = h;
     return () => undefined;
@@ -39,6 +40,9 @@ const load = async (s: ScheduleSession) => {
   vi.mocked(sc.session).mockResolvedValue(s);
   const utils = render(<ScheduleView />);
   await screen.findByRole("textbox", { name: "Schedule file" });
+  // The view subscribes to drag-drop in an effect; wait for it so `drag`
+  // targets this render's handler, not a stale one or none.
+  await waitFor(() => expect(onDragDrop).toHaveBeenCalled());
   return utils;
 };
 const textBox = () => screen.getByRole("textbox", { name: "Schedule file" });
