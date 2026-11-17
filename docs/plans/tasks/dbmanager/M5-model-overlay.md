@@ -135,6 +135,14 @@ Rules that bind this task:
     `editable`/`create-only` there is a warning.
   - Forced read-only follows the doc: an explicit request is an error, an
     inherited one is silently narrowed.
+  - "Rowid alias" always means `Column::is_rowid_alias` from M2. That
+    excludes `INTEGER PRIMARY KEY DESC`, which SQLite does not treat as an
+    alias.
+    - Such a column is an ordinary primary-key column: nullable unless
+      declared `NOT NULL`, and create-only by inheritance.
+    - Its table's identity is the rowid.
+    - Its `is_key` is true, because it is part of the primary key, but it is
+      not the identity.
   - **A primary-key column that is not a rowid alias:** an inherited
     `editable` becomes `create-only`; an explicit `editable` is an error
     (suggest `create-only`); an explicit `create-only` is kept.
@@ -172,6 +180,14 @@ Rules that bind this task:
     column carries the link.
   - A FK with a missing target is a warning, and the column is a plain
     field.
+  - A FK whose target is not the parent's primary key or a unique key
+    (`FkTarget.is_key == false`, compared as sets) is a **warning**, and the
+    column is a plain read-only field.
+    - The warning says: "the foreign key from `t.c` to `p(x)` does not
+      reference a primary or unique key; SQLite will refuse changes that
+      touch it".
+    - The table's `can_create` and `can_delete` are unaffected. SQLite
+      reports such writes itself as `ConstraintFailed`.
 - **Reverse relations** of table T: every FK from a non-hidden table (T
   itself included, for self-references) to T, except FKs of junctions used
   as many-to-many.
@@ -431,6 +447,9 @@ resolve with zero diagnostics, and:**
   - `unknown_table_and_field_warn`
   - `skipped_table_named_warns`
   - `fk_missing_target_warns`
+  - `fk_target_not_a_key_warns`
+  - `integer_primary_key_desc_is_not_an_alias` (create-only PK column;
+    identity is the rowid)
   - `reverse_relations`
 - Many-to-many:
   - `m2m_detected`

@@ -142,8 +142,11 @@ Nothing is written until step 6.
     - Update: `UPDATE <t> SET <changed cols> = ? … WHERE <identity> = ?`,
       with only the changed columns.
     - Create: `INSERT INTO <t> (<supplied cols>) VALUES (…)`. The other
-      columns take their defaults, and an omitted rowid alias is assigned by
-      SQLite.
+      columns take their defaults. An omitted rowid alias is assigned by
+      SQLite. A rowid alias is exactly `Column::is_rowid_alias` from the
+      introspection milestone, which excludes `INTEGER PRIMARY KEY DESC`.
+      Such a column is an ordinary nullable column: it is never assumed to
+      be assigned, and the new object's key is always the rowid.
     - Values bind through `to_sql(rule)`, so durations store their integer
       count in the field's unit. The new key comes from `last_insert_rowid()`
       for rowid tables, or from the supplied PK values.
@@ -329,6 +332,8 @@ Field checks and validation:
 Creates and constraints:
 
 - `create_with_reference`
+- `create_in_integer_primary_key_desc_table` (the new key is the rowid;
+  the omitted `id` stays NULL and is not used to address the object)
 - `create_inherits_allow_create`
 - `create_requires_required_fields`
 - `reference_missing`

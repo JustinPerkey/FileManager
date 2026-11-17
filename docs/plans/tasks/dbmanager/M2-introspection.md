@@ -1,6 +1,8 @@
 # M2 — Schema introspection and identifier quoting
 
-Status: approved (2026-11-17)
+Status: implemented; the reviewer requested changes. **Run "Review round 1"
+(end of this plan)** on this task plan; the rules below are already corrected
+for it. (Approved 2026-11-17.)
 Project: dbmanager   Depends on: M1 (landed)
 
 ## Goal
@@ -76,8 +78,17 @@ milestone can report a config that names one.
   stored)
 - `generated: bool` — `hidden` is 2 or 3 in `pragma_table_xinfo`
 - `pk_position: Option<u32>`
-- `is_rowid_alias: bool` — rowid table, single-column primary key, and the
-  declared type is exactly `INTEGER` (case-insensitive, trimmed)
+- `is_rowid_alias: bool`: true only when all of these hold:
+  - it is a rowid table;
+  - the primary key is a single column;
+  - the declared type is exactly `INTEGER` (case-insensitive, trimmed);
+  - **no** row of `pragma_index_list(?1, 'main')` has `origin = 'pk'`.
+
+  The last condition is SQLite's documented exception: `INTEGER PRIMARY KEY
+  DESC` is **not** a rowid alias. SQLite gives such a table an automatic
+  index (`sqlite_autoindex_<t>_1`, origin `pk`). The column is an ordinary,
+  nullable column: `insert into t(x) values(1)` leaves it NULL, with rowid 1.
+  Such a table's identity is `Rowid { accessor, alias_column: None }`.
 
 `Identity`:
 
@@ -99,9 +110,14 @@ milestone can report a config that names one.
   names if the parent exists
 - `on_delete`, `on_update: FkAction` — `NoAction | Restrict | SetNull |
   SetDefault | Cascade` (parse the pragma's text)
-- `target: Option<FkTarget>` — `Some { table: usize, columns: Vec<usize> }`
-  when the parent table exists in `tables` and every referenced column exists
-  in it; `None` otherwise (a later milestone reports it)
+- `target: Option<FkTarget>`: `Some { table: usize, columns: Vec<usize>,
+  is_key: bool }` when the parent table exists in `tables` and every
+  referenced column exists in it, and `None` otherwise (a later milestone
+  reports it).
+  - `is_key` is true when the referenced columns, **as a set**, equal the
+    parent's primary key or one of its `unique_keys`.
+  - When it is false, SQLite raises "foreign key mismatch" on any write
+    that touches the FK, so a later milestone must report it.
 
 `Schema` helpers: `table(&self, name: &str) -> Option<&Table>` (exact match
 first, then ASCII case-insensitive, as SQLite resolves names),
@@ -132,8 +148,12 @@ Do not touch the shell, the frontend, other crates, or `docs/plans/`.
 - Affinity follows the five rules for `INT`, `BIGINT`, `VARCHAR(20)`,
   `CLOB`, `BLOB`, empty, `DOUBLE PRECISION`, `FLOAT`, `NUMERIC`,
   `DECIMAL(10,2)`, `BOOLEAN`, `DATETIME`.
-- `is_rowid_alias` is true for `id INTEGER PRIMARY KEY` and false for `id INT
-  PRIMARY KEY`, for a composite PK, and in a `WITHOUT ROWID` table.
+- `is_rowid_alias` is true for `id INTEGER PRIMARY KEY`, and false for:
+  - `id INT PRIMARY KEY`;
+  - **`id INTEGER PRIMARY KEY DESC`**, whose identity is then
+    `Rowid { alias_column: None }` with accessor `rowid`;
+  - a composite PK;
+  - any column of a `WITHOUT ROWID` table.
 - A table with columns named `rowid`, `_rowid_` and `oid` and no alias is in
   `skipped` with `NoIdentity`; with only `rowid` shadowed, the accessor is
   `_rowid_`.
@@ -173,3 +193,100 @@ from `CLAUDE.md`.
 - `pragma_table_list` needs SQLite ≥ 3.37; bundled SQLite is newer. Do not add
   a fallback for older system libraries (none is used).
 - Case-insensitive name matching must use ASCII folding only (SQLite's rule).
+
+## Review round 1
+
+The reviewer requested changes on the first implementation. Fix all of the
+following in one run. The rules above already describe the target
+behaviour.
+
+**R1 — the `INTEGER PRIMARY KEY DESC` exception** (plan error).
+
+The first implementation marks this column a rowid alias
+(`src/schema/mod.rs`, around lines 198–207). That would make the save code
+insert NULL keys, and the read code address rows by a nullable, repeatable
+column.
+
+- Apply the `is_rowid_alias` rule as now written above. Query
+  `SELECT origin FROM pragma_index_list(?1, 'main')` with the table name
+  bound. If any row has `origin = 'pk'`, the table has no alias.
+- `Identity::Rowid.alias_column` is then `None`. The accessor is chosen as
+  for any rowid table without an alias: the first of `rowid`, `_rowid_`,
+  `oid` that no column shadows.
+- Extend `rowid_alias_detection` with a table `t(id INTEGER PRIMARY KEY DESC,
+  x)`. Assert:
+  - `is_rowid_alias == false`;
+  - `alias_column == None`;
+  - the accessor is `rowid`.
+
+  As a sanity check, after `insert into t(x) values(1)`, `select id, rowid
+  from t` gives `(NULL, 1)`.
+- Add `rowid_alias_asc_explicit`: `id INTEGER PRIMARY KEY ASC` **is** an
+  alias.
+
+**R2 — tighten `Ident`'s constructor.**
+
+- Make `Ident::new` `pub(in crate::schema)`. Its doc comment should say
+  that no code outside `src/schema/` may construct an `Ident`, and that the
+  compiler enforces this.
+- Later code (`session/sql.rs` and the reads, writes and delete) only
+  receives `&Ident` from the schema and never builds one. That includes the
+  rowid accessor, which this milestone already builds inside `src/schema/`.
+  The tighter scope therefore costs nothing.
+
+**R3 — FK `from` columns.**
+
+A FK whose `from` column name is not found among the table's columns is
+currently dropped silently (`src/schema/mod.rs`, around lines 300–322).
+SQLite guarantees the column exists, so this means introspection is wrong,
+not the database.
+
+- Keep skipping the FK in release builds.
+- Add `debug_assert!(false, …)` with the table and column names.
+- Add a comment explaining why.
+
+**R4 — unique keys are sets.**
+
+- Deduplicate `unique_keys` as sets: `UNIQUE(a, b)` and `UNIQUE(b, a)`, or
+  a PK plus an equal unique index, yield one entry.
+- Store each key sorted by column index.
+- Document on the field that keys are sets and their order is not
+  meaningful.
+- Test `unique_keys_deduplicated_as_sets`.
+
+**R5 — index columns by `cid`.**
+
+The `hidden == 1` skip and the column indexes rely on `pragma_table_xinfo`
+row order matching `columns` (around line 170). Index columns by the pragma's
+`cid` explicitly, or assert that `cid` equals the position, and add a comment
+saying why. Hidden (virtual-table) columns never appear here, because
+virtual tables are skipped.
+
+**R6 — FK target is a key.**
+
+- Add `FkTarget.is_key` as specified above.
+- Test `fk_target_is_key`:
+  - a FK to the parent's PK is a key;
+  - a FK to a `UNIQUE` column is a key;
+  - a FK to a non-unique column is not a key.
+
+  This is SQLite's "foreign key mismatch" case. Create it with
+  `foreign_keys` off, then introspect.
+- Reporting it is the model milestone's job, not this one's.
+
+### Acceptance criteria (review round 1)
+
+- `rowid_alias_detection` covers `INTEGER PRIMARY KEY DESC` (no alias,
+  accessor `rowid`, `alias_column None`), and `rowid_alias_asc_explicit`
+  passes.
+- `Ident::new` is `pub(in crate::schema)`, and the crate still builds, so
+  nothing outside `src/schema/` constructs one.
+- A missing FK `from` column hits a `debug_assert!`. There is no silent drop
+  in debug builds.
+- `unique_keys_deduplicated_as_sets` passes.
+- Columns are indexed by `cid`, or `cid` is asserted.
+- `fk_target_is_key` passes.
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+  warnings` and `cargo test --workspace` pass.
+- The diff goes back to the reviewer.
+
