@@ -6,8 +6,8 @@ use std::cmp::Ordering;
 use toml::de::{DeString, DeTable, DeValue};
 use toml::Spanned;
 
-use super::duration;
 use super::model::{At, Bound, ConfigDiagnostic, DiagnosticSeverity, LabelPart, LabelTemplate};
+use crate::rules::duration;
 
 pub(super) type Val<'i> = Spanned<DeValue<'i>>;
 pub(super) type Key<'i> = Spanned<DeString<'i>>;
@@ -195,7 +195,7 @@ pub(super) fn read_bound(ctx: &mut Ctx<'_>, scope: &str, key: &str, v: &Val<'_>)
             }
         },
         DeValue::String(s) => {
-            if let Err(why) = duration::parse(s) {
+            if let Err(why) = duration::grammar(s) {
                 ctx.error(
                     v.span().start,
                     format!("{scope}: `{key}` is not a valid duration: {why}"),
@@ -226,7 +226,7 @@ pub(super) fn compare_bounds(lhs: &Bound, rhs: &Bound) -> Option<Ordering> {
         (Bound::Float(l), Bound::Int(r)) => l.partial_cmp(&(*r as f64)),
         (Bound::Float(l), Bound::Float(r)) => l.partial_cmp(r),
         (Bound::Duration(l), Bound::Duration(r)) => {
-            match (duration::parse(l).ok()?, duration::parse(r).ok()?) {
+            match (duration::grammar(l).ok()?, duration::grammar(r).ok()?) {
                 (duration::Parsed::Count(l), duration::Parsed::Count(r))
                 | (duration::Parsed::Millis(l), duration::Parsed::Millis(r)) => Some(l.cmp(&r)),
                 _ => None,

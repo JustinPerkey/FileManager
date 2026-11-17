@@ -1047,6 +1047,7 @@ name = "filemanager"
 version = "0.1.0"
 dependencies = [
  "fm-core",
+ "fm-dbmanager",
  "fm-pipeline",
  "fm-schedule",
  "fm-tarpack",
@@ -1109,6 +1110,7 @@ dependencies = [
  "regex",
  "rusqlite",
  "serde",
+ "serde_json",
  "tempfile",
  "toml 1.2.1+spec-1.1.0",
  "ts-rs",

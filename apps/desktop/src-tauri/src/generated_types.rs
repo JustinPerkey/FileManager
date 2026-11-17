@@ -36,6 +36,19 @@ const EXPORTERS: &[Exporter] = &[
     <crate::tools::schedule::types::ScheduleSession as ts_rs::TS>::export_all,
     <crate::tools::schedule::types::ApplySummary as ts_rs::TS>::export_all,
     <crate::tools::pipeline::types::PipelineSession as ts_rs::TS>::export_all,
+    <fm_dbmanager::rules::FieldKind as ts_rs::TS>::export_all,
+    <fm_dbmanager::rules::FieldRule as ts_rs::TS>::export_all,
+    <fm_dbmanager::rules::FieldIssue as ts_rs::TS>::export_all,
+    <fm_dbmanager::rules::FieldError as ts_rs::TS>::export_all,
+    <fm_dbmanager::rules::FieldIssueCode as ts_rs::TS>::export_all,
+    <fm_dbmanager::rules::AllowedValue as ts_rs::TS>::export_all,
+    <fm_dbmanager::value::DbValue as ts_rs::TS>::export_all,
+    <fm_dbmanager::config::ConfigDiagnostic as ts_rs::TS>::export_all,
+    <fm_dbmanager::config::DiagnosticSeverity as ts_rs::TS>::export_all,
+    <fm_dbmanager::config::TableMode as ts_rs::TS>::export_all,
+    <fm_dbmanager::config::FieldMode as ts_rs::TS>::export_all,
+    <fm_dbmanager::config::RelationMode as ts_rs::TS>::export_all,
+    <fm_dbmanager::config::DurationUnit as ts_rs::TS>::export_all,
 ];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");

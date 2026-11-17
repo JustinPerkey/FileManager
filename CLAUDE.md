@@ -50,6 +50,10 @@ crates/
   fm-dbmanager/               Database Manager domain library. Depends on fm-core only.
                               No tauri dependency. `db.rs` opens a SQLite file;
                               `state.rs` is the recent list, persisted as dbmanager/state
+    src/value.rs              DbValue (boundary value; integers, reals, durations as strings)
+    src/rules/                FieldRule/FieldKind/FieldIssue types, pure validate, and
+                              duration.rs (the duration grammar, parse, format; config
+                              reuses the grammar)
     src/config/               the TOML config overlay: parse (text -> Config with
                               line/col diagnostics), model, duration grammar. Checks
                               what the text alone shows; schema-dependent rules come later
@@ -71,6 +75,8 @@ crates/
                               subdirectories() lists the units of work; one hook
                               per step (verify, batch, schedule, tarpack), all
                               stubs returning StepError::NotImplemented
+examples/dbmanager/           example config and schema, plus validation-cases.json: the
+                              shared validate vectors (Rust test now, vitest mirror later)
 examples/tarpack/             example manifests, valid, used by tests through include_str!
 examples/dbmanager/           schema.sql (example database), example.toml (its config) and
                               starter.toml (the inert commented starter file); used by
