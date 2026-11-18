@@ -1,8 +1,7 @@
 # M5 — The model: overlay the config on the schema
 
-Status: implemented; the reviewer requested changes. **Run "Review round 1"
-(end of this plan)** on this task plan; the sections above are corrected for
-it. (Approved 2026-11-18; revised 2026-11-16: editable defaults, durations,
+Status: Review round 1 landed. The re-review found two narrow gaps. **Run
+"Review round 2" (end of this plan)** on this task plan. (Approved 2026-11-18; revised 2026-11-16: editable defaults, durations,
 link fields; then the `pickable` table mode)
 Project: dbmanager   Depends on: M2 (landed), M3 (landed), M4 (landed)
 
@@ -690,10 +689,9 @@ a junction that is not listed is plain, so `Model::table(target)` is always
 `Some` for any `ForeignKeyView`. Assert this across the example and the R3
 tests.
 
-**R8 — pattern scanner: a literal `]`.**
-
-A `]` right after `[` or `[^` is a literal, not the end of the class.
-`[]a.]` contains a literal dot and must not warn.
+**R8 — pattern scanner: a leading `]`.** *Superseded by Review round 2, R2:*
+a `]` right after `[` or `[^` is now an **error**, because JS `u` mode rejects
+it. Use `\]` instead.
 
 Test `pattern_scanner_leading_bracket_literal`.
 
@@ -760,6 +758,106 @@ Add a vector for `a\.b` (`"a.b"` → ok, `"axb"` → `patternMismatch`) to
   list, and `doc_contains_example` passes.
 - No generated type changed shape. The `ForeignKeyView` fields are
   unchanged, and only their presence changed. Generated types are current.
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+  warnings` and `cargo test --workspace` pass.
+- The diff goes back to the reviewer.
+
+## Review round 2
+
+Round 1 was approved except for two narrow gaps. Fix both in one run.
+
+**R1 — duplicate junction entries fail closed** (`src/model/m2m.rs`,
+`merge_entries` / `detect`).
+
+When no duplicate says `hidden`, the merge returns `M2mEntry::Rejected`, and
+`detect` then falls back to auto-detection. Auto-detection only finds
+junctions without extra columns. So a declared junction like
+`contribution` (extra columns `role`, `position`) stops being many-to-many
+and becomes a listed, **editable** ordinary table.
+
+Required:
+
+- **Non-hidden merge:** keep the first *valid* duplicate that declares
+  `columns`, or else the first valid duplicate, and force the relation's
+  mode to `read-only`. The table stays a junction and is used as
+  many-to-many.
+- If **no** duplicate is valid, apply the single-rejected rule below.
+- **Hidden merge:** when forcing `hidden`, also clear `enabled = false`, so
+  the junction is still used as a hidden relation. Otherwise it would show
+  as an editable ordinary table.
+- **A single rejected entry for a junction.** The previous rule was "the
+  relation stays as detected"; it is now fail closed:
+  - If the table is auto-detectable (no extra columns), it stays
+    many-to-many, read-only, as before.
+  - If it is not, so the entry was needed to declare it, it becomes an
+    ordinary **listed table forced read-only**. All its fields are
+    read-only, and it allows no create or delete.
+
+    The relation cannot be used safely, because its `columns` may be the
+    broken key. Making it read-only follows the rule that a rejected entry
+    leaves its subject read-only. It is not hidden, because the entry did
+    not validly ask for that.
+- Update the reference doc's Many-to-many "Checked here" paragraph to match.
+
+Tests:
+
+- `duplicate_m2m_entries_fail_closed` gains a `contribution` case: two
+  non-hidden entries, one declaring `columns`. Assert:
+  - `contribution` is many-to-many;
+  - it is absent from `table_views()`;
+  - both sides' `M2mView.mode` is `read-only`;
+  - a warning is given per duplicate.
+- A hidden merge in which one duplicate has `enabled = false` still uses the
+  junction as a hidden relation.
+- `rejected_declared_junction_is_read_only_table`: a single rejected
+  `[many_to_many.contribution]` entry gives a listed `contribution` table
+  that is read-only, with no `M2mView`s.
+- `rejected_detected_junction_stays_read_only_relation`: the same for
+  `book_genre`, which stays many-to-many, read-only.
+
+**R2 — the pattern scanner, more JS `u`-mode rejections.**
+
+The reviewer compiled anchored patterns in both engines. Rust accepts these
+but JS `u` mode rejects them: `[]a]`, `[^]a]`, `a\-b` outside a class,
+`a]`, `a}`.
+
+Required, each an error at `pattern` (pattern dropped, field read-only),
+with the suggestion in the message:
+
+- a `]` straight after `[` or `[^`: suggest `\]` (this reverses round 1's
+  R8);
+- an unescaped `]` outside a class: suggest `\]`;
+- an unescaped `}` outside a class: suggest `\}`;
+- an unescaped `{` that does not start a valid `{n}`, `{n,}` or `{n,m}`
+  quantifier, with ASCII digits only and `n ≤ m`: suggest `\{`;
+- `\-` outside a class. Inside a class it stays allowed.
+
+Update the doc's allowed and rejected pattern lists accordingly. Remove the
+round-1 sentence that a leading `]` is a literal.
+
+Tests:
+
+- `pattern_scanner_rejects_dialect_differences` gains `[]a]`, `[^]a]`,
+  `a\-b`, `a]`, `a}`, `a{`, `a{,3}` and `a{3,2}`.
+- `pattern_scanner_allows_common_subset` gains `[a\-b]`, `\x41`, `\/`,
+  `[\]]`, `a{2,3}`, `a{2}`, `a{2,}` and `\v`. The reviewer confirmed that
+  both engines accept all of these.
+- Rename `pattern_scanner_leading_bracket_literal` to
+  `pattern_scanner_leading_bracket_rejected` and assert that it is an error.
+
+### Acceptance criteria (review round 2)
+
+- These tests pass, together with all round-1 tests:
+  - `duplicate_m2m_entries_fail_closed` (with the `contribution` and
+    hidden/`enabled` cases);
+  - `rejected_declared_junction_is_read_only_table`;
+  - `rejected_detected_junction_stays_read_only_relation`;
+  - the extended `pattern_scanner_rejects_dialect_differences` and
+    `pattern_scanner_allows_common_subset`;
+  - `pattern_scanner_leading_bracket_rejected`.
+- `example_resolves_clean` still gives zero diagnostics. `doc_contains_example`
+  passes, and the doc's Many-to-many and pattern sections match this round.
+- No generated type changes shape.
 - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
   warnings` and `cargo test --workspace` pass.
 - The diff goes back to the reviewer.
