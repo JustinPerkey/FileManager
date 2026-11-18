@@ -79,26 +79,24 @@ pub(crate) fn type_override_allowed(column: &Column, strict: bool, ty: FieldType
     }
 }
 
-/// Reads a `DEFAULT` clause as a literal: a signed integer, a real, a
-/// single-quoted string (`''` escapes), `NULL`, `TRUE` or `FALSE`. `None`
-/// means the default exists but its value is not known (`CURRENT_TIMESTAMP`,
-/// an expression). For a duration field an integer literal is a count of
-/// `unit`.
-#[must_use]
-pub(crate) fn parse_default(
-    sql: &str,
-    kind: FieldKind,
-    unit: Option<DurationUnit>,
-) -> Option<DbValue> {
+/// A `DEFAULT` clause read as a literal, before the field's kind is applied.
+enum Literal {
+    Null,
+    Integer(i64),
+    Real(String),
+    Text(String),
+}
+
+fn literal(sql: &str) -> Option<Literal> {
     let s = sql.trim();
     if s.eq_ignore_ascii_case("NULL") {
-        return Some(DbValue::Null);
+        return Some(Literal::Null);
     }
     if s.eq_ignore_ascii_case("TRUE") {
-        return Some(DbValue::Integer("1".into()));
+        return Some(Literal::Integer(1));
     }
     if s.eq_ignore_ascii_case("FALSE") {
-        return Some(DbValue::Integer("0".into()));
+        return Some(Literal::Integer(0));
     }
     if let Some(inner) = s.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
         // Every quote inside must be doubled.
@@ -110,15 +108,49 @@ pub(crate) fn parse_default(
             }
             out.push(c);
         }
-        return Some(DbValue::Text(out));
+        return Some(Literal::Text(out));
     }
     let digits = s.strip_prefix(['+', '-']).unwrap_or(s);
     if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
-        let n: i64 = s.parse().ok()?;
-        if kind == FieldKind::Duration {
-            return Some(DbValue::Duration(duration::format(n, unit?)));
-        }
-        return Some(DbValue::Integer(n.to_string()));
+        return s.parse().ok().map(Literal::Integer);
     }
-    super::validate::parse_real(s).map(|_| DbValue::Real(s.to_string()))
+    super::validate::parse_real(s).map(|_| Literal::Real(s.to_string()))
+}
+
+/// Reads a `DEFAULT` clause as a literal (a signed integer, a real, a
+/// single-quoted string with `''` escapes, `NULL`, `TRUE` or `FALSE`) and
+/// converts it to the field's kind. `None` means the default exists but its
+/// value is not known or does not fit the kind (`CURRENT_TIMESTAMP`, an
+/// expression, `'x'` for an integer). `NULL` stays `Null`; for a duration
+/// field an integer literal is a count of `unit`.
+///
+/// | Kind | Accepted | Becomes |
+/// | --- | --- | --- |
+/// | real | integer or real | `Real` |
+/// | text | any literal | `Text` |
+/// | integer | integer | `Integer` |
+/// | bool | `0` or `1` | `Integer` |
+/// | duration | integer | `Duration` |
+#[must_use]
+pub(crate) fn parse_default(
+    sql: &str,
+    kind: FieldKind,
+    unit: Option<DurationUnit>,
+) -> Option<DbValue> {
+    let lit = literal(sql)?;
+    if matches!(lit, Literal::Null) {
+        return Some(DbValue::Null);
+    }
+    match (kind, lit) {
+        (FieldKind::Real, Literal::Integer(n)) => Some(DbValue::Real(n.to_string())),
+        (FieldKind::Real, Literal::Real(text)) => Some(DbValue::Real(text)),
+        (FieldKind::Text, Literal::Integer(n)) => Some(DbValue::Text(n.to_string())),
+        (FieldKind::Text, Literal::Real(text) | Literal::Text(text)) => Some(DbValue::Text(text)),
+        (FieldKind::Integer, Literal::Integer(n))
+        | (FieldKind::Bool, Literal::Integer(n @ (0 | 1))) => Some(DbValue::Integer(n.to_string())),
+        (FieldKind::Duration, Literal::Integer(n)) => {
+            Some(DbValue::Duration(duration::format(n, unit?)))
+        }
+        _ => None,
+    }
 }

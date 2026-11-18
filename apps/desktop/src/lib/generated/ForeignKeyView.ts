@@ -2,6 +2,6 @@
 
 export type ForeignKeyView = { table: string, 
 /**
- * `None` for a hidden target.
+ * Always `Some` in v1: a link exists only to a table that has a view.
  */
 tableDisplayName: string | null, navigable: boolean, };

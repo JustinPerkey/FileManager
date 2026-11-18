@@ -136,7 +136,7 @@ pub struct ResolvedForeignKey {
     /// Index into `Schema::tables`.
     pub table: usize,
     pub table_name: String,
-    /// `None` when the target table is hidden.
+    /// Always `Some` in v1: a link exists only to a table that has a view.
     pub table_display_name: Option<String>,
     /// The referenced columns of `table`.
     pub columns: Vec<usize>,

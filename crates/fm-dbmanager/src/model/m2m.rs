@@ -1,11 +1,13 @@
 //! Many-to-many: detecting junctions, and resolving each relation's mode,
 //! headings and link fields.
 
+use std::borrow::Cow;
+
 use super::resolve::unmatched;
 use super::{diag, ResolvedField};
 use crate::config::{
-    Config, ConfigDiagnostic, Defaults, DiagnosticSeverity, FieldMode, M2mConfig, M2mEntry,
-    RelationMode,
+    Config, ConfigDiagnostic, Defaults, DiagnosticSeverity, FieldMode, Located, M2mConfig,
+    M2mEntry, RelationMode,
 };
 use crate::schema::{Schema, Table};
 
@@ -22,7 +24,8 @@ pub(super) struct Side {
 pub(super) struct Junction<'a> {
     pub a: Side,
     pub b: Side,
-    pub entry: Option<&'a M2mEntry>,
+    /// Borrowed from the config, or merged from several entries for the table.
+    pub entry: Option<Cow<'a, M2mEntry>>,
     /// The junction columns that are not relation columns or a rowid alias.
     pub extra: Vec<usize>,
 }
@@ -105,44 +108,102 @@ fn detected(t: &Table) -> Option<(Side, Side)> {
     pair(t, a, b).ok()
 }
 
+fn entry_name(e: &M2mEntry) -> (&str, crate::config::At) {
+    match e {
+        M2mEntry::Valid(m) => (&m.name, m.at),
+        M2mEntry::Rejected { name, at } => (name, *at),
+    }
+}
+
+fn valid_entry(e: &M2mEntry) -> Option<&M2mConfig> {
+    match e {
+        M2mEntry::Valid(m) => Some(m),
+        M2mEntry::Rejected { .. } => None,
+    }
+}
+
+/// Several entries for one junction. Each one after the first gets a
+/// warning. The relation is hidden if any entry asks for it, and read-only
+/// otherwise (a rejected entry).
+fn merge_entries(table: &str, group: &[&M2mEntry], diags: &mut Vec<ConfigDiagnostic>) -> M2mEntry {
+    for e in &group[1..] {
+        diags.push(diag(
+            DiagnosticSeverity::Warning,
+            format!(
+                "many-to-many `{table}` is configured more than once; the relation is hidden if any entry hides it, and read-only otherwise"
+            ),
+            Some(entry_name(e).1),
+            Some(table),
+            None,
+        ));
+    }
+    let (name, at) = entry_name(group[0]);
+    let hidden = group.iter().filter_map(|e| valid_entry(e)).any(|m| {
+        m.mode
+            .as_ref()
+            .is_some_and(|l| l.value == RelationMode::Hidden)
+    });
+    if !hidden {
+        return M2mEntry::Rejected {
+            name: name.to_owned(),
+            at,
+        };
+    }
+    // Keep a declaration of the columns, if there is one, so the relation is
+    // still found and can be hidden.
+    let base = group
+        .iter()
+        .filter_map(|e| valid_entry(e))
+        .find(|m| m.columns.is_some())
+        .or_else(|| group.iter().find_map(|e| valid_entry(e)));
+    let mut config = base.cloned().unwrap_or(M2mConfig {
+        name: name.to_owned(),
+        at,
+        enabled: None,
+        mode: None,
+        columns: None,
+        headings: Vec::new(),
+    });
+    config.mode = Some(Located {
+        value: RelationMode::Hidden,
+        at: config.at,
+    });
+    M2mEntry::Valid(config)
+}
+
 /// Finds the junctions. Parallel to `schema.tables`.
 pub(super) fn detect<'a>(
     schema: &Schema,
     config: &'a Config,
     diags: &mut Vec<ConfigDiagnostic>,
 ) -> Vec<Option<Junction<'a>>> {
-    let mut entries: Vec<Option<&M2mEntry>> = vec![None; schema.tables.len()];
+    let mut groups: Vec<Vec<&M2mEntry>> = vec![Vec::new(); schema.tables.len()];
     for e in &config.many_to_many {
-        let (name, at) = match e {
-            M2mEntry::Valid(m) => (&m.name, m.at),
-            M2mEntry::Rejected { name, at } => (name, *at),
-        };
+        let (name, at) = entry_name(e);
         match schema.table_index(name) {
-            Some(i) => {
-                if entries[i].is_none() {
-                    entries[i] = Some(e);
-                } else {
-                    diags.push(diag(
-                        DiagnosticSeverity::Warning,
-                        format!(
-                            "many-to-many `{}` is already configured above; this entry is ignored",
-                            schema.tables[i].name
-                        ),
-                        Some(at),
-                        Some(schema.tables[i].name.as_str()),
-                        None,
-                    ));
-                }
-            }
+            Some(i) => groups[i].push(e),
             None => diags.push(unmatched(schema, "junction", name, at)),
         }
     }
+    let entries: Vec<Option<Cow<'a, M2mEntry>>> = groups
+        .iter()
+        .enumerate()
+        .map(|(i, g)| match g.as_slice() {
+            [] => None,
+            [one] => Some(Cow::Borrowed(*one)),
+            many => Some(Cow::Owned(merge_entries(
+                schema.tables[i].name.as_str(),
+                many,
+                diags,
+            ))),
+        })
+        .collect();
     schema
         .tables
         .iter()
         .zip(entries)
         .map(|(t, entry)| {
-            let sides = match entry {
+            let sides = match entry.as_deref() {
                 Some(M2mEntry::Valid(m)) if m.enabled.as_ref().is_some_and(|e| !e.value) => None,
                 Some(M2mEntry::Valid(m)) => match declared(t, m) {
                     Ok(s) => Some(s),
@@ -209,7 +270,7 @@ pub(super) fn build(
     for (ji, j) in junctions.iter().enumerate() {
         let Some(j) = j else { continue };
         let t = &schema.tables[ji];
-        let (mut mode, explicit) = relation_mode(j.entry, config.defaults);
+        let (mut mode, explicit) = relation_mode(j.entry.as_deref(), config.defaults);
         let link_fields: Vec<ResolvedField> =
             j.extra.iter().map(|&c| fields[ji][c].clone()).collect();
         let blocking = link_fields.iter().find(|f| {
@@ -225,7 +286,7 @@ pub(super) fn build(
                 Some(l) => (DiagnosticSeverity::Error, Some(l.at)),
                 None => (
                     DiagnosticSeverity::Warning,
-                    match j.entry {
+                    match j.entry.as_deref() {
                         Some(M2mEntry::Valid(m)) => Some(m.at),
                         _ => None,
                     },
@@ -241,7 +302,7 @@ pub(super) fn build(
             mode = RelationMode::ReadOnly;
         }
         let mut headings = Vec::new();
-        if let Some(M2mEntry::Valid(m)) = j.entry {
+        if let Some(M2mEntry::Valid(m)) = j.entry.as_deref() {
             for h in &m.headings {
                 match schema.table_index(&h.side) {
                     Some(i) if i == j.a.table || i == j.b.table => {

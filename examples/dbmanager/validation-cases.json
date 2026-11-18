@@ -3657,5 +3657,55 @@
   "limits": [
    "a[ \\t]b"
   ]
+ },
+ {
+  "name": "pattern escaped dot matches a dot",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": "a\\.b",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "a.b"
+  },
+  "ok": {
+   "type": "text",
+   "value": "a.b"
+  },
+  "issues": []
+ },
+ {
+  "name": "pattern escaped dot rejects another character",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": "a\\.b",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "axb"
+  },
+  "ok": null,
+  "issues": [
+   "patternMismatch"
+  ],
+  "limits": [
+   "a\\.b"
+  ]
  }
 ]

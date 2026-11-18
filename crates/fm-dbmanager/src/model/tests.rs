@@ -591,11 +591,9 @@ fn forced_read_only_inherited_is_silent() {
         assert_eq!(t.field(t_col(&m, c)).unwrap().mode, ReadOnly, "{c}");
     }
     assert_eq!(t.field(t_col(&m, "ok")).unwrap().mode, Editable);
-    // The FK into the hidden table keeps its link, not navigable.
+    // The FK into the hidden table has no link: a plain field.
     let hid = t.field(t_col(&m, "hid")).unwrap();
-    let fk = hid.foreign_key.as_ref().unwrap();
-    assert!(!fk.navigable);
-    assert_eq!(fk.table_display_name, None);
+    assert!(hid.foreign_key.is_none());
     // Multi-column FK: only the first column carries the link.
     assert!(t.field(t_col(&m, "ma")).unwrap().foreign_key.is_some());
     assert!(t.field(t_col(&m, "mb")).unwrap().foreign_key.is_none());
@@ -841,7 +839,7 @@ fn pattern_shorthand_rejected() {
         assert_eq!(f.mode, ReadOnly, "{p}");
     }
     // Escaped forms are not flagged.
-    for p in [r"\\d", r"\.", r"[0-9]+", r"a\\\\d", r"\p{L}+", r"\[d\]"] {
+    for p in [r"\\d", r"\.", r"[0-9]+", r"a\\\\d", r"\[d\]"] {
         let m = pattern_model(p);
         assert_eq!(diags(&m, Error), Vec::<&ConfigDiagnostic>::new(), "{p}");
         assert_eq!(
@@ -949,6 +947,8 @@ fn allow_create_blocked_inherited_warning() {
     );
     let w = find(&m, Warning, "t", Some("a"), "creating");
     assert_eq!(w.line, Some(2));
+    // Diagnostics may name a hidden column; views never do.
+    assert!(w.message.contains("`a`"), "{}", w.message);
     assert!(diags(&m, Error).is_empty());
     assert!(!m.table("t").unwrap().can_create);
     // A default, or an editable field, does not block.
@@ -980,6 +980,28 @@ fn delete_off_by_default() {
     find(&m, Warning, "audit_log", None, "allow_delete");
 }
 
+fn t_col_of(m: &Model, table: &str, c: &str) -> usize {
+    m.schema().table(table).unwrap().column(c).unwrap()
+}
+
+/// Every produced default passes `validate` for its field's rule, ignoring
+/// bounds (a default may violate them).
+fn assert_defaults_validate(t: &ResolvedTable) {
+    for f in &t.fields {
+        if let Some(v) = &f.default_value {
+            let mut rule = f.rule.clone();
+            rule.min = None;
+            rule.max = None;
+            rule.nullable = true;
+            assert!(
+                crate::rules::validate(&rule, v).is_ok(),
+                "{}: {v:?} fails validate",
+                f.name
+            );
+        }
+    }
+}
+
 #[test]
 fn default_literals_parsed() {
     let m = model(
@@ -1008,6 +1030,36 @@ fn default_literals_parsed() {
     assert_eq!(d(10), (true, Some(DbValue::Duration("1h30m".into()))));
     assert_eq!(d(11), (true, Some(DbValue::Integer("7".into()))));
     assert!(!t.field(10).unwrap().required_on_create);
+    assert_defaults_validate(t);
+    // Converted by the field's kind, not by the literal's spelling.
+    let m = model(
+        "CREATE TABLE t (id INTEGER PRIMARY KEY,
+          r REAL DEFAULT 0, r2 REAL DEFAULT -3, r3 REAL DEFAULT 'x', t1 TEXT DEFAULT 5, t2 TEXT DEFAULT 2.50,
+          i1 INTEGER DEFAULT 'x', i2 INTEGER DEFAULT 1.5, d1 INTEGER DEFAULT 90, d2 INTEGER DEFAULT 'x',
+          d3 INTEGER DEFAULT 1.5, b1 BOOLEAN DEFAULT 5, b2 BOOLEAN DEFAULT TRUE, n1 REAL DEFAULT NULL,
+          t3 TEXT DEFAULT TRUE)",
+        "version = 1\n[tables.t.fields.d1]\ntype = \"duration\"\n[tables.t.fields.d2]\ntype = \"duration\"\n[tables.t.fields.d3]\ntype = \"duration\"\n",
+    );
+    let t = m.table("t").unwrap();
+    let d = |name: &str| {
+        let f = t.field(t_col_of(&m, "t", name)).unwrap();
+        (f.has_default, f.default_value.clone())
+    };
+    assert_eq!(d("r"), (true, Some(DbValue::Real("0".into()))));
+    assert_eq!(d("r2"), (true, Some(DbValue::Real("-3".into()))));
+    assert_eq!(d("r3"), (true, None));
+    assert_eq!(d("t1"), (true, Some(DbValue::Text("5".into()))));
+    assert_eq!(d("t2"), (true, Some(DbValue::Text("2.50".into()))));
+    assert_eq!(d("i1"), (true, None));
+    assert_eq!(d("i2"), (true, None));
+    assert_eq!(d("d1"), (true, Some(DbValue::Duration("1m30s".into()))));
+    assert_eq!(d("d2"), (true, None));
+    assert_eq!(d("d3"), (true, None));
+    assert_eq!(d("b1"), (true, None));
+    assert_eq!(d("b2"), (true, Some(DbValue::Integer("1".into()))));
+    assert_eq!(d("n1"), (true, Some(DbValue::Null)));
+    assert_eq!(d("t3"), (true, Some(DbValue::Text("1".into()))));
+    assert_defaults_validate(t);
     // Not NULL, no default, not an alias.
     let m = model(
         "CREATE TABLE t (id INTEGER PRIMARY KEY, a TEXT NOT NULL)",
@@ -1155,13 +1207,12 @@ fn unknown_table_and_field_warn() {
     assert_eq!(fv(tv(&views(&m), "book"), "title").rule.max_length, Some(5));
     // Entries on tables that are not managed still resolve nothing.
     assert!(m.table("nope").is_none());
-    // Two entries for one table: the second is ignored, with a warning.
+    // Two entries for one table: see `duplicate_table_entries_fail_closed`.
     let m = example(
         "version = 1\n[tables.book]\nmode = \"hidden\"\n[tables.BOOK]\nmode = \"editable\"\n",
     );
-    let w = find(&m, Warning, "book", None, "already configured");
+    let w = find(&m, Warning, "book", None, "more than once");
     assert_eq!(w.line, Some(4));
-    assert!(m.table("book").is_none());
 }
 
 #[test]
@@ -1524,13 +1575,11 @@ fn m2m_hidden_side() {
     let v = views(&m);
     assert!(tv(&v, "book").many_to_many.is_empty());
     assert!(tv(&v, "genre").many_to_many.is_empty());
-    // An FK into a hidden table is a link, not navigable.
+    // An FK into a hidden table has no link.
     let m = example("version = 1\n[tables.author]\nmode = \"hidden\"\n");
-    let fk = fv(tv(&views(&m), "book"), "author_id")
-        .foreign_key
-        .clone()
-        .unwrap();
-    assert!(!fk.navigable && fk.table_display_name.is_none());
+    let f = fv(tv(&views(&m), "book"), "author_id").clone();
+    assert!(f.foreign_key.is_none());
+    assert_eq!(f.mode, ReadOnly);
 }
 
 #[test]
@@ -1672,4 +1721,300 @@ max = "90m"
     assert_eq!(t.field(5).unwrap().rule.min.as_deref(), Some("0s"));
     assert_eq!(t.field(5).unwrap().rule.max.as_deref(), Some("1h30m"));
     assert_eq!(t.field(2).unwrap().rule.min.as_deref(), Some("-1000"));
+}
+
+// ---- review round 1 ---------------------------------------------------------------
+
+#[test]
+fn duplicate_table_entries_fail_closed() {
+    // One says hidden: hidden, whichever comes first.
+    for cfg in [
+        "version = 1\n[tables.book]\nmode = \"hidden\"\n[tables.BOOK]\nmode = \"editable\"\n",
+        "version = 1\n[tables.book]\nmode = \"editable\"\n[tables.BOOK]\nmode = \"hidden\"\n",
+    ] {
+        let m = example(cfg);
+        assert!(m.table("book").is_none(), "{cfg}");
+        let w = find(&m, Warning, "book", None, "more than once");
+        assert_eq!(w.line, Some(4));
+        let on_book = diags(&m, Warning)
+            .into_iter()
+            .filter(|d| d.table.as_deref() == Some("book"))
+            .count();
+        assert_eq!(on_book, 1, "{:#?}", m.diagnostics());
+    }
+    // Neither says hidden: a rejected entry, so a read-only table.
+    let m = example(
+        "version = 1\n[tables.member]\nmode = \"editable\"\nallow_delete = true\n[tables.MEMBER]\ndisplay_name = \"Patron\"\n",
+    );
+    let w = find(&m, Warning, "member", None, "more than once");
+    assert_eq!(w.line, Some(5));
+    let v = views(&m);
+    let member = tv(&v, "member");
+    assert_eq!(member.mode, TableMode::ReadOnly);
+    assert!(!member.can_create && !member.can_delete);
+    assert_eq!(member.display_name, "member");
+    assert!(member.fields.iter().all(|f| f.mode == ReadOnly));
+    // Hidden fields stay hidden through the merge.
+    let m = example(
+        "version = 1\n[tables.author]\n[tables.author.fields.internal_note]\nmode = \"hidden\"\n[tables.AUTHOR]\ndisplay_name = \"Writer\"\n",
+    );
+    let v = views(&m);
+    let author = tv(&v, "author");
+    assert_eq!(author.mode, TableMode::ReadOnly);
+    assert!(!has_field(author, "internal_note"));
+    assert!(author.fields.iter().all(|f| f.mode == ReadOnly));
+}
+
+#[test]
+fn duplicate_field_entries_fail_closed() {
+    // One says hidden: hidden, whichever comes first.
+    for cfg in [
+        "version = 1\n[tables.book.fields.title]\nmax_length = 5\n[tables.book.fields.TITLE]\nmode = \"hidden\"\n",
+        "version = 1\n[tables.book.fields.title]\nmode = \"hidden\"\n[tables.book.fields.TITLE]\nmax_length = 5\n",
+    ] {
+        let m = example(cfg);
+        assert!(!has_field(tv(&views(&m), "book"), "title"), "{cfg}");
+        let w = find(&m, Warning, "book", Some("title"), "more than once");
+        assert_eq!(w.line, Some(4));
+    }
+    // Neither says hidden: the field is read-only and neither entry applies.
+    let m = example(
+        "version = 1\n[tables.book.fields.title]\nmax_length = 5\n[tables.book.fields.TITLE]\ndisplay_name = \"Name\"\n",
+    );
+    let w = find(&m, Warning, "book", Some("title"), "more than once");
+    assert_eq!(w.line, Some(4));
+    let v = views(&m);
+    let f = fv(tv(&v, "book"), "title");
+    assert_eq!(f.mode, ReadOnly);
+    assert_eq!(f.rule.max_length, None);
+    assert_eq!(f.display_name, "title");
+    // The other fields are untouched.
+    assert_eq!(fv(tv(&v, "book"), "pages").mode, Editable);
+}
+
+#[test]
+fn duplicate_m2m_entries_fail_closed() {
+    // One says hidden: the relation shows nowhere, whichever comes first.
+    for cfg in [
+        "version = 1\n[many_to_many.book_genre]\nmode = \"hidden\"\n[many_to_many.BOOK_GENRE]\nmode = \"editable\"\n",
+        "version = 1\n[many_to_many.book_genre]\nmode = \"editable\"\n[many_to_many.BOOK_GENRE]\nmode = \"hidden\"\n",
+    ] {
+        let m = example(cfg);
+        let v = views(&m);
+        assert!(tv(&v, "book").many_to_many.is_empty(), "{cfg}");
+        assert!(tv(&v, "genre").many_to_many.is_empty(), "{cfg}");
+        let w = find(&m, Warning, "book_genre", None, "more than once");
+        assert_eq!(w.line, Some(4));
+    }
+    // A declaration of the columns survives the merge, so it is still hidden.
+    let m = example(
+        "version = 1\n[many_to_many.contribution]\ncolumns = [\"book_id\", \"author_id\"]\n[many_to_many.CONTRIBUTION]\nmode = \"hidden\"\n",
+    );
+    let v = views(&m);
+    assert!(tv(&v, "book")
+        .many_to_many
+        .iter()
+        .all(|r| r.relation != "m2m:contribution"));
+    // Neither says hidden: a rejected entry, so a read-only relation.
+    let m = example(
+        "version = 1\n[many_to_many.book_genre]\nmode = \"editable\"\n[many_to_many.BOOK_GENRE]\nenabled = true\n",
+    );
+    let w = find(&m, Warning, "book_genre", None, "more than once");
+    assert_eq!(w.line, Some(4));
+    let v = views(&m);
+    for (t, other) in [("book", "genre"), ("genre", "book")] {
+        let r = &tv(&v, t).many_to_many[0];
+        assert_eq!(r.other_table, other);
+        assert_eq!(r.mode, RelationMode::ReadOnly);
+    }
+}
+
+/// Every link names a table that has a view.
+fn assert_links_resolve(m: &Model) {
+    for t in m.table_views() {
+        let all = t
+            .fields
+            .iter()
+            .chain(t.many_to_many.iter().flat_map(|r| r.link_fields.iter()));
+        for f in all {
+            if let Some(fk) = &f.foreign_key {
+                assert!(m.table(&fk.table).is_some(), "{}.{}", t.name, f.column);
+                assert!(fk.navigable && fk.table_display_name.is_some());
+            }
+        }
+    }
+}
+
+#[test]
+fn fk_into_hidden_table_is_plain() {
+    let sql = "CREATE TABLE secret_vault (id INTEGER PRIMARY KEY, code TEXT);
+         CREATE TABLE t (id INTEGER PRIMARY KEY, sv INTEGER REFERENCES secret_vault(id), name TEXT);
+         CREATE TABLE u (id INTEGER PRIMARY KEY, t_id INTEGER REFERENCES t(id));";
+    let m = model(
+        sql,
+        "version = 1\n[tables.secret_vault]\nmode = \"hidden\"\n",
+    );
+    assert_eq!(m.diagnostics(), &[]);
+    let v = views(&m);
+    let f = fv(tv(&v, "t"), "sv");
+    assert!(f.foreign_key.is_none());
+    assert_eq!(f.mode, ReadOnly);
+    for t in &v {
+        let json = serde_json::to_string(t).unwrap();
+        assert!(!json.contains("secret_vault"), "{}: {json}", t.name);
+    }
+    // Other links are unaffected.
+    assert!(fv(tv(&v, "u"), "t_id").foreign_key.is_some());
+    assert_links_resolve(&m);
+    // An explicit `editable` is still an error.
+    let m = model(
+        sql,
+        "version = 1\n[tables.secret_vault]\nmode = \"hidden\"\n[tables.t.fields.sv]\nmode = \"editable\"\n",
+    );
+    find(&m, Error, "t", Some("sv"), "always read-only");
+    // With nothing hidden it is a link.
+    let m = model(sql, "version = 1\n");
+    assert!(fv(tv(&views(&m), "t"), "sv").foreign_key.is_some());
+    assert_links_resolve(&m);
+    // The example: every link resolves to a table that has a view.
+    assert_links_resolve(&example(EXAMPLE));
+}
+
+#[test]
+fn fk_into_unlisted_junction_is_plain() {
+    let sql = "CREATE TABLE a (id INTEGER PRIMARY KEY, n TEXT);
+         CREATE TABLE b (id INTEGER PRIMARY KEY, n TEXT);
+         CREATE TABLE ab (id INTEGER PRIMARY KEY,
+           a_id INTEGER NOT NULL REFERENCES a(id), b_id INTEGER NOT NULL REFERENCES b(id),
+           UNIQUE (a_id, b_id));
+         CREATE TABLE t (id INTEGER PRIMARY KEY, ab_id INTEGER REFERENCES ab(id));";
+    let m = model(sql, "version = 1\n");
+    assert!(m.table("ab").is_none());
+    let v = views(&m);
+    let f = fv(tv(&v, "t"), "ab_id");
+    assert!(f.foreign_key.is_none());
+    assert_eq!(f.mode, ReadOnly);
+    for t in &v {
+        assert!(
+            !serde_json::to_string(t).unwrap().contains("\"ab\""),
+            "{}",
+            t.name
+        );
+    }
+    assert_links_resolve(&m);
+    // Listing the junction gives it a view, and the link appears.
+    let m = model(sql, "version = 1\n[tables.ab]\nmode = \"editable\"\n");
+    let f = fv(tv(&views(&m), "t"), "ab_id").clone();
+    assert_eq!(f.foreign_key.as_ref().unwrap().table, "ab");
+    assert_eq!(f.mode, Editable);
+    assert_links_resolve(&m);
+    // `enabled = false` makes it an ordinary table too.
+    let m = model(sql, "version = 1\n[many_to_many.ab]\nenabled = false\n");
+    assert!(fv(tv(&views(&m), "t"), "ab_id").foreign_key.is_some());
+    assert_links_resolve(&m);
+}
+
+#[test]
+fn pattern_scanner_leading_bracket_literal() {
+    for p in ["[]a.]", "[^]a.]", "[]]x", "[^]]x"] {
+        let m = pattern_model(p);
+        assert_eq!(m.diagnostics(), &[], "{p}");
+        let f = m.table("t").unwrap().field(1).unwrap().clone();
+        assert_eq!(f.rule.pattern.as_deref(), Some(p), "{p}");
+        assert_eq!(f.mode, Editable, "{p}");
+    }
+    // After the literal `]`, the next `]` ends the class, so a later dot is
+    // outside it.
+    let m = pattern_model("[]a]x.");
+    find(&m, Warning, "t", Some("s"), "[^\\n]");
+}
+
+#[test]
+fn pattern_scanner_rejects_dialect_differences() {
+    use super::rule::scan_pattern;
+    let cases: [(&str, &str); 24] = [
+        (r"[a[bc]]", "nested class"),
+        (r"[[:alpha:]]", "POSIX"),
+        (r"[a&&b]", "`&&`"),
+        (r"[a--b]", "`--`"),
+        (r"[a~~b]", "`~~`"),
+        (r"(?i)a", "inline flag"),
+        (r"(?x:a)", "inline flag"),
+        (r"(?=a)", "look-around"),
+        (r"(?!a)", "look-around"),
+        (r"(?<n>a)", "look-around"),
+        (r"\Aa", r"`\A`"),
+        (r"a\z", r"`\z`"),
+        (r"a\Z", r"`\Z`"),
+        (r"\p{L}", r"`\p`"),
+        (r"\P{L}", r"`\P`"),
+        (r"\pL", r"`\p`"),
+        (r"(a)\1", "backreference"),
+        (r"(a)\9", "backreference"),
+        (r"\@", r"`\@`"),
+        (r"\0", r"`\0`"),
+        (r"\u{41}", r"`\u`"),
+        (r"\x4", "two hex digits"),
+        (r"\xZZ", "two hex digits"),
+        (r"[\d]", "explicit class"),
+    ];
+    for (p, text) in cases {
+        let problem = scan_pattern(p).problem;
+        assert!(
+            problem.as_deref().is_some_and(|m| m.contains(text)),
+            "{p}: {problem:?}"
+        );
+    }
+    // Through the resolver: an error at the key, the pattern dropped, the
+    // field read-only. (Patterns Rust itself refuses are rejected earlier, by
+    // the config parser.)
+    for p in [
+        r"[a[bc]]",
+        r"[[:alpha:]]",
+        r"(?i)a",
+        r"(?=a)",
+        r"\Aa",
+        r"\pL",
+        r"[a&&b]",
+    ] {
+        let m = pattern_model(p);
+        let e = diags(&m, Error);
+        assert_eq!(e.len(), 1, "{p}: {:#?}", m.diagnostics());
+        assert_eq!(e[0].line, Some(3), "{p}");
+        let f = m.table("t").unwrap().field(1).unwrap().clone();
+        assert_eq!((f.rule.pattern, f.mode), (None, ReadOnly), "{p}");
+    }
+}
+
+#[test]
+fn pattern_scanner_allows_common_subset() {
+    use super::rule::scan_pattern;
+    for p in [
+        r"[A-Za-z0-9._%+-]+",
+        r"a\.b",
+        r"\x41",
+        r"(?:ab)+",
+        r"[^\]]",
+        r"a{2,3}",
+        r"\t\n\r\f\v",
+        r"\(\)\[\]\{\}\|\/\-\^\$\*\+\?",
+        r"a|b",
+        r"[^@ \t\r\n]+@[^@ \t\r\n]+",
+    ] {
+        let scan = scan_pattern(p);
+        assert_eq!(scan.problem, None, "{p}");
+        assert!(!scan.dot, "{p}");
+        let m = pattern_model(p);
+        assert_eq!(m.diagnostics(), &[], "{p}");
+        assert_eq!(
+            m.table("t")
+                .unwrap()
+                .field(1)
+                .unwrap()
+                .rule
+                .pattern
+                .as_deref(),
+            Some(p)
+        );
+    }
 }

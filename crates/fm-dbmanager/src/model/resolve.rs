@@ -122,6 +122,61 @@ fn table_info(
     }
 }
 
+fn table_asks_hidden(e: &TableEntry) -> bool {
+    match e {
+        TableEntry::Valid(t) => t
+            .mode
+            .as_ref()
+            .is_some_and(|m| m.value == TableMode::Hidden),
+        TableEntry::Rejected { hidden, .. } => *hidden,
+    }
+}
+
+fn field_asks_hidden(e: &FieldEntry) -> bool {
+    match e {
+        FieldEntry::Valid(c) => c
+            .mode
+            .as_ref()
+            .is_some_and(|m| m.value == FieldMode::Hidden),
+        FieldEntry::Rejected { hidden, .. } => *hidden,
+    }
+}
+
+/// Several entries for one table. Each one after the first gets a warning.
+/// The result is hidden if any of them asks for it, and otherwise a rejected
+/// entry (a read-only table); it keeps every field entry so hidden fields
+/// stay hidden.
+fn merge_table_entries(
+    table: &str,
+    group: &[&TableEntry],
+    diags: &mut Vec<ConfigDiagnostic>,
+) -> TableEntry {
+    for e in &group[1..] {
+        diags.push(diag(
+            DiagnosticSeverity::Warning,
+            format!(
+                "table `{table}` is configured more than once; the table is hidden if any entry hides it, and read-only otherwise"
+            ),
+            Some(entry_name(e).1),
+            Some(table),
+            None,
+        ));
+    }
+    let (name, at) = entry_name(group[0]);
+    TableEntry::Rejected {
+        name: name.to_owned(),
+        at,
+        hidden: group.iter().any(|e| table_asks_hidden(e)),
+        fields: group
+            .iter()
+            .flat_map(|e| match e {
+                TableEntry::Valid(t) => t.fields.clone(),
+                TableEntry::Rejected { fields, .. } => fields.clone(),
+            })
+            .collect(),
+    }
+}
+
 /// One source per column of table `ti`, and the unknown-field warnings.
 fn field_sources<'a>(
     schema: &Schema,
@@ -154,14 +209,15 @@ fn field_sources<'a>(
                 .collect()
         }
         Some(TableEntry::Valid(t)) => {
-            let mut out: Vec<Option<Source<'a>>> = (0..n).map(|_| None).collect();
+            let mut groups: Vec<Vec<&'a FieldEntry>> = vec![Vec::new(); n];
             for f in &t.fields {
                 let (name, at) = match f {
                     FieldEntry::Valid(c) => (&c.name, c.at),
                     FieldEntry::Rejected { name, at, .. } => (name, *at),
                 };
-                let Some(i) = table.column(name) else {
-                    diags.push(diag(
+                match table.column(name) {
+                    Some(i) => groups[i].push(f),
+                    None => diags.push(diag(
                         DiagnosticSeverity::Warning,
                         format!(
                             "table `{}` has no column `{name}`; the entry is ignored",
@@ -170,18 +226,39 @@ fn field_sources<'a>(
                         Some(at),
                         Some(table.name.as_str()),
                         Some(name),
-                    ));
-                    continue;
-                };
-                if out[i].is_none() {
-                    out[i] = Some(match f {
-                        FieldEntry::Valid(c) => Source::Config(Some(c)),
-                        FieldEntry::Rejected { hidden, .. } => Source::Narrowed { hidden: *hidden },
-                    });
+                    )),
                 }
             }
-            out.into_iter()
-                .map(|s| s.unwrap_or(Source::Config(None)))
+            groups
+                .into_iter()
+                .enumerate()
+                .map(|(i, g)| match g.as_slice() {
+                    [] => Source::Config(None),
+                    [FieldEntry::Valid(c)] => Source::Config(Some(c)),
+                    [FieldEntry::Rejected { hidden, .. }] => Source::Narrowed { hidden: *hidden },
+                    many => {
+                        let column = table.columns[i].name.as_str();
+                        for f in &many[1..] {
+                            let at = match f {
+                                FieldEntry::Valid(c) => c.at,
+                                FieldEntry::Rejected { at, .. } => *at,
+                            };
+                            diags.push(diag(
+                                DiagnosticSeverity::Warning,
+                                format!(
+                                    "table `{}`, field `{column}` is configured more than once; the field is hidden if any entry hides it, and read-only otherwise",
+                                    table.name
+                                ),
+                                Some(at),
+                                Some(table.name.as_str()),
+                                Some(column),
+                            ));
+                        }
+                        Source::Narrowed {
+                            hidden: many.iter().any(|f| field_asks_hidden(f)),
+                        }
+                    }
+                })
                 .collect()
         }
         None => (0..n).map(|_| Source::Config(None)).collect(),
@@ -242,30 +319,27 @@ pub fn resolve(schema: &Schema, report: &ConfigReport) -> Model {
     let mut diags: Vec<ConfigDiagnostic> = report.diagnostics.clone();
     let n = schema.tables.len();
 
-    // Config entries to tables.
-    let mut entries: Vec<Option<&TableEntry>> = vec![None; n];
+    // Config entries to tables. Entries that name the same table (SQLite
+    // matches names without case) are merged, failing closed.
+    let mut groups: Vec<Vec<&TableEntry>> = vec![Vec::new(); n];
     for e in &config.tables {
         let (name, at) = entry_name(e);
         match schema.table_index(name) {
-            Some(i) => {
-                if entries[i].is_none() {
-                    entries[i] = Some(e);
-                } else {
-                    diags.push(diag(
-                        DiagnosticSeverity::Warning,
-                        format!(
-                            "table `{}` is already configured above; this entry is ignored",
-                            schema.tables[i].name
-                        ),
-                        Some(at),
-                        Some(schema.tables[i].name.as_str()),
-                        None,
-                    ));
-                }
-            }
+            Some(i) => groups[i].push(e),
             None => diags.push(unmatched(schema, "table", name, at)),
         }
     }
+    let merged: Vec<Option<TableEntry>> = groups
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            (g.len() > 1)
+                .then(|| merge_table_entries(schema.tables[i].name.as_str(), g, &mut diags))
+        })
+        .collect();
+    let entries: Vec<Option<&TableEntry>> = (0..n)
+        .map(|i| merged[i].as_ref().or_else(|| groups[i].first().copied()))
+        .collect();
     let junctions: Vec<Option<Junction<'_>>> = detect(schema, config, &mut diags);
 
     // Modes and names.
@@ -281,6 +355,11 @@ pub fn resolve(schema: &Schema, report: &ConfigReport) -> Model {
         })
         .collect();
     let hidden_tables: Vec<bool> = infos.iter().map(|i| i.mode == TableMode::Hidden).collect();
+    // Has a `TableView`: listed or pickable, never hidden.
+    let viewable: Vec<bool> = infos
+        .iter()
+        .map(|i| i.listed && i.mode != TableMode::Hidden)
+        .collect();
     let display_names: Vec<String> = (0..n)
         .map(|i| {
             valid(entries[i])
@@ -293,7 +372,7 @@ pub fn resolve(schema: &Schema, report: &ConfigReport) -> Model {
     let env = Env {
         schema,
         defaults: config.defaults,
-        hidden_tables: &hidden_tables,
+        viewable: &viewable,
         display_names: &display_names,
     };
     let all_fields: Vec<Vec<ResolvedField>> = (0..n)

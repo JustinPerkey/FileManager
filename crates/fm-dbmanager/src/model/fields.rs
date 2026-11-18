@@ -19,8 +19,9 @@ use crate::value::DbValue;
 pub(super) struct Env<'a> {
     pub schema: &'a Schema,
     pub defaults: Defaults,
-    /// Parallel to `schema.tables`: the table's mode is `hidden`.
-    pub hidden_tables: &'a [bool],
+    /// Parallel to `schema.tables`: the table has a `TableView` (it is listed
+    /// or pickable). Only such a table can be the target of a link.
+    pub viewable: &'a [bool],
     pub display_names: &'a [String],
 }
 
@@ -171,7 +172,7 @@ fn forced_reason(
     col: &crate::schema::Column,
     kind: FieldKind,
     fk: Option<&FkInfo>,
-    hidden_tables: &[bool],
+    viewable: &[bool],
 ) -> Option<&'static str> {
     if col.is_rowid_alias {
         Some("a rowid alias, assigned by SQLite")
@@ -184,8 +185,8 @@ fn forced_reason(
     } else if let Some(fk) = fk {
         if fk.multi {
             Some("part of a multi-column foreign key")
-        } else if hidden_tables[fk.target_table] {
-            Some("a foreign key into a hidden table")
+        } else if !viewable[fk.target_table] {
+            Some("a foreign key into a table that is hidden or not listed")
         } else if !fk.is_key {
             Some("a foreign key that does not reference a key")
         } else {
@@ -321,13 +322,8 @@ pub(super) fn resolve_field(
         if let Some(p) = &c.pattern {
             if text {
                 let scan = scan_pattern(&p.value);
-                if let Some(short) = scan.shorthand {
-                    sink.error(
-                        p.at,
-                        &format!(
-                            "`pattern` uses the shorthand class `{short}`, which Rust and JavaScript read differently; write an explicit class: `[0-9]`, `[A-Za-z0-9_]`, `[ \\t\\r\\n]`"
-                        ),
-                    );
+                if let Some(problem) = &scan.problem {
+                    sink.error(p.at, &format!("`pattern` {problem}"));
                 } else if let Err(why) = regex::Regex::new(&format!("^(?:{})$", p.value)) {
                     sink.error(p.at, &format!("`pattern` does not compile: {why}"));
                 } else {
@@ -418,7 +414,7 @@ pub(super) fn resolve_field(
                     );
                 }
                 FieldMode::ReadOnly
-            } else if let Some(reason) = forced_reason(col, kind, fk.as_ref(), env.hidden_tables) {
+            } else if let Some(reason) = forced_reason(col, kind, fk.as_ref(), env.viewable) {
                 if let (Some(m), true) = (explicit, wants_write) {
                     sink.error(
                         m.at,
@@ -450,19 +446,18 @@ pub(super) fn resolve_field(
         .default_sql
         .as_deref()
         .and_then(|s| parse_default(s, kind, unit));
+    // A link only names a table that has a view; a foreign key into a hidden
+    // or unlisted table is a plain field, so nothing names its target.
     let foreign_key = fk
         .as_ref()
-        .filter(|f| f.is_key && (!f.multi || f.first))
-        .map(|f| {
-            let hidden = env.hidden_tables[f.target_table];
-            ResolvedForeignKey {
-                fk_index: f.index,
-                table: f.target_table,
-                table_name: env.schema.tables[f.target_table].name.as_str().to_owned(),
-                table_display_name: (!hidden).then(|| env.display_names[f.target_table].clone()),
-                columns: f.target_columns.clone(),
-                navigable: !hidden,
-            }
+        .filter(|f| f.is_key && (!f.multi || f.first) && env.viewable[f.target_table])
+        .map(|f| ResolvedForeignKey {
+            fk_index: f.index,
+            table: f.target_table,
+            table_name: env.schema.tables[f.target_table].name.as_str().to_owned(),
+            table_display_name: Some(env.display_names[f.target_table].clone()),
+            columns: f.target_columns.clone(),
+            navigable: true,
         });
 
     ResolvedField {

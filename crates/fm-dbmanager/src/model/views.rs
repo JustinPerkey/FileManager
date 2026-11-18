@@ -62,7 +62,7 @@ pub struct FieldView {
 #[serde(rename_all = "camelCase")]
 pub struct ForeignKeyView {
     pub table: String,
-    /// `None` for a hidden target.
+    /// Always `Some` in v1: a link exists only to a table that has a view.
     pub table_display_name: Option<String>,
     pub navigable: bool,
 }
