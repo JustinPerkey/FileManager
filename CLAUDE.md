@@ -53,7 +53,12 @@ crates/
     src/value.rs              DbValue (boundary value; integers, reals, durations as strings)
     src/rules/                FieldRule/FieldKind/FieldIssue types, pure validate, and
                               duration.rs (the duration grammar, parse, format; config
-                              reuses the grammar)
+                              reuses the grammar); kinds.rs
+                              (infer_kind, `type` override rules, default literals)
+    src/model/                resolve(&Schema, &ConfigReport) -> Model: the config laid over
+                              the schema (modes, kinds, rules, labels, links, reverse and
+                              many-to-many relations, diagnostics); views.rs holds the
+                              exported TableView and friends
     src/config/               the TOML config overlay: parse (text -> Config with
                               line/col diagnostics), model, validation. Checks
                               what the text alone shows; schema-dependent rules come later

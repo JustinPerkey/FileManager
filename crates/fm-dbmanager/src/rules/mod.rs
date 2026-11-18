@@ -3,6 +3,7 @@
 //! (`examples/dbmanager/validation-cases.json`).
 
 pub mod duration;
+mod kinds;
 mod validate;
 
 #[cfg(test)]
@@ -13,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use crate::config::DurationUnit;
 use crate::value::DbValue;
 
+pub use kinds::infer_kind;
+pub(crate) use kinds::{kind_of_type, parse_default, type_override_allowed};
 pub use validate::validate;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
@@ -94,4 +97,14 @@ pub struct FieldIssue {
 pub struct FieldError {
     pub column: String,
     pub issues: Vec<FieldIssue>,
+}
+
+#[cfg(test)]
+pub(crate) fn canonical_integer_for_tests(s: &str) -> Option<i64> {
+    validate::canonical_integer(s)
+}
+
+#[cfg(test)]
+pub(crate) fn parse_real_for_tests(s: &str) -> Option<f64> {
+    validate::parse_real(s)
 }

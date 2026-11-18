@@ -53,7 +53,7 @@ fn is_integer_grammar(s: &str) -> bool {
     !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
 }
 
-fn canonical_integer(s: &str) -> Option<i64> {
+pub(crate) fn canonical_integer(s: &str) -> Option<i64> {
     if is_integer_grammar(s) {
         s.parse().ok()
     } else {
@@ -140,7 +140,7 @@ fn integer(rule: &FieldRule, s: &str) -> Result<DbValue, Vec<FieldIssue>> {
     }
 }
 
-fn parse_real(s: &str) -> Option<f64> {
+pub(crate) fn parse_real(s: &str) -> Option<f64> {
     if !is_real_grammar(s) {
         return None;
     }

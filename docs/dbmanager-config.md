@@ -150,7 +150,7 @@ allow_delete = true
 min_length = 1
 
 [tables.member.fields.email]
-pattern = '[^@\s]+@[^@\s]+'
+pattern = '[^@ \t\r\n]+@[^@ \t\r\n]+'
 max_length = 254
 
 # --- loan -----------------------------------------------------------------
@@ -336,8 +336,17 @@ field entry:
 
 Pattern dialect: Rust's `regex` is authoritative on save, while the UI checks
 the same pattern with JavaScript `RegExp` (`u` flag) as the user types. Stay
-in their common subset: character classes, `\d \w \s`, quantifiers, groups,
+in their common subset: explicit character classes, quantifiers, groups,
 alternation. No look-around, no back-references, no inline flags.
+
+The shorthand classes `\d \D \w \W \s \S \b \B` are **rejected** (an error;
+the pattern is dropped and the field is read-only), because the two engines
+disagree on them for non-ASCII input: Rust's are Unicode-aware (`\d` matches
+Arabic-Indic digits), JavaScript's `\d \w \b` are ASCII-only, and the two `\s`
+sets differ. Write explicit classes instead: `[0-9]`, `[A-Za-z0-9_]`,
+`[ \t\r\n]`. An unescaped `.` outside a class is a **warning**: JavaScript's
+`.` also excludes `\r`, U+2028 and U+2029, Rust's does not. Write `[^\n]` for
+"any character". The pattern still applies.
 
 ## Kinds
 
@@ -547,6 +556,8 @@ for hidden). The database always opens and can be browsed.
 | names a view, virtual, shadow or internal table | warning | entry ignored |
 | bound, `type` or `unit` not valid for the field's kind or affinity, or set on a foreign-key field | error | field read-only |
 | duration bound not a whole number of the unit | error | field read-only |
+| `pattern` uses a shorthand class (`\d \D \w \W \s \S \b \B`), or does not compile | error | pattern dropped; field read-only |
+| `pattern` has an unescaped `.` outside a class | warning | pattern still applies |
 | `nullable = true` on a `NOT NULL` column | error | field read-only |
 | explicit `editable`/`create-only` on a forced-read-only column | error | field read-only |
 | field explicitly `editable`/`create-only` in a read-only or pickable table | warning | stays read-only |
