@@ -1,6 +1,9 @@
 # UI project plan: the Database Manager view
 
-Status: **awaiting approval.** Written 2026-11-16 by the `ui-designer`.
+Status: **awaiting approval.** Amended 2026-11-18 for the M5 review: FKs
+into hidden or unlisted tables arrive as plain read-only fields (no
+non-navigable link case), and config patterns are restricted to a
+Rust/JS-common subset (examples here stay inside it). Written 2026-11-16 by the `ui-designer`.
 Revised the same day for the human's final answers and the planner's contract
 revision (`dbmanager.md` §2.4, §2.7–§2.11, §7.1):
 
@@ -385,8 +388,11 @@ value, a hint line, and then issues and problems.
   name "Open Herbert, Frank in Authors". Following it pushes a place.
 - **Dangling reference:** the stored value in mono and "Missing object",
   plus the problem line.
-- **Not navigable** (the target is hidden): the stored value in mono and "(in
-  a table that is not shown)". There is no link.
+- **A FK into a hidden table or an unlisted junction** is not a reference at
+  all for the UI: it arrives as a plain read-only field (no `foreignKey`, no
+  `link`) and renders like any read-only value. Every `ForeignKeyView` the UI
+  receives has a listed target, `navigable: true`, and a
+  `tableDisplayName`.
 - **A pickable target** (a lookup table, `TableView.mode === "pickable"`) is
   an ordinary followable link. Its object opens **read-only** (§3.12).
 - **NULL:** "Not set".
@@ -706,7 +712,7 @@ later, separate change.
 | `FieldRow` | `FieldRow.tsx` | `field: FieldView`, `value: FieldValue \| null`, editing props | read-only, editable, changed, invalid, problem | U4, U5 |
 | `FieldEditor` | `FieldEditor.tsx` | `field`, `value: EditorValue`, `onChange`, `onRevert`, `labelSuffix?`, `describedBy` | per kind (§3.4) | U5 |
 | `BoolField` | `BoolField.tsx` | `field`, `checked: boolean \| null`, `problem?`, `onChange` | ticked, clear, not set, notBool | U5 |
-| `ReferenceField` | `ReferenceField.tsx` | `field`, `value`, staged pick, `onFollow`, `onPick`, `onClear` | linked, not set, dangling, not navigable, staged | U4 (read), U7 (edit) |
+| `ReferenceField` | `ReferenceField.tsx` | `field`, `value`, staged pick, `onFollow`, `onPick`, `onClear` | linked, not set, dangling, staged | U4 (read), U7 (edit) |
 | `ObjectPicker` | `ObjectPicker.tsx` | `table: TableView`, `currentId?`, `nullable`, `onPick`, `onClear`, `onClose` | loading, results, no match, error, more | U7 |
 | `ReferencedBy` | `ReferencedBy.tsx` | `relations`, `counts`, `objectKey`, `onFollow` | none, closed, loading, list, more, error | U4 |
 | `SaveBar` | `SaveBar.tsx` | dirty count, `saving`, `mode: "edit" \| "create"`, `blockedReason?`, `onSave`, `onDiscard` | clean, dirty, saving, saved, blocked | U6 |
