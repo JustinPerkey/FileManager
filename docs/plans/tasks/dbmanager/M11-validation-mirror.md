@@ -81,6 +81,28 @@ this task (Rust is the reference if anything here is unclear):
    difference), skip the pattern check for that field (the save result
    decides) and do not throw. Cache compiled patterns.
 
+**Behaviours pinned by the vectors** (from the M4 review). The TS mirror must
+reproduce them exactly:
+
+- for bool:
+  - an `integer`-variant input whose text is not an integer, e.g.
+    `{type:"integer", value:"yes"}`, is **`notBool`**, not `notInteger` (as
+    the landed vector pins it);
+  - any integer other than canonical `0`/`1` is `notBool`;
+  - `"+1"` and `"01"` normalise to `"1"`;
+  - a `text`-variant input is `wrongType` (shape);
+- a duration rule whose `unit` is `null` → `notDuration`;
+- `validate` ignores `min`, `max` and `allowed` for bool, and `allowed` for
+  real and duration;
+- a `min`/`max` that does not parse for the kind is skipped. The model
+  milestone guarantees canonical bounds, so the mirror may assume them, but
+  must not throw if one is malformed;
+- patterns never contain shorthand classes (`\d \w \s \b` and their
+  negations; the model rejects them). The vectors include non-ASCII digits
+  and spaces against explicit classes (`[0-9]`, `[ \t\r\n]`), which must
+  give the same result as Rust.
+
+
 Rules that bind this task:
 
 - The implementer owns `apps/desktop/src/lib/`; do not touch the rest of

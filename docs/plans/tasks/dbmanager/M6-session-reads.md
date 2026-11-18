@@ -256,6 +256,22 @@ side, else `UnknownRelation`.
 Exports: `ObjectKey`, `ListQuery`, `ReferencingFilter`, `ObjectPage`,
 `ObjectView`, `M2mQuery`, `M2mPage`, `ConfigStatus` (referenced types follow).
 
+### From the M4 review (2026-11-18): non-finite reals
+
+SQLite can store `+Inf`/`-Inf` in a REAL column. M4's `DbValue` reads them
+as `"inf"`/`"-inf"`, which `validate` rejects (`notReal`).
+
+- Show such a value as stored, with problem **`WrongType`**: the stored value
+  cannot be edited as a real.
+- Do not add a new `ValueProblem` variant, because the UI already handles
+  `wrongType`.
+- The field stays editable if its mode allows. Saving the object without
+  touching it keeps the value (the save milestone validates only changed
+  fields).
+- Test `non_finite_real_is_wrong_type`: insert `9e999` (= `+Inf`) into
+  `book.price` and read it back as `{"type":"real","value":"inf"}` with
+  `WrongType`.
+
 ## Files
 
 Create `crates/fm-dbmanager/src/session/{mod.rs, read.rs, sql.rs, key.rs,
@@ -334,6 +350,8 @@ stated:
   --workspace` pass.
 
 ## Tests proving completion
+
+Also: `non_finite_real_is_wrong_type` (from the M4 review).
 
 `src/session/tests/`: `list_orders_and_labels`, `list_paging_is_complete`,
 `list_search_case_insensitive`, `list_search_escapes_wildcards`,

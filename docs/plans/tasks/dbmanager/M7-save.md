@@ -210,6 +210,27 @@ fields belong to an object table:
 
 Exports: `SaveRequest`, `SaveResult`, and the types they reference.
 
+### From the M4 review (2026-11-18)
+
+**Never call `to_sql` on an unvalidated value.**
+
+- `DbValue::to_sql` panics on a blob or on an unvalidated value; M4
+  documents this.
+- Bind only values that `validate` returned. `validate` and `to_sql` happen
+  in the same function, so the value passed to `to_sql` is the `Ok` value
+  `validate` returned for that change, never the raw input.
+- A blob input is rejected as `wrongType` at step 2, before anything binds.
+  So a panic cannot occur and lose the user's form.
+- Test `blob_input_is_wrong_type_not_panic`.
+
+**Unchanged non-finite reals stay saveable.**
+
+- A row whose `price` is `+Inf` (read as `"inf"` with `WrongType`) can still
+  be saved with other changes. The untouched `price` is not validated and not
+  written, and stays `+Inf` byte-for-byte.
+- Editing `price` requires a finite value.
+- Test `unchanged_infinite_real_saves`.
+
 ## Files
 
 Create `crates/fm-dbmanager/src/session/{save.rs, backup.rs}` and their
@@ -301,6 +322,9 @@ Each check in steps 1–5 has a test, including:
   --workspace` pass.
 
 ## Tests proving completion
+
+Also, from the M4 review: `blob_input_is_wrong_type_not_panic`,
+`unchanged_infinite_real_saves`.
 
 Updates and conflicts:
 

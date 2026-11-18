@@ -1,6 +1,6 @@
 # M5 — The model: overlay the config on the schema
 
-Status: awaiting approval (revised 2026-11-16: editable defaults, durations,
+Status: approved (2026-11-18; revised 2026-11-16: editable defaults, durations,
 link fields; then the `pickable` table mode)
 Project: dbmanager   Depends on: M2 (landed), M3 (landed), M4 (landed)
 
@@ -297,6 +297,73 @@ the referencing field's display name(s), joined by `, `.
 Append `TableView` to `EXPORTERS` (its referenced types follow), then
 regenerate.
 
+### From the M4 review (2026-11-18)
+
+M4 (`src/rules/`) has landed. This milestone is the **only producer of
+`FieldRule`**, so `validate` relies on it in two ways.
+
+**Canonical bounds only.**
+
+- `validate` silently skips a `min`/`max` it cannot parse for the kind,
+  which means it fails open. Every bound you emit must already be canonical:
+  - integer: canonical decimal;
+  - real: finite decimal text matching the real grammar;
+  - duration: `duration::format` text in the field's unit.
+- Test `resolved_rules_are_canonical`. For every field of
+  `example.toml` + `schema.sql`, and for a config that exercises every kind
+  and bound form, check that each `min`/`max`:
+  - re-parses under its kind;
+  - round-trips unchanged (`duration::parse` then `format`, or integer
+    re-canonicalisation).
+
+**Compile patterns at resolve time.**
+
+- Compile each `pattern` anchored (`^(?:p)$`) with `regex`. A pattern that
+  fails to compile would make every value `patternMismatch`.
+- On failure: an error at the `pattern` key, the pattern is dropped, and the
+  field is read-only, as for any invalid bound.
+
+**Pattern dialect: shorthand classes are not allowed.**
+
+- Rust `regex` is Unicode-aware by default (`\d` = `\p{Nd}`, and `\w` and
+  `\s` are Unicode). JS `RegExp` with the `u` flag keeps `\d`, `\w` and
+  `\b` ASCII-only, and its `\s` is a different set. The authoritative
+  (Rust) check and the inline (TS) check would disagree on non-ASCII input.
+- Rather than translating one dialect into the other, **reject the
+  shorthand classes**:
+  - a pattern containing an unescaped `\d`, `\D`, `\w`, `\W`, `\s`,
+    `\S`, `\b` or `\B` (outside or inside `[...]`) is an **error** at the
+    `pattern` key; the pattern is dropped and the field is read-only;
+  - the message suggests explicit classes: `[0-9]`, `[A-Za-z0-9_]`,
+    `[ \t\r\n]`.
+- `.` also differs (JS excludes `\r`, U+2028 and U+2029). An unescaped `.`
+  outside `[...]` is a **warning** suggesting `[^\n]`; the pattern still
+  applies.
+- Detect these with a small scanner that tracks backslash escapes and
+  bracket depth. Do not add `regex-syntax` just for this.
+- Tests:
+  - `pattern_shorthand_rejected`;
+  - `pattern_dot_warns`;
+  - escaped forms (`\\d`, `\.`) are not flagged.
+
+**This milestone edits the reference doc and the examples.**
+
+- `docs/dbmanager-config.md`, "Fields" (the pattern dialect paragraph,
+  around line 339): remove `\d \w \s` from the "common subset". Say that
+  shorthand classes are rejected and `.` is warned about, and why.
+- Add both rules to the diagnostics table.
+- `examples/dbmanager/example.toml` and the doc's copy of it: `member.email`
+  becomes `pattern = '[^@ \t\r\n]+@[^@ \t\r\n]+'`. `doc_contains_example`
+  must keep passing, and the example must still resolve with zero
+  diagnostics.
+- `examples/dbmanager/validation-cases.json`: add at least these vectors,
+  which must pass in Rust here and in the TS mirror later:
+  - pattern `[0-9]+` with input `"٣"` (U+0663) → `patternMismatch`;
+  - pattern `[0-9]+` with input `"3"` → ok;
+  - pattern `[^ \t\r\n]+` with input containing U+00A0 (no-break space) →
+    ok, because it is not in the explicit class;
+  - pattern `a[ \t]b` with input `"a\u3000b"` → `patternMismatch`.
+
 ## Files
 
 Create `crates/fm-dbmanager/src/model/{mod.rs, resolve.rs, kinds.rs (or in
@@ -413,6 +480,11 @@ resolve with zero diagnostics, and:**
 - fmt, clippy pedantic and `cargo test --workspace` pass.
 
 ## Tests proving completion
+
+Also, from the M4 review: `resolved_rules_are_canonical`,
+`pattern_shorthand_rejected`, `pattern_dot_warns`,
+`pattern_compile_failure_is_read_only`, and the updated
+`example_resolves_clean`, `doc_contains_example` and `shared_vectors_pass`.
 
 `src/model/tests.rs`:
 
