@@ -182,8 +182,14 @@ pub struct ObjectSummary { pub key: ObjectKey, pub label: String }
 pub struct ObjectPage { pub items: Vec<ObjectSummary>, pub total: u64, pub offset: u32 }
 ```
 
-- `limit` is clamped to 1..=500. Order: the table's resolved order, then the
-  identity (so paging is deterministic). `total` counts the same filter.
+- `limit` is clamped to 1..=500. Order: the table's resolved order
+  (`ResolvedTable.order`, which holds only the explicit or label terms),
+  then **append the row identity as the final `ORDER BY` tie-break**: the
+  rowid accessor, or every primary-key column in key order. Paging is then
+  deterministic even when labels repeat. `total` counts the same filter. The
+  same tie-break applies to `m2m_options` and to referencing lists. Test
+  `paging_stable_with_duplicate_labels` (20 authors with the same name, limit
+  7: every row exactly once).
 - `search` (trimmed; empty means none) matches any search column with
   `LIKE`; on a table that is not searchable it is ignored.
 - `referencing`: `relation` must be one of `table`'s FKs (`fk:<table>:<id>`)
@@ -220,8 +226,10 @@ pub struct RelationCount { pub relation: String, pub count: u64 }
   non-nullable). One problem per field, in that priority order.
 - `LinkTarget`: navigable target → look the row up by the FK's target
   columns; found → `key` and `label`; not found → `key: None`, `label:
-  None`, problem `DanglingReference`. Hidden target → `navigable: false`,
-  `key` and `label` `None`, no lookup.
+  None`, problem `DanglingReference`. A FK into a hidden table or an
+  unlisted junction has no `foreign_key` view (the model omits it), so its
+  value gets **no** `link` at all and is shown as a plain value. No table
+  name reaches the UI.
 
 ```rust
 pub struct M2mQuery {

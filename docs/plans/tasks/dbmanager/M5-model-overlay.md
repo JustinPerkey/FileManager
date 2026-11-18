@@ -1,6 +1,8 @@
 # M5 — The model: overlay the config on the schema
 
-Status: approved (2026-11-18; revised 2026-11-16: editable defaults, durations,
+Status: implemented; the reviewer requested changes. **Run "Review round 1"
+(end of this plan)** on this task plan; the sections above are corrected for
+it. (Approved 2026-11-18; revised 2026-11-16: editable defaults, durations,
 link fields; then the `pickable` table mode)
 Project: dbmanager   Depends on: M2 (landed), M3 (landed), M4 (landed)
 
@@ -183,8 +185,12 @@ Rules that bind this task:
   - The default order is the label columns ascending, then the identity.
 - **Foreign keys:**
   - A single-column FK whose `target` exists becomes a link field
-    (`ForeignKeyView`). It is navigable iff the target table is not hidden,
-    and editable only if the target is not hidden.
+    (`ForeignKeyView`) **only if the target table has a `TableView`**, that
+    is, it is listed or pickable. Such a link is navigable.
+  - A FK into a hidden table, or into a junction that is not listed, gets
+    **no `ForeignKeyView`**. The column is a plain read-only field, so its
+    raw value shows and nothing names the target. This follows "hidden never
+    leaks".
   - For a multi-column FK, each column is read-only, and only the first
     column carries the link.
   - A FK with a missing target is a warning, and the column is a plain
@@ -291,8 +297,10 @@ pub struct M2mView {
 }
 ```
 
-`ForeignKeyView.table_display_name` is `None` for a hidden target. `via` is
-the referencing field's display name(s), joined by `, `.
+A `ForeignKeyView` exists only for targets that have a `TableView`, so
+`navigable` is always `true` and `table_display_name` always `Some` in v1.
+Both stay in the type so the contract does not change if that is relaxed.
+`via` is the referencing field's display name(s), joined by `, `.
 
 Append `TableView` to `EXPORTERS` (its referenced types follow), then
 regenerate.
@@ -397,7 +405,7 @@ resolve with zero diagnostics, and:**
 - Kinds:
   - `book.in_print` and `loan.returned` are bool;
   - `book.audio_length` is a duration with unit seconds and rule bounds
-    `"1m"`/`"100h"`;
+    `"1m"`/`"4d4h"` (canonical form of the configured `"100h"`);
   - `loan.loan_period` is a duration whose default value is `"14d"`.
 - Links:
   - `book.author_id` links to `author` and is navigable;
@@ -565,3 +573,194 @@ Run `cargo test -p fm-dbmanager`, then regenerate, then
   case-insensitive (SQLite's rule), via `Schema::table`/`Table::column`.
 - Editable defaults make test expectations easy to get backwards. Each test
   states its config explicitly.
+
+## Review round 1
+
+The reviewer requested changes. Fix all of the following in one run.
+
+**R1 — default values are converted by kind.**
+
+`parse_default` (`src/rules/kinds.rs`, around lines 372–408; used in
+`src/model/fields.rs`, around 449–452) picks the `DbValue` variant from the
+literal's spelling. So `price REAL DEFAULT 0` becomes `Integer("0")`, and a
+prefilled create form then fails `validate` with `wrongType`.
+
+Convert by the field's resolved kind:
+
+| Kind | Accepted literals | Becomes |
+| --- | --- | --- |
+| real | integer or real literal | `Real(text)` |
+| text | any literal (integer, real, string) | `Text(text)` |
+| integer, bool | integer literals only | `Integer` |
+| duration | integer literals only | `Duration(format(n, unit))` |
+
+- `TRUE`/`FALSE` map to `1`/`0` for integer and bool.
+- `NULL` stays `Null`.
+- Any other combination gives `has_default: true` and `default_value: None`.
+- Every produced default must pass `validate` for its field's rule,
+  ignoring bounds (a default may violate them, and then it is shown).
+  Assert this in the test.
+
+Extend `default_literals_parsed` with:
+
+- `REAL DEFAULT 0` → `Real("0")`;
+- `TEXT DEFAULT 5` → `Text("5")`;
+- `INTEGER DEFAULT 'x'` → `None`;
+- `INTEGER DEFAULT 1.5` → `None`;
+- a duration field with `DEFAULT 90` → its canonical text.
+
+**R2 — duplicates fail closed.**
+
+Today:
+
+- duplicate table entries that differ only by case keep the first and warn
+  (`resolve.rs`, around 247–268);
+- duplicate many-to-many entries do the same (`m2m.rs`, around 115–139);
+- duplicate **field** entries are dropped with no diagnostic at all
+  (`resolve.rs`, around 176).
+
+A second entry saying `mode = "hidden"` is then ignored. Required, for all
+three:
+
+- every duplicate gets a **warning** at its position;
+- if **any** of the duplicates (valid or rejected) asks for `hidden`, the
+  subject is hidden;
+- otherwise the subject is treated as rejected: a read-only table or field,
+  a read-only relation.
+
+Tests:
+
+- `duplicate_table_entries_fail_closed`;
+- `duplicate_field_entries_fail_closed`;
+- `duplicate_m2m_entries_fail_closed`.
+
+Each test covers both the "one says hidden" case and the "neither says
+hidden" case.
+
+**R3 — no FK view into hidden or unlisted tables.**
+
+`ForeignKeyView.table` currently carries a hidden target's SQL name
+(`views.rs`, around 110–114). Apply the corrected "Foreign keys" rule above:
+
+- no `ForeignKeyView` unless the target has a `TableView` (listed or
+  pickable);
+- the column is then a plain read-only field.
+
+Tests:
+
+- `fk_into_hidden_table_is_plain` (no `foreign_key`, field read-only, no
+  name of the hidden table anywhere in the `TableView` JSON);
+- `fk_into_unlisted_junction_is_plain`.
+
+**R4 — the `audio_length` acceptance line.** Its bounds are `"1m"`/`"4d4h"`,
+the canonical form. The acceptance criterion above is corrected.
+
+**R5 — reference doc rows** (`docs/dbmanager-config.md`; this milestone
+edits it).
+
+- Add to "Forced read-only": a FK column whose target is not a primary or
+  unique key. An explicit `editable` on it is an error.
+- Add to the diagnostics table:
+  - `editable` on such a non-key FK: error, field read-only;
+  - `multiline` on a non-text field: warning, ignored;
+  - `empty_is_null` on a non-nullable or non-text field: error, field
+    read-only.
+
+**R6 — diagnostics may name hidden objects.** Stated rule: **diagnostics may
+name any table or column, hidden ones included. Views and values never do.**
+
+- Diagnostics describe the config and the schema to whoever maintains them,
+  and the config file already names those columns.
+- `hidden` controls what object data the user sees. It does not keep the
+  schema secret.
+
+So:
+
+- the create-blocked diagnostic (`resolve.rs`, around 367–376) and the
+  link-blocked diagnostic (`m2m.rs`, around 219–241) correctly name the
+  hidden NOT NULL column;
+- FK warnings may stay limited to visible tables and columns, an accepted
+  choice;
+- write the rule into the doc's Diagnostics section;
+- add an assertion in `allow_create_blocked_inherited_warning` that the
+  message names the hidden column.
+
+**R7 — `navigable` requires a `TableView`.** This is covered by R3: a FK into
+a junction that is not listed is plain, so `Model::table(target)` is always
+`Some` for any `ForeignKeyView`. Assert this across the example and the R3
+tests.
+
+**R8 — pattern scanner: a literal `]`.**
+
+A `]` right after `[` or `[^` is a literal, not the end of the class.
+`[]a.]` contains a literal dot and must not warn.
+
+Test `pattern_scanner_leading_bracket_literal`.
+
+**R9 — pattern scanner: more Rust/JS differences.**
+
+Extend the scanner to **reject**, with an error at `pattern` (pattern
+dropped, field read-only) and a message naming the construct:
+
+- **Silent meaning differences:**
+  - an unescaped `[` inside a class (nested classes, `[a[bc]]`);
+  - POSIX classes `[[:alpha:]]`;
+  - the set operators `&&`, `--` and `~~` inside a class.
+- **Syntax one side rejects:**
+  - inline flags `(?` followed by anything other than `:` (`(?i)`,
+    `(?x:…)`);
+  - `\A`, `\z`, `\Z`;
+  - `\p`/`\P` in any form;
+  - backreferences `\1`–`\9`;
+  - any escape other than these: `\\ \^ \$ \. \* \+ \? \( \) \[ \]
+    \{ \} \| \/ \-` and `\t \n \r \f \v` and `\xHH` (two hex digits).
+    For example, `\@` is a JS `u`-mode SyntaxError.
+- Look-around `(?=` / `(?!` / `(?<` is already caught by the inline-flag rule.
+- The reference doc's pattern section lists exactly what is allowed.
+
+Tests:
+
+- `pattern_scanner_rejects_dialect_differences`, one case per construct;
+- `pattern_scanner_allows_common_subset`: `[A-Za-z0-9._%+-]+`, `a\.b`,
+  `\x41`, `(?:ab)+`, `[^\]]`, and `a{2,3}`.
+
+Add a vector for `a\.b` (`"a.b"` → ok, `"axb"` → `patternMismatch`) to
+`examples/dbmanager/validation-cases.json`.
+
+### Accepted implementer choices (record only; do not change)
+
+- A reverse relation is omitted when its referencing column is hidden.
+- Generated columns never block create.
+- A junction's rowid alias is not a link field.
+- A non-key FK is forced read-only, and an explicit `editable` on it is an
+  error.
+- One bad name in `field_order` makes the whole key ignored.
+- Diagnostic levels: `multiline` misuse is a warning, `empty_is_null` misuse
+  is an error.
+- An explicit `create-only` on a rowid alias is an error.
+- Junction table modes control listing only.
+- STRICT tables skip only the `BOOL` inference.
+- FK warnings are given only for visible tables and columns.
+
+### Acceptance criteria (review round 1)
+
+- These tests pass, alongside all existing M5 tests and
+  `shared_vectors_pass` with the new vector:
+  - `default_literals_parsed` (extended);
+  - `duplicate_table_entries_fail_closed`;
+  - `duplicate_field_entries_fail_closed`;
+  - `duplicate_m2m_entries_fail_closed`;
+  - `fk_into_hidden_table_is_plain`;
+  - `fk_into_unlisted_junction_is_plain`;
+  - `pattern_scanner_leading_bracket_literal`;
+  - `pattern_scanner_rejects_dialect_differences`;
+  - `pattern_scanner_allows_common_subset`.
+- `example_resolves_clean` still has zero diagnostics.
+- `docs/dbmanager-config.md` has the R5 rows, the R6 rule and the R9 pattern
+  list, and `doc_contains_example` passes.
+- No generated type changed shape. The `ForeignKeyView` fields are
+  unchanged, and only their presence changed. Generated types are current.
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+  warnings` and `cargo test --workspace` pass.
+- The diff goes back to the reviewer.
+

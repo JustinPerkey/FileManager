@@ -77,7 +77,14 @@ this task (Rust is the reference if anything here is unclear):
    says. `message` is a short English sentence (not compared with Rust).
 8. The database-dependent codes (`unique`, `referenceMissing`,
    `notEditable`, `unknownField`) are **never** produced here.
-9. If JavaScript cannot compile a pattern that Rust accepted (dialect
+9. The model rejects every construct known to differ between Rust `regex`
+   and JS `RegExp` (`u` flag): shorthand classes, nested classes, POSIX
+   classes, set operators, inline flags and look-around, `\A`/`\z`/`\Z`,
+   `\p`/`\P`, backreferences, and escapes outside
+   `\\ \^ \$ \. \* \+ \? \( \) \[ \] \{ \} \| \/ \-` and
+   `\t \n \r \f \v \xHH`. So in practice every pattern a `FieldRule`
+   carries compiles in JS.
+10. If JavaScript still cannot compile a pattern that Rust accepted (dialect
    difference), skip the pattern check for that field (the save result
    decides) and do not throw. Cache compiled patterns.
 
