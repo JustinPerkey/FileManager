@@ -1,7 +1,11 @@
 # M5 — The model: overlay the config on the schema
 
-Status: Review round 1 landed. The re-review found two narrow gaps. **Run
-"Review round 2" (end of this plan)** on this task plan. (Approved 2026-11-18; revised 2026-11-16: editable defaults, durations,
+Status: done (2026-11-18). Review rounds 1 and 2 applied; the reviewer
+approved. Open P3 for the planner: a single *valid* many-to-many entry whose
+declaration fails against the schema (non-FK `columns`, or a pair that is not
+a key) still leaves the table an ordinary editable table with only a warning;
+for consistency it could get the forced read-only listed-table rule used for a
+rejected declaration. (Approved 2026-11-18; revised 2026-11-16: editable defaults, durations,
 link fields; then the `pickable` table mode)
 Project: dbmanager   Depends on: M2 (landed), M3 (landed), M4 (landed)
 
