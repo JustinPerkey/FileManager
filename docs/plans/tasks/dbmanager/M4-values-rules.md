@@ -1,6 +1,7 @@
 # M4 — Values, field rules, durations, validation, and shared vectors
 
-Status: awaiting approval (revised 2026-11-16: duration kind)
+Status: done (2026-11-17); the reviewer approved. (Approved 2026-11-17;
+revised 2026-11-16: duration kind)
 Project: dbmanager   Depends on: M1 (landed), M3 (landed)
 
 ## Goal

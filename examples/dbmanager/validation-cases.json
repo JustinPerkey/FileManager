@@ -1,0 +1,3561 @@
+[
+ {
+  "name": "null nullable",
+  "rule": {
+   "kind": "integer",
+   "nullable": true,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "null"
+  },
+  "ok": {
+   "type": "null"
+  },
+  "issues": []
+ },
+ {
+  "name": "null required",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "null"
+  },
+  "ok": null,
+  "issues": [
+   "required"
+  ]
+ },
+ {
+  "name": "null required text",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "null"
+  },
+  "ok": null,
+  "issues": [
+   "required"
+  ]
+ },
+ {
+  "name": "blob rejects input",
+  "rule": {
+   "kind": "blob",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "x"
+  },
+  "ok": null,
+  "issues": [
+   "wrongType"
+  ]
+ },
+ {
+  "name": "any rejects input",
+  "rule": {
+   "kind": "any",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "x"
+  },
+  "ok": null,
+  "issues": [
+   "wrongType"
+  ]
+ },
+ {
+  "name": "blob null nullable",
+  "rule": {
+   "kind": "blob",
+   "nullable": true,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "null"
+  },
+  "ok": {
+   "type": "null"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer got text",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "1"
+  },
+  "ok": null,
+  "issues": [
+   "wrongType"
+  ]
+ },
+ {
+  "name": "text got integer",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "1"
+  },
+  "ok": null,
+  "issues": [
+   "wrongType"
+  ]
+ },
+ {
+  "name": "real got integer",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "1"
+  },
+  "ok": null,
+  "issues": [
+   "wrongType"
+  ]
+ },
+ {
+  "name": "duration got text",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "1s"
+  },
+  "ok": null,
+  "issues": [
+   "wrongType"
+  ]
+ },
+ {
+  "name": "bool got text",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "1"
+  },
+  "ok": null,
+  "issues": [
+   "wrongType"
+  ]
+ },
+ {
+  "name": "integer plain",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "42"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "42"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer plus",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "+7"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "7"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer leading zeros",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "007"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "7"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer minus zero",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "-0"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "0"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer negative",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "-15"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "-15"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer max i64",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "9223372036854775807"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "9223372036854775807"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer min i64",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "-9223372036854775808"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "-9223372036854775808"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer past i64",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "9223372036854775808"
+  },
+  "ok": null,
+  "issues": [
+   "notInteger"
+  ]
+ },
+ {
+  "name": "integer empty",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": ""
+  },
+  "ok": null,
+  "issues": [
+   "notInteger"
+  ]
+ },
+ {
+  "name": "integer sign only",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "+"
+  },
+  "ok": null,
+  "issues": [
+   "notInteger"
+  ]
+ },
+ {
+  "name": "integer decimal",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "1.5"
+  },
+  "ok": null,
+  "issues": [
+   "notInteger"
+  ]
+ },
+ {
+  "name": "integer spaces",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": " 1"
+  },
+  "ok": null,
+  "issues": [
+   "notInteger"
+  ]
+ },
+ {
+  "name": "integer trailing space",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "1 "
+  },
+  "ok": null,
+  "issues": [
+   "notInteger"
+  ]
+ },
+ {
+  "name": "integer letters",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "12a"
+  },
+  "ok": null,
+  "issues": [
+   "notInteger"
+  ]
+ },
+ {
+  "name": "integer double sign",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "+-1"
+  },
+  "ok": null,
+  "issues": [
+   "notInteger"
+  ]
+ },
+ {
+  "name": "integer hex",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "0x10"
+  },
+  "ok": null,
+  "issues": [
+   "notInteger"
+  ]
+ },
+ {
+  "name": "integer below min",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": "0",
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "-1"
+  },
+  "ok": null,
+  "issues": [
+   "belowMin"
+  ],
+  "limits": [
+   "0"
+  ]
+ },
+ {
+  "name": "integer at min",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": "0",
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "0"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "0"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer above max",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": "100",
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "101"
+  },
+  "ok": null,
+  "issues": [
+   "aboveMax"
+  ],
+  "limits": [
+   "100"
+  ]
+ },
+ {
+  "name": "integer at max",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": "100",
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "100"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "100"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer in range",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": "1",
+   "max": "10",
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "5"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "5"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer compared numerically",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": "9",
+   "max": "10",
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "011"
+  },
+  "ok": null,
+  "issues": [
+   "aboveMax"
+  ],
+  "limits": [
+   "10"
+  ]
+ },
+ {
+  "name": "integer allowed hit",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": [
+    {
+     "value": {
+      "type": "integer",
+      "value": "1"
+     },
+     "label": "One"
+    },
+    {
+     "value": {
+      "type": "integer",
+      "value": "2"
+     },
+     "label": "Two"
+    }
+   ],
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "+2"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "2"
+  },
+  "issues": []
+ },
+ {
+  "name": "integer allowed miss",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": [
+    {
+     "value": {
+      "type": "integer",
+      "value": "1"
+     },
+     "label": "One"
+    }
+   ],
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "3"
+  },
+  "ok": null,
+  "issues": [
+   "notAllowed"
+  ]
+ },
+ {
+  "name": "integer min and allowed",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": "5",
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": [
+    {
+     "value": {
+      "type": "integer",
+      "value": "1"
+     },
+     "label": "One"
+    }
+   ],
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "3"
+  },
+  "ok": null,
+  "issues": [
+   "belowMin",
+   "notAllowed"
+  ],
+  "limits": [
+   "5",
+   null
+  ]
+ },
+ {
+  "name": "integer min and max inverted",
+  "rule": {
+   "kind": "integer",
+   "nullable": false,
+   "unit": null,
+   "min": "5",
+   "max": "3",
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "4"
+  },
+  "ok": null,
+  "issues": [
+   "belowMin",
+   "aboveMax"
+  ],
+  "limits": [
+   "5",
+   "3"
+  ]
+ },
+ {
+  "name": "real plain",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "1.5"
+  },
+  "ok": {
+   "type": "real",
+   "value": "1.5"
+  },
+  "issues": []
+ },
+ {
+  "name": "real integer form",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "3"
+  },
+  "ok": {
+   "type": "real",
+   "value": "3"
+  },
+  "issues": []
+ },
+ {
+  "name": "real leading dot",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": ".5"
+  },
+  "ok": {
+   "type": "real",
+   "value": ".5"
+  },
+  "issues": []
+ },
+ {
+  "name": "real trailing dot",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "5."
+  },
+  "ok": {
+   "type": "real",
+   "value": "5."
+  },
+  "issues": []
+ },
+ {
+  "name": "real exponent",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "1e3"
+  },
+  "ok": {
+   "type": "real",
+   "value": "1e3"
+  },
+  "issues": []
+ },
+ {
+  "name": "real signed exponent",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "-2.5E-3"
+  },
+  "ok": {
+   "type": "real",
+   "value": "-2.5E-3"
+  },
+  "issues": []
+ },
+ {
+  "name": "real plus sign kept",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "+1.0"
+  },
+  "ok": {
+   "type": "real",
+   "value": "+1.0"
+  },
+  "issues": []
+ },
+ {
+  "name": "real overflow",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "1e400"
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real dot only",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "."
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real empty",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": ""
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real inf",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "inf"
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real nan",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "NaN"
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real bare exponent",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "e5"
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real dangling exponent",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "1e"
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real spaces",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": " 1.5"
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real comma",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "1,5"
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real two dots",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "1.2.3"
+  },
+  "ok": null,
+  "issues": [
+   "notReal"
+  ]
+ },
+ {
+  "name": "real below min",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": "0.5",
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "0.25"
+  },
+  "ok": null,
+  "issues": [
+   "belowMin"
+  ],
+  "limits": [
+   "0.5"
+  ]
+ },
+ {
+  "name": "real above max",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": "1e2",
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": "100.5"
+  },
+  "ok": null,
+  "issues": [
+   "aboveMax"
+  ],
+  "limits": [
+   "1e2"
+  ]
+ },
+ {
+  "name": "real in range",
+  "rule": {
+   "kind": "real",
+   "nullable": false,
+   "unit": null,
+   "min": "0",
+   "max": "1",
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "real",
+   "value": ".5"
+  },
+  "ok": {
+   "type": "real",
+   "value": ".5"
+  },
+  "issues": []
+ },
+ {
+  "name": "real null nullable",
+  "rule": {
+   "kind": "real",
+   "nullable": true,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "null"
+  },
+  "ok": {
+   "type": "null"
+  },
+  "issues": []
+ },
+ {
+  "name": "bool zero",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "0"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "0"
+  },
+  "issues": []
+ },
+ {
+  "name": "bool one",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "1"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "1"
+  },
+  "issues": []
+ },
+ {
+  "name": "bool two",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "2"
+  },
+  "ok": null,
+  "issues": [
+   "notBool"
+  ]
+ },
+ {
+  "name": "bool minus one",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "-1"
+  },
+  "ok": null,
+  "issues": [
+   "notBool"
+  ]
+ },
+ {
+  "name": "bool plus one",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "+1"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "1"
+  },
+  "issues": []
+ },
+ {
+  "name": "bool leading zeros",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "01"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "1"
+  },
+  "issues": []
+ },
+ {
+  "name": "bool minus zero",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "-0"
+  },
+  "ok": {
+   "type": "integer",
+   "value": "0"
+  },
+  "issues": []
+ },
+ {
+  "name": "bool not a number",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "integer",
+   "value": "yes"
+  },
+  "ok": null,
+  "issues": [
+   "notBool"
+  ]
+ },
+ {
+  "name": "bool null not nullable",
+  "rule": {
+   "kind": "bool",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "null"
+  },
+  "ok": null,
+  "issues": [
+   "required"
+  ]
+ },
+ {
+  "name": "bool null nullable",
+  "rule": {
+   "kind": "bool",
+   "nullable": true,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "null"
+  },
+  "ok": {
+   "type": "null"
+  },
+  "issues": []
+ },
+ {
+  "name": "text plain",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "abc"
+  },
+  "ok": {
+   "type": "text",
+   "value": "abc"
+  },
+  "issues": []
+ },
+ {
+  "name": "text empty ok",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": ""
+  },
+  "ok": {
+   "type": "text",
+   "value": ""
+  },
+  "issues": []
+ },
+ {
+  "name": "text not trimmed",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "  a "
+  },
+  "ok": {
+   "type": "text",
+   "value": "  a "
+  },
+  "issues": []
+ },
+ {
+  "name": "empty is null nullable",
+  "rule": {
+   "kind": "text",
+   "nullable": true,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": true
+  },
+  "input": {
+   "type": "text",
+   "value": ""
+  },
+  "ok": {
+   "type": "null"
+  },
+  "issues": []
+ },
+ {
+  "name": "empty is null not nullable",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": true
+  },
+  "input": {
+   "type": "text",
+   "value": ""
+  },
+  "ok": {
+   "type": "text",
+   "value": ""
+  },
+  "issues": []
+ },
+ {
+  "name": "empty not null when flag off",
+  "rule": {
+   "kind": "text",
+   "nullable": true,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": ""
+  },
+  "ok": {
+   "type": "text",
+   "value": ""
+  },
+  "issues": []
+ },
+ {
+  "name": "empty is null non-empty kept",
+  "rule": {
+   "kind": "text",
+   "nullable": true,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": true
+  },
+  "input": {
+   "type": "text",
+   "value": "a"
+  },
+  "ok": {
+   "type": "text",
+   "value": "a"
+  },
+  "issues": []
+ },
+ {
+  "name": "empty is null space kept",
+  "rule": {
+   "kind": "text",
+   "nullable": true,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": true
+  },
+  "input": {
+   "type": "text",
+   "value": " "
+  },
+  "ok": {
+   "type": "text",
+   "value": " "
+  },
+  "issues": []
+ },
+ {
+  "name": "empty is null still checks length",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": 1,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": true
+  },
+  "input": {
+   "type": "text",
+   "value": ""
+  },
+  "ok": null,
+  "issues": [
+   "tooShort"
+  ],
+  "limits": [
+   "1"
+  ]
+ },
+ {
+  "name": "too short",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": 3,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "ab"
+  },
+  "ok": null,
+  "issues": [
+   "tooShort"
+  ],
+  "limits": [
+   "3"
+  ]
+ },
+ {
+  "name": "exactly min length",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": 3,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "abc"
+  },
+  "ok": {
+   "type": "text",
+   "value": "abc"
+  },
+  "issues": []
+ },
+ {
+  "name": "too long",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": 3,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "abcd"
+  },
+  "ok": null,
+  "issues": [
+   "tooLong"
+  ],
+  "limits": [
+   "3"
+  ]
+ },
+ {
+  "name": "exactly max length",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": 3,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "abc"
+  },
+  "ok": {
+   "type": "text",
+   "value": "abc"
+  },
+  "issues": []
+ },
+ {
+  "name": "length counts e acute once",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": 1,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "é"
+  },
+  "ok": {
+   "type": "text",
+   "value": "é"
+  },
+  "issues": []
+ },
+ {
+  "name": "length counts emoji once",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": 1,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "😀"
+  },
+  "ok": {
+   "type": "text",
+   "value": "😀"
+  },
+  "issues": []
+ },
+ {
+  "name": "length counts combining as two",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": 1,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "é"
+  },
+  "ok": null,
+  "issues": [
+   "tooLong"
+  ],
+  "limits": [
+   "1"
+  ]
+ },
+ {
+  "name": "combining sequence two chars ok",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": 2,
+   "maxLength": 2,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "é"
+  },
+  "ok": {
+   "type": "text",
+   "value": "é"
+  },
+  "issues": []
+ },
+ {
+  "name": "emoji too short",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": 2,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "😀"
+  },
+  "ok": null,
+  "issues": [
+   "tooShort"
+  ],
+  "limits": [
+   "2"
+  ]
+ },
+ {
+  "name": "pattern full match",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": "[a-c]+",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "abc"
+  },
+  "ok": {
+   "type": "text",
+   "value": "abc"
+  },
+  "issues": []
+ },
+ {
+  "name": "pattern anchored: prefix only",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": "a",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "ab"
+  },
+  "ok": null,
+  "issues": [
+   "patternMismatch"
+  ],
+  "limits": [
+   "a"
+  ]
+ },
+ {
+  "name": "pattern anchored: suffix only",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": "b",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "ab"
+  },
+  "ok": null,
+  "issues": [
+   "patternMismatch"
+  ],
+  "limits": [
+   "b"
+  ]
+ },
+ {
+  "name": "pattern alternation anchored",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": "a|b",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "ab"
+  },
+  "ok": null,
+  "issues": [
+   "patternMismatch"
+  ],
+  "limits": [
+   "a|b"
+  ]
+ },
+ {
+  "name": "pattern alternation hit",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": "a|b",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "b"
+  },
+  "ok": {
+   "type": "text",
+   "value": "b"
+  },
+  "issues": []
+ },
+ {
+  "name": "pattern digits",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": "[0-9]{3}-[0-9]{4}",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "555-1234"
+  },
+  "ok": {
+   "type": "text",
+   "value": "555-1234"
+  },
+  "issues": []
+ },
+ {
+  "name": "pattern digits miss",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": "[0-9]{3}-[0-9]{4}",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "5551234"
+  },
+  "ok": null,
+  "issues": [
+   "patternMismatch"
+  ],
+  "limits": [
+   "[0-9]{3}-[0-9]{4}"
+  ]
+ },
+ {
+  "name": "text allowed hit",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": [
+    {
+     "value": {
+      "type": "text",
+      "value": "red"
+     },
+     "label": "Red"
+    },
+    {
+     "value": {
+      "type": "text",
+      "value": "blue"
+     },
+     "label": "Blue"
+    }
+   ],
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "blue"
+  },
+  "ok": {
+   "type": "text",
+   "value": "blue"
+  },
+  "issues": []
+ },
+ {
+  "name": "text allowed miss",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": [
+    {
+     "value": {
+      "type": "text",
+      "value": "red"
+     },
+     "label": "Red"
+    }
+   ],
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "Red"
+  },
+  "ok": null,
+  "issues": [
+   "notAllowed"
+  ]
+ },
+ {
+  "name": "text issue order",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": 5,
+   "maxLength": null,
+   "pattern": "[0-9]+",
+   "allowed": [
+    {
+     "value": {
+      "type": "text",
+      "value": "12345"
+     },
+     "label": "x"
+    }
+   ],
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "ab"
+  },
+  "ok": null,
+  "issues": [
+   "tooShort",
+   "patternMismatch",
+   "notAllowed"
+  ],
+  "limits": [
+   "5",
+   "[0-9]+",
+   null
+  ]
+ },
+ {
+  "name": "text too long and mismatch",
+  "rule": {
+   "kind": "text",
+   "nullable": false,
+   "unit": null,
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": 2,
+   "pattern": "[0-9]+",
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "text",
+   "value": "abc"
+  },
+  "ok": null,
+  "issues": [
+   "tooLong",
+   "patternMismatch"
+  ],
+  "limits": [
+   "2",
+   "[0-9]+"
+  ]
+ },
+ {
+  "name": "duration bare integer seconds",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "90"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "1m30s"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration bare integer ms",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "milliseconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1500"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "1s500ms"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration bare integer minutes",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "minutes",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "90"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "1h30m"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration bare integer hours",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "hours",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "48"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "2d"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration bare integer days",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "days",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "3"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "3d"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration 1h30m seconds",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1h30m"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "1h30m"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration 1h 30m seconds",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1h 30m"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "1h30m"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration days from hours",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "hours",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "2d"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "2d"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration 24h is a day",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "hours",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "24h"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "1d"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration ms unit ms",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "milliseconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1s 5ms"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "1s5ms"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration zero seconds",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "0"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "0s"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration zero minutes",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "minutes",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "0s"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "0m"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration zero days",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "days",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "0d"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "0d"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration zero ms",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "milliseconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "0"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "0ms"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration minus zero",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "-0"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "0s"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration negative bare",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "-90"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "-1m30s"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration negative components",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "-1h30m"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "-1h30m"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration minutes unit canonical",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "minutes",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "120m"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "2h"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration 2000ms in seconds",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "2000ms"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "2s"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration 1500ms in seconds",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1500ms"
+  },
+  "ok": null,
+  "issues": [
+   "durationPrecision"
+  ],
+  "limits": [
+   "seconds"
+  ]
+ },
+ {
+  "name": "duration 90s in minutes",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "minutes",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "90s"
+  },
+  "ok": null,
+  "issues": [
+   "durationPrecision"
+  ],
+  "limits": [
+   "minutes"
+  ]
+ },
+ {
+  "name": "duration 1h in days",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "days",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1h"
+  },
+  "ok": null,
+  "issues": [
+   "durationPrecision"
+  ],
+  "limits": [
+   "days"
+  ]
+ },
+ {
+  "name": "duration 1s in ms",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "milliseconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1s"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "1s"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration out of order",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "30m1h"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration repeated suffix",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1h1h"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration double space",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1h  30m"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration leading space",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": " 1h"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration trailing space",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1h "
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration uppercase suffix",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1H"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration decimal",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "hours",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1.5h"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration empty",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": ""
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration sign only",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "-"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration missing suffix after component",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1h30"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration space before suffix",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1 h"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration unknown suffix",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "5w"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration double sign",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "--1s"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration plus sign",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "+1s"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration overflow bare",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "9223372036854775808"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration overflow days in ms",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "milliseconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "200000000000d"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration huge",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "99999999999999999999999999999999999999999d"
+  },
+  "ok": null,
+  "issues": [
+   "notDuration"
+  ]
+ },
+ {
+  "name": "duration max count",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "9223372036854775807"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "106751991167300d15h30m7s"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration below min",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "minutes",
+   "min": "30m",
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "10m"
+  },
+  "ok": null,
+  "issues": [
+   "belowMin"
+  ],
+  "limits": [
+   "30m"
+  ]
+ },
+ {
+  "name": "duration at min",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "minutes",
+   "min": "30m",
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "30m"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "30m"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration above max",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": "1h",
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "1h1s"
+  },
+  "ok": null,
+  "issues": [
+   "aboveMax"
+  ],
+  "limits": [
+   "1h"
+  ]
+ },
+ {
+  "name": "duration at max",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": "1h",
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "60m"
+  },
+  "ok": {
+   "type": "duration",
+   "value": "1h"
+  },
+  "issues": []
+ },
+ {
+  "name": "duration negative below min",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": "-1m",
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "-61s"
+  },
+  "ok": null,
+  "issues": [
+   "belowMin"
+  ],
+  "limits": [
+   "-1m"
+  ]
+ },
+ {
+  "name": "duration bound as bare count",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": "0s",
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "duration",
+   "value": "-1"
+  },
+  "ok": null,
+  "issues": [
+   "belowMin"
+  ],
+  "limits": [
+   "0s"
+  ]
+ },
+ {
+  "name": "duration null not nullable",
+  "rule": {
+   "kind": "duration",
+   "nullable": false,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "null"
+  },
+  "ok": null,
+  "issues": [
+   "required"
+  ]
+ },
+ {
+  "name": "duration null nullable",
+  "rule": {
+   "kind": "duration",
+   "nullable": true,
+   "unit": "seconds",
+   "min": null,
+   "max": null,
+   "minLength": null,
+   "maxLength": null,
+   "pattern": null,
+   "allowed": null,
+   "emptyIsNull": false
+  },
+  "input": {
+   "type": "null"
+  },
+  "ok": {
+   "type": "null"
+  },
+  "issues": []
+ }
+]

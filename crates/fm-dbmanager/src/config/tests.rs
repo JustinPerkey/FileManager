@@ -519,7 +519,7 @@ fn duration_bound_grammar() {
 
 #[test]
 fn duration_parser_values() {
-    use super::duration::{parse, Parsed};
+    use crate::rules::duration::{grammar as parse, Parsed};
     assert_eq!(parse("1h30m"), Ok(Parsed::Millis(5_400_000)));
     assert_eq!(parse("-2d"), Ok(Parsed::Millis(-172_800_000)));
     assert_eq!(parse("250ms"), Ok(Parsed::Millis(250)));

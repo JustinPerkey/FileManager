@@ -3,7 +3,6 @@
 //! This module parses and checks what the config text alone can show; the
 //! reference is `docs/dbmanager-config.md`.
 
-mod duration;
 mod model;
 mod raw;
 mod validate;

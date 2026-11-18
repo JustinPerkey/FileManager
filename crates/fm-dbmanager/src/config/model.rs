@@ -1,7 +1,7 @@
 //! The parsed Database Manager config. Everything here is checked from the
 //! config text alone; matching names against the database is a later step.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// 1-based line and column (in characters) of a key in the config text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -67,7 +67,7 @@ pub enum RelationMode {
     Hidden,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum DurationUnit {
     Milliseconds,
