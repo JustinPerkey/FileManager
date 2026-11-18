@@ -123,8 +123,11 @@ fn valid_entry(e: &M2mEntry) -> Option<&M2mConfig> {
 }
 
 /// Several entries for one junction. Each one after the first gets a
-/// warning. The relation is hidden if any entry asks for it, and read-only
-/// otherwise (a rejected entry).
+/// warning. The relation is hidden if any entry asks for it. Otherwise it
+/// stays a relation (so a declared junction is not turned into an editable
+/// table) but read-only, taken from the first valid entry that declares
+/// `columns`, or else the first valid entry; with no valid entry the merge is
+/// a rejected entry.
 fn merge_entries(table: &str, group: &[&M2mEntry], diags: &mut Vec<ConfigDiagnostic>) -> M2mEntry {
     for e in &group[1..] {
         diags.push(diag(
@@ -143,29 +146,29 @@ fn merge_entries(table: &str, group: &[&M2mEntry], diags: &mut Vec<ConfigDiagnos
             .as_ref()
             .is_some_and(|l| l.value == RelationMode::Hidden)
     });
-    if !hidden {
-        return M2mEntry::Rejected {
-            name: name.to_owned(),
-            at,
-        };
-    }
     // Keep a declaration of the columns, if there is one, so the relation is
-    // still found and can be hidden.
+    // still found.
     let base = group
         .iter()
         .filter_map(|e| valid_entry(e))
         .find(|m| m.columns.is_some())
         .or_else(|| group.iter().find_map(|e| valid_entry(e)));
-    let mut config = base.cloned().unwrap_or(M2mConfig {
-        name: name.to_owned(),
-        at,
-        enabled: None,
-        mode: None,
-        columns: None,
-        headings: Vec::new(),
-    });
+    let Some(base) = base else {
+        return M2mEntry::Rejected {
+            name: name.to_owned(),
+            at,
+        };
+    };
+    let mut config = base.clone();
+    // Disabling one of the entries must not turn the junction into an
+    // ordinary, editable table.
+    config.enabled = None;
     config.mode = Some(Located {
-        value: RelationMode::Hidden,
+        value: if hidden {
+            RelationMode::Hidden
+        } else {
+            RelationMode::ReadOnly
+        },
         at: config.at,
     });
     M2mEntry::Valid(config)
@@ -176,7 +179,7 @@ pub(super) fn detect<'a>(
     schema: &Schema,
     config: &'a Config,
     diags: &mut Vec<ConfigDiagnostic>,
-) -> Vec<Option<Junction<'a>>> {
+) -> (Vec<Option<Junction<'a>>>, Vec<bool>) {
     let mut groups: Vec<Vec<&M2mEntry>> = vec![Vec::new(); schema.tables.len()];
     for e in &config.many_to_many {
         let (name, at) = entry_name(e);
@@ -198,36 +201,41 @@ pub(super) fn detect<'a>(
             ))),
         })
         .collect();
-    schema
-        .tables
-        .iter()
-        .zip(entries)
-        .map(|(t, entry)| {
-            let sides = match entry.as_deref() {
-                Some(M2mEntry::Valid(m)) if m.enabled.as_ref().is_some_and(|e| !e.value) => None,
-                Some(M2mEntry::Valid(m)) => match declared(t, m) {
-                    Ok(s) => Some(s),
-                    Err(why) => {
-                        diags.push(diag(
-                            DiagnosticSeverity::Warning,
-                            format!("many-to-many `{}` is not used: {why}", t.name),
-                            Some(m.at),
-                            Some(t.name.as_str()),
-                            None,
-                        ));
-                        None
-                    }
-                },
-                _ => detected(t),
-            };
-            sides.map(|(a, b)| Junction {
-                extra: extras(t, a.column, b.column),
-                a,
-                b,
-                entry,
-            })
-        })
-        .collect()
+    // A rejected entry that was needed to declare the junction leaves an
+    // ordinary table, which is forced read-only (`forced`).
+    let mut forced = vec![false; schema.tables.len()];
+    let mut out = Vec::with_capacity(schema.tables.len());
+    for (i, (t, entry)) in schema.tables.iter().zip(entries).enumerate() {
+        let sides = match entry.as_deref() {
+            Some(M2mEntry::Valid(m)) if m.enabled.as_ref().is_some_and(|e| !e.value) => None,
+            Some(M2mEntry::Valid(m)) => match declared(t, m) {
+                Ok(s) => Some(s),
+                Err(why) => {
+                    diags.push(diag(
+                        DiagnosticSeverity::Warning,
+                        format!("many-to-many `{}` is not used: {why}", t.name),
+                        Some(m.at),
+                        Some(t.name.as_str()),
+                        None,
+                    ));
+                    None
+                }
+            },
+            Some(M2mEntry::Rejected { .. }) => {
+                let s = detected(t);
+                forced[i] = s.is_none();
+                s
+            }
+            None => detected(t),
+        };
+        out.push(sides.map(|(a, b)| Junction {
+            extra: extras(t, a.column, b.column),
+            a,
+            b,
+            entry,
+        }));
+    }
+    (out, forced)
 }
 
 /// A relation with its mode, headings and link fields resolved.

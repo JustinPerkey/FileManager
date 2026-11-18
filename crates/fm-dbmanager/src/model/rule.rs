@@ -23,7 +23,7 @@ fn differs(what: &str) -> String {
 /// Checks one escape, `\` already consumed and `rest` starting after it.
 /// Returns how many characters the escape takes after the backslash, or the
 /// problem.
-fn escape(rest: &[char]) -> Result<usize, String> {
+fn escape(rest: &[char], in_class: bool) -> Result<usize, String> {
     let Some(&c) = rest.first() else {
         // A trailing backslash does not compile; the compile check says so.
         return Ok(0);
@@ -35,6 +35,9 @@ fn escape(rest: &[char]) -> Result<usize, String> {
         'A' | 'z' | 'Z' => Err(differs(&format!("the anchor `\\{c}`"))),
         'p' | 'P' => Err(differs(&format!("the property class `\\{c}`"))),
         '1'..='9' => Err(differs(&format!("the backreference `\\{c}`"))),
+        '-' if !in_class => Err(differs(
+            "`\\-` outside a character class (JavaScript rejects it); write `-`",
+        )),
         '\\' | '^' | '$' | '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|'
         | '/' | '-' | 't' | 'n' | 'r' | 'f' | 'v' => Ok(1),
         'x' => {
@@ -45,6 +48,44 @@ fn escape(rest: &[char]) -> Result<usize, String> {
             }
         }
         other => Err(differs(&format!("the escape `\\{other}`"))),
+    }
+}
+
+/// After a `{`: the length of `n}`, `n,}` or `n,m}` (ASCII digits, `n <= m`),
+/// or `None` when it is not a valid quantifier.
+fn quantifier_len(rest: &[char]) -> Option<usize> {
+    let digits = |from: usize| {
+        rest[from..]
+            .iter()
+            .take_while(|c| c.is_ascii_digit())
+            .count()
+    };
+    let number = |from: usize, len: usize| -> Option<u64> {
+        rest[from..from + len]
+            .iter()
+            .collect::<String>()
+            .parse()
+            .ok()
+    };
+    let n_len = digits(0);
+    if n_len == 0 {
+        return None;
+    }
+    let n = number(0, n_len)?;
+    match rest.get(n_len) {
+        Some('}') => Some(n_len + 1),
+        Some(',') => {
+            let m_len = digits(n_len + 1);
+            let end = n_len + 1 + m_len;
+            if rest.get(end) != Some(&'}') {
+                return None;
+            }
+            if m_len > 0 && number(n_len + 1, m_len)? < n {
+                return None;
+            }
+            Some(end + 1)
+        }
+        _ => None,
     }
 }
 
@@ -70,7 +111,7 @@ pub(super) fn scan_pattern(pattern: &str) -> PatternScan {
         class_start = false;
         i += 1;
         match c {
-            '\\' => match escape(&chars[i..]) {
+            '\\' => match escape(&chars[i..], in_class) {
                 Ok(n) => i += n,
                 Err(p) => {
                     note(&mut scan, p);
@@ -92,7 +133,28 @@ pub(super) fn scan_pattern(pattern: &str) -> PatternScan {
                     i += 1;
                 }
             }
-            ']' if in_class && !was_start => in_class = false,
+            ']' if in_class && was_start => note(
+                &mut scan,
+                differs("a `]` straight after `[` or `[^` (JavaScript rejects it); write `\\]`"),
+            ),
+            ']' if in_class => in_class = false,
+            ']' => note(
+                &mut scan,
+                differs("an unescaped `]` outside a character class; write `\\]`"),
+            ),
+            '}' if !in_class => note(
+                &mut scan,
+                differs("an unescaped `}` outside a character class; write `\\}`"),
+            ),
+            '{' if !in_class => match quantifier_len(&chars[i..]) {
+                Some(n) => i += n,
+                None => note(
+                    &mut scan,
+                    differs(
+                        "a `{` that does not start a `{n}`, `{n,}` or `{n,m}` quantifier; write `\\{`",
+                    ),
+                ),
+            },
             '&' | '-' | '~' if in_class && chars.get(i) == Some(&c) => {
                 note(
                     &mut scan,

@@ -340,18 +340,24 @@ pub fn resolve(schema: &Schema, report: &ConfigReport) -> Model {
     let entries: Vec<Option<&TableEntry>> = (0..n)
         .map(|i| merged[i].as_ref().or_else(|| groups[i].first().copied()))
         .collect();
-    let junctions: Vec<Option<Junction<'_>>> = detect(schema, config, &mut diags);
+    let (junctions, forced_read_only) = detect(schema, config, &mut diags);
 
     // Modes and names.
     let infos: Vec<TableInfo> = (0..n)
         .map(|i| {
-            table_info(
+            let mut info = table_info(
                 entries[i],
                 junctions[i].is_some(),
                 config.defaults.table_mode,
                 &mut diags,
                 schema.tables[i].name.as_str(),
-            )
+            );
+            // A rejected junction entry: an ordinary table, read-only.
+            if forced_read_only[i] && info.mode == TableMode::Editable {
+                info.mode = TableMode::ReadOnly;
+                info.read_only_fields = true;
+            }
+            info
         })
         .collect();
     let hidden_tables: Vec<bool> = infos.iter().map(|i| i.mode == TableMode::Hidden).collect();

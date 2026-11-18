@@ -342,10 +342,9 @@ pattern is dropped and the field is read-only). The allowed subset is exactly:
 
 - literal characters, groups `( )` and non-capturing groups `(?: )`,
   alternation `|`, and the quantifiers `* + ? {n} {n,} {n,m}`;
-- character classes `[...]` and `[^...]`, with ranges. A `]` straight after
-  `[` or `[^` is a literal member;
-- escapes: `\\ \^ \$ \. \* \+ \? \( \) \[ \] \{ \} \| \/ \-`, `\t \n \r \f \v`
-  and `\xHH` (two hex digits).
+- character classes `[...]` and `[^...]`, with ranges;
+- escapes: `\\ \^ \$ \. \* \+ \? \( \) \[ \] \{ \} \| \/`, `\t \n \r \f \v`
+  and `\xHH` (two hex digits). `\-` is allowed only inside a class.
 
 Rejected, and why:
 
@@ -360,6 +359,11 @@ Rejected, and why:
   anything other than `:`, so `(?i)`, `(?=`, `(?!`, `(?<`), `\A \z \Z`, `\p` and
   `\P` in any form, back-references `\1` to `\9`, and any other escape (`\@` is
   a SyntaxError in JavaScript's `u` mode).
+- Punctuation that Rust takes literally and JavaScript's `u` mode rejects: a
+  `]` straight after `[` or `[^` (write `\]`), an unescaped `]` or `}` outside
+  a class (write `\]`, `\}`), a `{` that does not start a valid `{n}`,
+  `{n,}` or `{n,m}` quantifier with ASCII digits and `n <= m` (write `\{`), and
+  `\-` outside a class (write `-`).
 
 An unescaped `.` outside a class is a **warning**: JavaScript's `.` also
 excludes `\r`, U+2028 and U+2029, Rust's does not. Write `[^\n]` for "any
@@ -553,8 +557,20 @@ explicitly, and a warning when it was inherited.
 Self-referential junctions (both foreign keys to the same table) are not
 many-to-many in v1. Declaring one is a warning.
 
-Checked from the config alone: an error rejects the entry, and the relation
-stays as detected, read-only. The errors are:
+A junction configured more than once (names match without case): each entry
+after the first is a warning. If any entry says `hidden`, the relation is
+hidden (and `enabled = false` is ignored). Otherwise the relation is kept,
+read-only, from the first valid entry that declares `columns`, or else the
+first valid entry, so a declared junction is not turned into an editable
+table.
+
+Checked from the config alone: an error rejects the entry, and its relation
+is read-only. If the table is detected without the entry (no extra columns),
+it stays many-to-many, read-only. If the entry was needed to declare it, the
+relation cannot be used safely (its `columns` may be the broken key), so the
+table is an ordinary **listed table forced read-only**: all its fields are
+read-only, with no create or delete. It is not hidden, because the entry did
+not validly ask for that. The errors are:
 
 - `columns` that is not exactly two distinct strings;
 - a `headings` value that is not a non-empty string;
@@ -577,6 +593,7 @@ for hidden). The database always opens and can be browsed.
 | names a view, virtual, shadow or internal table | warning | entry ignored |
 | bound, `type` or `unit` not valid for the field's kind or affinity, or set on a foreign-key field | error | field read-only |
 | duration bound not a whole number of the unit | error | field read-only |
+| `pattern` has a `]` straight after `[`/`[^`, an unescaped `]` or `}` outside a class, a `{` that is not a valid quantifier, or `\-` outside a class | error | pattern dropped; field read-only |
 | `pattern` uses a shorthand class (`\d \D \w \W \s \S \b \B`), a construct outside the common subset (nested class, POSIX class, `&&`/`--`/`~~` in a class, inline flag or look-around, `\A \z \Z`, `\p \P`, back-reference, other escape), or does not compile | error | pattern dropped; field read-only |
 | `pattern` has an unescaped `.` outside a class | warning | pattern still applies |
 | `nullable = true` on a `NOT NULL` column | error | field read-only |

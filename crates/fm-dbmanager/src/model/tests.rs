@@ -1827,6 +1827,72 @@ fn duplicate_m2m_entries_fail_closed() {
         assert_eq!(r.other_table, other);
         assert_eq!(r.mode, RelationMode::ReadOnly);
     }
+    // A declared junction stays a read-only relation, not an editable table.
+    let m = example(
+        "version = 1\n[many_to_many.contribution]\nmode = \"editable\"\n[many_to_many.CONTRIBUTION]\ncolumns = [\"book_id\", \"author_id\"]\n",
+    );
+    let w = find(&m, Warning, "contribution", None, "more than once");
+    assert_eq!(w.line, Some(4));
+    let v = views(&m);
+    assert!(v.iter().all(|t| t.name != "contribution"));
+    for t in ["book", "author"] {
+        let r = tv(&v, t)
+            .many_to_many
+            .iter()
+            .find(|r| r.relation == "m2m:contribution")
+            .unwrap();
+        assert_eq!(r.mode, RelationMode::ReadOnly, "{t}");
+        assert!(r.link_fields.iter().all(|f| f.mode == ReadOnly), "{t}");
+    }
+    // One entry disabling the relation does not make it an editable table.
+    for cfg in [
+        "version = 1\n[many_to_many.contribution]\nenabled = false\n[many_to_many.CONTRIBUTION]\ncolumns = [\"book_id\", \"author_id\"]\n",
+        "version = 1\n[many_to_many.contribution]\nenabled = false\n[many_to_many.CONTRIBUTION]\ncolumns = [\"book_id\", \"author_id\"]\nmode = \"hidden\"\n",
+    ] {
+        let m = example(cfg);
+        let v = views(&m);
+        assert!(v.iter().all(|t| t.name != "contribution"), "{cfg}");
+    }
+    // Hidden merge: the relation is used, and hidden.
+    let m = example(
+        "version = 1\n[many_to_many.contribution]\nenabled = false\n[many_to_many.CONTRIBUTION]\ncolumns = [\"book_id\", \"author_id\"]\nmode = \"hidden\"\n",
+    );
+    let v = views(&m);
+    assert!(tv(&v, "book")
+        .many_to_many
+        .iter()
+        .all(|r| r.relation != "m2m:contribution"));
+}
+
+#[test]
+fn rejected_declared_junction_is_read_only_table() {
+    // `contribution` has extra columns, so only a valid entry declares it.
+    let m = example("version = 1\n[many_to_many.contribution]\nbogus = 1\n");
+    assert!(diags(&m, Error).iter().any(|d| d.message.contains("bogus")));
+    let v = views(&m);
+    let c = tv(&v, "contribution");
+    assert_eq!(c.mode, TableMode::ReadOnly);
+    assert!(!c.can_create && !c.can_delete);
+    assert!(c.fields.iter().all(|f| f.mode == ReadOnly));
+    for t in ["book", "author"] {
+        assert!(tv(&v, t)
+            .many_to_many
+            .iter()
+            .all(|r| r.relation != "m2m:contribution"));
+    }
+}
+
+#[test]
+fn rejected_detected_junction_stays_read_only_relation() {
+    let m = example("version = 1\n[many_to_many.book_genre]\nbogus = 1\n");
+    assert!(diags(&m, Error).iter().any(|d| d.message.contains("bogus")));
+    let v = views(&m);
+    assert!(v.iter().all(|t| t.name != "book_genre"));
+    for t in ["book", "genre"] {
+        let r = &tv(&v, t).many_to_many[0];
+        assert_eq!(r.relation, "m2m:book_genre");
+        assert_eq!(r.mode, RelationMode::ReadOnly);
+    }
 }
 
 /// Every link names a table that has a view.
@@ -1915,24 +1981,22 @@ fn fk_into_unlisted_junction_is_plain() {
 }
 
 #[test]
-fn pattern_scanner_leading_bracket_literal() {
-    for p in ["[]a.]", "[^]a.]", "[]]x", "[^]]x"] {
+fn pattern_scanner_leading_bracket_rejected() {
+    for p in ["[]a]", "[^]a]", "[]]x", "[^]]x"] {
         let m = pattern_model(p);
-        assert_eq!(m.diagnostics(), &[], "{p}");
+        let e = diags(&m, Error);
+        assert_eq!(e.len(), 1, "{p}: {:#?}", m.diagnostics());
+        assert!(e[0].message.contains("\\]"), "{p}: {}", e[0].message);
+        assert_eq!(e[0].line, Some(3), "{p}");
         let f = m.table("t").unwrap().field(1).unwrap().clone();
-        assert_eq!(f.rule.pattern.as_deref(), Some(p), "{p}");
-        assert_eq!(f.mode, Editable, "{p}");
+        assert_eq!((f.rule.pattern, f.mode), (None, ReadOnly), "{p}");
     }
-    // After the literal `]`, the next `]` ends the class, so a later dot is
-    // outside it.
-    let m = pattern_model("[]a]x.");
-    find(&m, Warning, "t", Some("s"), "[^\\n]");
 }
 
 #[test]
 fn pattern_scanner_rejects_dialect_differences() {
     use super::rule::scan_pattern;
-    let cases: [(&str, &str); 24] = [
+    let cases: [(&str, &str); 32] = [
         (r"[a[bc]]", "nested class"),
         (r"[[:alpha:]]", "POSIX"),
         (r"[a&&b]", "`&&`"),
@@ -1957,6 +2021,14 @@ fn pattern_scanner_rejects_dialect_differences() {
         (r"\x4", "two hex digits"),
         (r"\xZZ", "two hex digits"),
         (r"[\d]", "explicit class"),
+        (r"[]a]", r"`\]`"),
+        (r"[^]a]", r"`\]`"),
+        (r"a\-b", r"`\-`"),
+        (r"a]", r"`\]`"),
+        (r"a}", r"`\}`"),
+        (r"a{", r"`\{`"),
+        (r"a{,3}", r"`\{`"),
+        (r"a{3,2}", r"`\{`"),
     ];
     for (p, text) in cases {
         let problem = scan_pattern(p).problem;
@@ -1997,7 +2069,12 @@ fn pattern_scanner_allows_common_subset() {
         r"[^\]]",
         r"a{2,3}",
         r"\t\n\r\f\v",
-        r"\(\)\[\]\{\}\|\/\-\^\$\*\+\?",
+        r"\(\)\[\]\{\}\|\/\^\$\*\+\?",
+        r"[a\-b]",
+        r"\/",
+        r"[\]]",
+        r"a{2}",
+        r"a{2,}",
         r"a|b",
         r"[^@ \t\r\n]+@[^@ \t\r\n]+",
     ] {
