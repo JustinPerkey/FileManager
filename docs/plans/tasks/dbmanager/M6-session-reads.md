@@ -1,6 +1,6 @@
 # M6 — Session and reads: lists, objects, relations, checklists
 
-Status: awaiting approval (revised 2026-11-16: editable defaults, durations,
+Status: approved (2026-11-19; revised 2026-11-16: editable defaults, durations,
 link values; then the human's final answers: one fixed config file loaded
 separately and swappable for automatic reload, `pickable` tables)
 Project: dbmanager   Depends on: M5 (landed)
