@@ -115,3 +115,41 @@ None if option A is chosen. Whatever is decided, M6–M9 (domain logic in
 `fm-dbmanager`) are UI-independent and continue. Under a future migration,
 M10's Tauri commands, M11's TypeScript mirror and M14's Tauri capability would
 be replaced, and the U tasks re-planned.
+
+## Addendum (2026-11-19): upstream Zed GPUI with gpui-kit
+
+Asked whether regular (upstream) GPUI would be better. Sources: Zed's GPUI
+README, crates.io API for `gpui` and `gpui-component`, longbridge/gpui-kit
+README and Cargo.toml, zed.dev Windows pages, fetched 2026-11-19.
+
+Better than GPUI CE on:
+- **Windows maturity:** Zed itself has shipped stable on Windows since
+  2025-10-15 (DirectX 11, DirectWrite), so the Windows backend carries a
+  production editor. Nothing comparable exists for GPUI CE.
+- **Components:** gpui-kit (Apache-2.0, ~21k stars, roughly weekly releases,
+  latest `gpui-component` 0.10.0 on 2026-11-16) advertises 60–75+ components
+  including virtual-scrolling data tables, virtual lists and forms, and powers
+  a shipped commercial app (Longbridge Pro). This covers most of risk 3 above,
+  pending a check of checkbox (incl. indeterminate), dialogs and menus.
+
+Not better on, or still unknown:
+- **Churn:** GPUI is pre-1.0 with "often breaking changes" and no promise to
+  external users. The crates.io `gpui` release is a year old (0.2.2,
+  2025-10-22); gpui-kit instead pins `gpui-pre` snapshots at an exact version
+  (`=0.3.12`) because "any snapshot may change GPUI's API". Each gpui-kit
+  upgrade is therefore a GPUI upgrade, weekly, from a single crates.io
+  publisher.
+- **Accessibility:** upstream GPUI and Zed publish no screen-reader
+  documentation (their accessibility pages return 404), and crates.io `gpui`
+  has no AccessKit feature. gpui-kit claims AccessKit roles, names, states and
+  actions "covered by tests", but Windows UI Automation support is not stated.
+  Risk 2 is unchanged and remains the deciding unknown.
+- **Platform features:** native file dialogs, Explorer drag-and-drop and
+  window-close interception were not verified for either.
+- **Cost:** the rewrite described above is the same size.
+
+Conclusion: if a native Rust UI is pursued, upstream GPUI + gpui-kit (option D)
+is the candidate to spike, not GPUI CE. The recommendation stays **not now**:
+the spike's accessibility checks (Narrator and NVDA on Windows, keyboard,
+high contrast, text scaling) are the gate, followed by the portable-exe and
+Explorer-drop checks.
