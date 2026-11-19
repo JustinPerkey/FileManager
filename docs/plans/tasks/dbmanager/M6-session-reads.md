@@ -1,6 +1,7 @@
 # M6 — Session and reads: lists, objects, relations, checklists
 
-Status: approved (2026-11-19; revised 2026-11-16: editable defaults, durations,
+Status: implemented; the reviewer requested changes. **Run "Review round 1"
+(end of this plan).** (Approved 2026-11-19; revised 2026-11-16: editable defaults, durations,
 link values; then the human's final answers: one fixed config file loaded
 separately and swappable for automatic reload, `pickable` tables)
 Project: dbmanager   Depends on: M5 (landed)
@@ -170,7 +171,8 @@ it.
 "Labels"): NULL → empty, integer/real → decimal text, bool → `true`/`false`,
 duration → canonical text;
 empty result or no template → `"<display name> #<key>"` with the rowid or
-the PK values joined by `, `.
+the PK values joined by `, `. **Exception:** if any identity column is hidden, the fallback is
+the display name alone, so the hidden value never shows (Review round 1, R1).
 
 ### Queries
 
@@ -299,7 +301,7 @@ stated:
 
 - `list("author", …)` returns labels `"Last, First"` ordered by last then
   first name; paging with limit 2 walks every author once; `total` is right;
-  search `"ar"` matches case-insensitively; a search containing `%` or `_`
+  search `"AS"` and `"as"` both match Castellan and Tomas (case-insensitive); a search containing `%` or `_`
   matches them literally.
 - `list("book", referencing: fk from book to author, key of an author)`
   returns exactly that author's books.
@@ -387,5 +389,106 @@ fmt and clippy per `CLAUDE.md`.
 
 - `LIKE` is case-insensitive only for ASCII; documented in the config doc.
 - Large tables: `COUNT(*)` and `OFFSET` are linear; acceptable for v1.
-- Text that is not valid UTF-8 in the database is shown lossily; editing such
-  a field replaces it (the version check still protects concurrent edits).
+- Text that is not valid UTF-8 in the database is shown lossily. Editing such
+  a field replaces it, and the version check still protects concurrent
+  edits. **Lookups are lossy too:** a key or FK value stored as non-UTF-8
+  text crosses as lossy text and is bound back as that text, so it no longer
+  matches. The object then cannot be opened (`UnknownObject`), and links to it
+  show as dangling. This is accepted for v1 (see Review round 1, R3); it must
+  fail gracefully and never panic.
+
+## Review round 1
+
+The reviewer requested changes. Fix the following in one run.
+
+**R1 — the fallback label must not show a hidden identity value.**
+
+`session/label.rs` (around lines 36–37) renders an empty or missing label as
+`"<display name> #<key>"` from the key text. An identity column can be
+hidden: a hidden rowid alias (`id INTEGER PRIMARY KEY`), or a hidden
+primary-key column of a `WITHOUT ROWID` table. Its value then appears as
+display text in lists, FK link labels, pickers and checklist options, which
+breaks "hidden never reaches the UI".
+
+**Decision: keep hiding an identity column legal, and change the label.**
+Hiding ids is a natural thing to configure, and the fallback is the only
+place that leaks them.
+
+- When **any identity column is hidden**, the fallback label (empty or
+  missing template) is the table's **display name alone**, e.g. `"Authors"`.
+  This covers the alias column of a rowid table, and any primary-key column
+  of a `WITHOUT ROWID` table.
+  - Objects stay distinguishable through their keys. The UI never shows
+    keys.
+  - The config author is told to add a `label` (doc change below).
+- Without a hidden identity column, the fallback is unchanged:
+  `"<display name> #<key>"`. A rowid table without an alias always shows its
+  rowid, because the rowid is not a column and cannot be hidden.
+- Update `docs/dbmanager-config.md`, "Labels": state this rule, and
+  recommend a `label` for any table whose id is hidden.
+
+Tests:
+
+- `fallback_label_hides_hidden_rowid_alias`: `t(id INTEGER PRIMARY KEY, x)`
+  with `id` hidden, no label, and `x` NULL. Check list items, the object
+  label, an FK link label from another table, a picker, and an m2m option.
+  Each label is exactly the display name, and no label contains the id.
+- `fallback_label_hides_hidden_without_rowid_pk`: the same for a
+  `WITHOUT ROWID` table with a hidden text PK.
+- `fallback_label_shows_visible_key`: unchanged behaviour when the key is
+  visible.
+
+**R2 — record: `ObjectKey` may carry identity values.**
+
+An `ObjectKey` may contain hidden identity values, either the rowid or
+primary-key values. That is accepted: it is opaque technical data the UI
+echoes back and never displays.
+
+Add a doc comment on `ObjectKey`:
+
+> Opaque. May carry hidden identity values. Never render it.
+
+**R3 — limits of keys, accepted for v1.**
+
+- **BLOB primary-key values.** Such rows show in lists, but `object` cannot
+  open them: `DbValue::Blob` carries only a size, so the key cannot
+  round-trip, and the result is `UnknownObject`. Accepted for v1.
+  - Test `blob_key_row_is_listed_but_unknown`: it must not panic, and the
+    list labels must not contain blob bytes.
+- **Non-UTF-8 text keys and FK values** are lossy (see Risks), also accepted
+  for v1.
+  - Test `non_utf8_text_key_fails_gracefully`: open gives `UnknownObject`, a
+    link to it shows `DanglingReference`, and nothing panics.
+
+**R4 — corrected acceptance line.** The search criterion now uses `"AS"` and
+`"as"` (Castellan, Tomas). The example has no author matching `"ar"`.
+
+### Accepted implementer choices (record only; do not change)
+
+- Reads use one read transaction after the `schema_version` check.
+  `BUSY`/`LOCKED` map to `Busy`.
+- `LIKE` escaping, as implemented.
+- The config hash sentinels and `changed_on_disk` semantics.
+- The `report()` accessor on `LoadedConfig`.
+- `Model::table_at`.
+- A referencing list for a row that does not exist gives `UnknownObject`.
+- Many-to-many counts include only other-side rows that exist.
+
+### Acceptance criteria (review round 1)
+
+- These tests pass, together with every existing M6 test:
+  - `fallback_label_hides_hidden_rowid_alias`;
+  - `fallback_label_hides_hidden_without_rowid_pk`;
+  - `fallback_label_shows_visible_key`;
+  - `blob_key_row_is_listed_but_unknown`;
+  - `non_utf8_text_key_fails_gracefully`.
+- No label, value, link or option anywhere contains a hidden column's value.
+  Assert on the serialized JSON in the two hidden-key tests.
+- `ObjectKey` carries the doc comment.
+- `docs/dbmanager-config.md`, "Labels", states the hidden-identity fallback.
+- No generated type changes shape, except for doc comments. Generated types
+  are current.
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+  warnings` and `cargo test --workspace` pass.
+- The diff goes back to the reviewer.
+
