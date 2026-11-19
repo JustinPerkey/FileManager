@@ -142,7 +142,10 @@ fn example_resolves_clean() {
     assert_eq!(genre_side.relation, "m2m:book_genre");
     assert_eq!(genre_side.heading, "Genres");
     assert_eq!(genre_side.mode, RelationMode::Editable);
-    assert!(genre_side.link_fields.is_empty());
+    assert_eq!(
+        genre_side.link_fields,
+        [] as [crate::model::views::FieldView; 0]
+    );
     let genre = tv(&v, "genre");
     assert_eq!(genre.many_to_many[0].heading, "Books");
     assert_eq!(genre.many_to_many[0].mode, RelationMode::Editable);
@@ -288,7 +291,10 @@ mode = "pickable"
 
     // Not a valid default.
     let m = example("version = 1\n[defaults]\ntable_mode = \"pickable\"\n");
-    assert!(!diags(&m, Error).is_empty());
+    assert_ne!(
+        diags(&m, Error),
+        [] as [&crate::config::ConfigDiagnostic; 0]
+    );
     assert!(views(&m).iter().all(|t| t.mode == TableMode::ReadOnly));
 
     // On a junction: a warning, and the junction stays unlisted.
@@ -302,11 +308,11 @@ mode = "pickable"
 }
 
 fn assert_all_closed(m: &Model) {
-    assert!(!m.table_views().is_empty());
+    assert_ne!(m.table_views(), [] as [crate::model::views::TableView; 0]);
     for t in m.tables() {
         assert_eq!(t.mode, TableMode::ReadOnly, "{}", t.name);
         assert!(!t.can_create && !t.can_delete);
-        assert!(t.hidden_columns.is_empty());
+        assert_eq!(t.hidden_columns, [] as [usize; 0]);
         assert!(t.fields.iter().all(|f| f.mode == ReadOnly), "{}", t.name);
         for s in &t.many_to_many {
             assert_eq!(s.mode, RelationMode::ReadOnly);
@@ -949,7 +955,10 @@ fn allow_create_blocked_inherited_warning() {
     assert_eq!(w.line, Some(2));
     // Diagnostics may name a hidden column; views never do.
     assert!(w.message.contains("`a`"), "{}", w.message);
-    assert!(diags(&m, Error).is_empty());
+    assert_eq!(
+        diags(&m, Error),
+        [] as [&crate::config::ConfigDiagnostic; 0]
+    );
     assert!(!m.table("t").unwrap().can_create);
     // A default, or an editable field, does not block.
     let m = model(
@@ -1100,7 +1109,10 @@ CREATE TABLE d (id INTEGER PRIMARY KEY, name TEXT, x TEXT);";
         ["label"]
     );
     // `name` is not text in c: the key label.
-    assert!(m.table("c").unwrap().label.parts.is_empty());
+    assert_eq!(
+        m.table("c").unwrap().label.parts,
+        [] as [crate::model::ResolvedLabelPart; 0]
+    );
     assert!(!tv(&views(&m), "c").searchable);
     let d = m.table("d").unwrap();
     assert_eq!(names(&m, "d", &d.label.columns()), ["x", "name"]);
@@ -1120,7 +1132,10 @@ fn label_hidden_column_rejected() {
     );
     find(&m, Error, "author", None, "not a visible column");
     // The default label is used: author has no name/title/label column.
-    assert!(m.table("author").unwrap().label.parts.is_empty());
+    assert_eq!(
+        m.table("author").unwrap().label.parts,
+        [] as [crate::model::ResolvedLabelPart; 0]
+    );
     let m = example("version = 1\n[tables.author]\nlabel = \"{nope}\"\n");
     find(&m, Error, "author", None, "`nope`");
 }
@@ -1381,7 +1396,7 @@ fn m2m_detected() {
         ),
         (1, 0)
     );
-    assert!(a.referenced_by.is_empty());
+    assert_eq!(a.referenced_by, [] as [crate::model::ReverseRelation; 0]);
     // An optional rowid alias is allowed; a unique index works as the pair.
     let m = model(
         "CREATE TABLE a (id INTEGER PRIMARY KEY); CREATE TABLE b (id INTEGER PRIMARY KEY);
@@ -1389,7 +1404,10 @@ fn m2m_detected() {
         "version = 1\n",
     );
     assert!(m.table("ab").is_none());
-    assert!(m.table("a").unwrap().many_to_many[0].link_fields.is_empty());
+    assert_eq!(
+        m.table("a").unwrap().many_to_many[0].link_fields,
+        [] as [crate::model::ResolvedField; 0]
+    );
     // No unique pair: an ordinary table.
     let m = model(
         "CREATE TABLE a (id INTEGER PRIMARY KEY); CREATE TABLE b (id INTEGER PRIMARY KEY);
@@ -1397,7 +1415,10 @@ fn m2m_detected() {
         "version = 1\n",
     );
     assert!(m.table("ab").is_some());
-    assert!(m.table("a").unwrap().many_to_many.is_empty());
+    assert_eq!(
+        m.table("a").unwrap().many_to_many,
+        [] as [crate::model::M2mSide; 0]
+    );
 }
 
 const WIDE: &str = "CREATE TABLE a (id INTEGER PRIMARY KEY, name TEXT);
@@ -1456,7 +1477,10 @@ mode = "create-only"
         "version = 1\n[many_to_many.ab]\nmode = \"editable\"\n",
     );
     find(&m, Warning, "ab", None, "columns");
-    assert!(m.table("a").unwrap().many_to_many.is_empty());
+    assert_eq!(
+        m.table("a").unwrap().many_to_many,
+        [] as [crate::model::M2mSide; 0]
+    );
     // Unknown column.
     let m = model(
         WIDE,
@@ -1525,7 +1549,10 @@ fn m2m_self_reference_not_supported() {
 CREATE TABLE nn (x INTEGER NOT NULL REFERENCES n(id), y INTEGER NOT NULL REFERENCES n(id), PRIMARY KEY (x, y));";
     let m = model(sql, "version = 1\n");
     assert!(m.table("nn").is_some());
-    assert!(m.table("n").unwrap().many_to_many.is_empty());
+    assert_eq!(
+        m.table("n").unwrap().many_to_many,
+        [] as [crate::model::M2mSide; 0]
+    );
     assert_eq!(m.table("n").unwrap().referenced_by.len(), 2);
     assert_eq!(m.diagnostics().len(), 0);
     let m = model(sql, "version = 1\n[many_to_many.nn]\nmode = \"editable\"\n");
@@ -1559,7 +1586,10 @@ fn m2m_disabled() {
 fn m2m_hidden_side() {
     let m = example("version = 1\n[tables.genre]\nmode = \"hidden\"\n");
     let v = views(&m);
-    assert!(tv(&v, "book").many_to_many.is_empty());
+    assert_eq!(
+        tv(&v, "book").many_to_many,
+        [] as [crate::model::views::M2mView; 0]
+    );
     assert!(m.table("genre").is_none());
     // Hidden never contributes a reverse relation.
     assert!(tv(&v, "book")
@@ -1568,13 +1598,25 @@ fn m2m_hidden_side() {
         .all(|r| r.table != "genre"));
     let m = example("version = 1\n[tables.book]\nmode = \"hidden\"\n");
     let v = views(&m);
-    assert!(tv(&v, "genre").many_to_many.is_empty());
-    assert!(tv(&v, "author").many_to_many.is_empty());
+    assert_eq!(
+        tv(&v, "genre").many_to_many,
+        [] as [crate::model::views::M2mView; 0]
+    );
+    assert_eq!(
+        tv(&v, "author").many_to_many,
+        [] as [crate::model::views::M2mView; 0]
+    );
     // A hidden relation shows nowhere.
     let m = example("version = 1\n[many_to_many.book_genre]\nmode = \"hidden\"\n");
     let v = views(&m);
-    assert!(tv(&v, "book").many_to_many.is_empty());
-    assert!(tv(&v, "genre").many_to_many.is_empty());
+    assert_eq!(
+        tv(&v, "book").many_to_many,
+        [] as [crate::model::views::M2mView; 0]
+    );
+    assert_eq!(
+        tv(&v, "genre").many_to_many,
+        [] as [crate::model::views::M2mView; 0]
+    );
     // An FK into a hidden table has no link.
     let m = example("version = 1\n[tables.author]\nmode = \"hidden\"\n");
     let f = fv(tv(&views(&m), "book"), "author_id").clone();
