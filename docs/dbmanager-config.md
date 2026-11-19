@@ -480,7 +480,9 @@ non-hidden **text** column named `name`, `title` or `label`
 ROWID` table), the fallback is the display name alone, so the hidden value
 never shows. A rowid table without an alias column always shows its rowid,
 which cannot be hidden. Give any table whose id is hidden a `label`, or its
-objects all look alike in lists.
+objects all look alike in lists. Hiding a key column does not hide copies of
+its value in other tables: a foreign key column that references it shows the
+value unless that column is hidden too.
 
 Search in a table's object list matches the label's non-duration columns
 (substring, case-insensitive for ASCII). A table whose label has no such

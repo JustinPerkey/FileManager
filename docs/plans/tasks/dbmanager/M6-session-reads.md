@@ -1,7 +1,8 @@
 # M6 — Session and reads: lists, objects, relations, checklists
 
-Status: implemented; the reviewer requested changes. **Run "Review round 1"
-(end of this plan).** (Approved 2026-11-19; revised 2026-11-16: editable defaults, durations,
+Status: done (2026-11-19). Review round 1 applied; the reviewer approved. A
+visible FK column in another table that copies a hidden key's value is that
+table's own data and shows unless hidden too (documented). (Approved 2026-11-19; revised 2026-11-16: editable defaults, durations,
 link values; then the human's final answers: one fixed config file loaded
 separately and swappable for automatic reload, `pickable` tables)
 Project: dbmanager   Depends on: M5 (landed)
