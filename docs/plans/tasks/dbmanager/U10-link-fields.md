@@ -93,8 +93,9 @@ Backend rules on link fields:
 
 - **`canEditLinkField(field, phase: "add" | "update", sideEditable)`:**
   `sideEditable` and (`editable`, or `create-only` when `phase === "add"`).
-  Kinds `blob` / `any` are never editable. FK link fields are editable when
-  `foreignKey.navigable` and the target is listed (U7's rule).
+  Kinds `blob` / `any` are never editable. FK link fields (`foreignKey` set) are editable
+  when the target is in `session.tables` (U7's rule). A link field whose FK
+  points into a hidden table arrives as a plain read-only field.
 - **Staging an add** (`toggle` on an unlinked option): `fields` starts from
   each editable field's `defaultValue`, through `initialEditorValue` with a
   synthetic `FieldValue`. Fields with no default start empty. Prefilled

@@ -1,6 +1,7 @@
 # U4 — The object sheet: reading an object
 
-Status: awaiting approval (revised 2026-11-16: pickable tables open read-only)
+Status: awaiting approval (revised 2026-11-16: pickable tables open read-only;
+2026-11-18: FKs into hidden or unlisted tables are plain fields)
 Project: dbmanager   Depends on: U3 (landed), M10 (landed)
 
 ## Goal
@@ -43,7 +44,14 @@ import each other.
   modes, bounds, units and labels all come from the views below.
 - Keys are opaque.
 - Hidden fields and tables never reach the UI.
-- A FK into a hidden table arrives with `link.navigable = false`.
+- A FK into a hidden table, or into an unlisted junction table, arrives as a
+  **plain read-only field**: no `foreignKey` on its `FieldView`, and no
+  `link` on its value. Render it like any other read-only value of its kind.
+- Every `ForeignKeyView` the UI receives therefore has a listed target,
+  `navigable: true`, and a non-null `tableDisplayName`. The generated type
+  still declares `navigable` and a nullable `tableDisplayName`; do not branch
+  on them, and treat a `false` / `null` as a contract violation (render the
+  plain value and log nothing user-facing).
 - Read-only fields arrive with mode `read-only`; this includes the forced
   ones (rowid alias, generated, BLOB, composite FK, untyped).
 - Values may carry a `problem` for legacy data: **show it, and never block
@@ -219,8 +227,6 @@ Each `FieldRow`:
   problem line.
 - A link into a **pickable** table is an ordinary navigable link. Following
   it opens the lookup object read-only (above).
-- `link` with `navigable: false`: the stored value in `.mono` and "(in a table
-  that is not shown)", with no link.
 - `value` NULL (no `link`): "Not set" in `--text-muted`.
 - The label is tied to the control by `aria-labelledby` (the label `id` plus
   the button's own text).
@@ -290,7 +296,8 @@ Problem fixtures:
 - `pages` stored "many" (`wrongType`);
 - `pages` 0 (`outOfBounds`);
 - a dangling `author_id` 99;
-- a FK into a hidden table (`navigable: false`).
+- a FK column into a hidden table, arriving as a plain read-only integer
+  field (`foreignKey: null`, `link: null`).
 
 Author "Herbert, Frank" has a reverse relation "Books · via Author · 2".
 
@@ -325,8 +332,9 @@ Author "Herbert, Frank" has a reverse relation "Books · via Author · 2".
 - Author is a link "Herbert, Frank" with accessible name "Open Herbert,
   Frank in Authors". Activating it opens the author, and Back returns to
   Dune.
-- Dangling, non-navigable and NULL references render as specified, with no
-  link.
+- Dangling and NULL references render as specified, with no link.
+- The FK into a hidden table renders as a plain read-only integer, with no
+  link, no "Missing object" and no reference styling.
 - Each problem fixture shows its icon, the word-bearing copy and its raw
   value. The first one adds "Other fields can still be saved.".
 
@@ -383,7 +391,7 @@ Author "Herbert, Frank" has a reverse relation "Books · via Author · 2".
 - `ReferenceField.test.tsx`:
   - `navigable link follows`;
   - `dangling`;
-  - `not navigable`;
+  - `fk into a hidden table is a plain value`;
   - `null`.
 - `ReferencedBy.test.tsx`:
   - `lazy load with referencing filter`;

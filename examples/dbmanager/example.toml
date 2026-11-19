@@ -122,7 +122,7 @@ allow_delete = true
 min_length = 1
 
 [tables.member.fields.email]
-pattern = '[^@\s]+@[^@\s]+'
+pattern = '[^@ \t\r\n]+@[^@ \t\r\n]+'
 max_length = 254
 
 # --- loan -----------------------------------------------------------------

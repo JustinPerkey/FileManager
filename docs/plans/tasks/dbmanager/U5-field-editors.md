@@ -267,7 +267,12 @@ Edit `FieldRow.tsx`, `ObjectSheet.tsx`, `store.ts`, `hints.ts`,
 Fixtures (from the example database's book):
 
 - `title`: text, max 200;
-- `isbn`: create-only, pattern `97[89][0-9]{10}`, with help;
+- `isbn`: create-only, pattern `97[89][0-9]{10}`, with help. Fixture
+  patterns must stay in the Rust/JS-common subset: no `\d`, `\w`, `\s`,
+  no `(?…)` groups, no `\A`, `\z` or `\p`, no backreferences, nested or
+  POSIX classes, or set operations. A config pattern outside that subset
+  makes its field read-only with an error diagnostic, so it never reaches an
+  editor;
 - `format`: allowed hardcover / paperback / ebook;
 - `pages`: integer 1–10000, nullable;
 - `price`: real 0–1000;

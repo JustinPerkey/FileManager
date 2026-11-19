@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod db;
+pub mod model;
 pub mod rules;
 pub mod schema;
 pub mod state;
@@ -11,6 +12,7 @@ pub use config::{
     parse as parse_config, Config, ConfigDiagnostic, ConfigReport, DiagnosticSeverity,
 };
 pub use db::{Database, OpenError};
+pub use model::{resolve, Model, TableView};
 pub use rules::{
     validate, AllowedValue, FieldError, FieldIssue, FieldIssueCode, FieldKind, FieldRule,
 };

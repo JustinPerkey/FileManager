@@ -1,6 +1,7 @@
 # U7 — Editing references with the object picker
 
-Status: awaiting approval (revised 2026-11-16: pickable targets)
+Status: awaiting approval (revised 2026-11-16: pickable targets; 2026-11-18:
+no non-navigable FKs)
 Project: dbmanager   Depends on: U6 (landed), M10 (landed)
 
 ## Goal
@@ -29,7 +30,7 @@ Earlier tasks built:
 - U2: the store and errors;
 - U3: places, `navigate`, and the object list's search and paging patterns;
 - U4: `ReferenceField` in read form (the label link that follows with
-  `navigate`; dangling, not navigable, and NULL forms), `FieldRow`, hints and
+  `navigate`; dangling and NULL forms), `FieldRow`, hints and
   tags;
 - U5: `draft.ts` (`EditorValue`, `canEdit`, `isChanged`, the store's
   `editField` / `revertField`), and the **Edited** tag;
@@ -44,8 +45,10 @@ import each other.
 - Keys are opaque: compare them only through `objectId(table, key)`
   (`keys.ts`).
 - Labels come from the backend.
-- A FK into a hidden table is never editable (it arrives read-only, with
-  `link.navigable = false`).
+- A FK into a hidden table or an unlisted junction is not a reference for
+  the UI: it arrives as a plain read-only field (no `foreignKey`, no
+  `link`), so it never gets **Change…**. Every `ForeignKeyView` that does
+  arrive has a listed target, `navigable: true` and a `tableDisplayName`.
 
 ### The API used
 
@@ -79,9 +82,9 @@ type TableView = { name; displayName; searchable: boolean; mode; … };   // fro
   picks.
 - `isChanged`: true when the user picked or cleared, and
   `objectId(fk.table, picked)` (or null) differs from the base link's.
-- `canEdit` now admits FK fields when `foreignKey.navigable` and the target
-  table is in `session.tables` (any mode, pickable included); the other
-  conditions from U5 stay.
+- `canEdit` now admits FK fields (`foreignKey` set) whose target table is in
+  `session.tables` (any mode, pickable included); the other conditions from
+  U5 stay. Do not test `foreignKey.navigable`: it is always true.
 - The save request already carries `configHash` (U6); references change
   nothing about that.
 - U6's `saveDraft` sends `{ type: "reference", key }` for changed FK fields,
@@ -209,7 +212,8 @@ Fixtures:
 
 - Author on an editable book shows the link, **Change…**, and no Clear (not
   nullable). Publisher (nullable) shows Clear.
-- A FK into a hidden table shows no Change….
+- A FK column into a hidden table (arriving with `foreignKey: null`) is a
+  plain read-only value with no Change….
 
 **The picker:**
 

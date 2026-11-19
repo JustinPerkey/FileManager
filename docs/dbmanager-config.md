@@ -150,7 +150,7 @@ allow_delete = true
 min_length = 1
 
 [tables.member.fields.email]
-pattern = '[^@\s]+@[^@\s]+'
+pattern = '[^@ \t\r\n]+@[^@ \t\r\n]+'
 max_length = 254
 
 # --- loan -----------------------------------------------------------------
@@ -335,9 +335,39 @@ field entry:
   `object_name`.
 
 Pattern dialect: Rust's `regex` is authoritative on save, while the UI checks
-the same pattern with JavaScript `RegExp` (`u` flag) as the user types. Stay
-in their common subset: character classes, `\d \w \s`, quantifiers, groups,
-alternation. No look-around, no back-references, no inline flags.
+the same pattern with JavaScript `RegExp` (`u` flag) as the user types. The two
+read some constructs differently and accept different syntax, so a pattern
+must stay in their common subset. Anything outside it is an **error** (the
+pattern is dropped and the field is read-only). The allowed subset is exactly:
+
+- literal characters, groups `( )` and non-capturing groups `(?: )`,
+  alternation `|`, and the quantifiers `* + ? {n} {n,} {n,m}`;
+- character classes `[...]` and `[^...]`, with ranges;
+- escapes: `\\ \^ \$ \. \* \+ \? \( \) \[ \] \{ \} \| \/`, `\t \n \r \f \v`
+  and `\xHH` (two hex digits). `\-` is allowed only inside a class.
+
+Rejected, and why:
+
+- The shorthand classes `\d \D \w \W \s \S \b \B`: the engines disagree on
+  non-ASCII input. Rust's are Unicode-aware (`\d` matches Arabic-Indic digits),
+  JavaScript's `\d \w \b` are ASCII-only, and the two `\s` sets differ. Write
+  explicit classes instead: `[0-9]`, `[A-Za-z0-9_]`, `[ \t\r\n]`.
+- Silent meaning differences: an unescaped `[` inside a class (a nested
+  class), POSIX classes (`[[:alpha:]]`), and the set operators `&&`, `--` and
+  `~~` inside a class.
+- Syntax one engine refuses: inline flags and look-around (`(?` followed by
+  anything other than `:`, so `(?i)`, `(?=`, `(?!`, `(?<`), `\A \z \Z`, `\p` and
+  `\P` in any form, back-references `\1` to `\9`, and any other escape (`\@` is
+  a SyntaxError in JavaScript's `u` mode).
+- Punctuation that Rust takes literally and JavaScript's `u` mode rejects: a
+  `]` straight after `[` or `[^` (write `\]`), an unescaped `]` or `}` outside
+  a class (write `\]`, `\}`), a `{` that does not start a valid `{n}`,
+  `{n,}` or `{n,m}` quantifier with ASCII digits and `n <= m` (write `\{`), and
+  `\-` outside a class (write `-`).
+
+An unescaped `.` outside a class is a **warning**: JavaScript's `.` also
+excludes `\r`, U+2028 and U+2029, Rust's does not. Write `[^\n]` for "any
+character". The pattern still applies.
 
 ## Kinds
 
@@ -414,7 +444,11 @@ These are always read-only, whatever the config says:
 - generated columns;
 - `blob` columns, and untyped/`any` columns without `type`;
 - foreign keys of more than one column;
-- foreign keys into a hidden table.
+- foreign keys into a hidden table, or into a table that is not listed (a
+  junction used as many-to-many): there is no link, so the column is a plain
+  read-only field;
+- foreign keys whose target is not the parent's primary key or a unique key
+  (SQLite refuses changes that touch them).
 
 The primary-key columns of an existing object are never editable either. An
 inherited `editable` on one becomes `create-only`, so it can be set when
@@ -523,8 +557,20 @@ explicitly, and a warning when it was inherited.
 Self-referential junctions (both foreign keys to the same table) are not
 many-to-many in v1. Declaring one is a warning.
 
-Checked from the config alone: an error rejects the entry, and the relation
-stays as detected, read-only. The errors are:
+A junction configured more than once (names match without case): each entry
+after the first is a warning. If any entry says `hidden`, the relation is
+hidden (and `enabled = false` is ignored). Otherwise the relation is kept,
+read-only, from the first valid entry that declares `columns`, or else the
+first valid entry, so a declared junction is not turned into an editable
+table.
+
+Checked from the config alone: an error rejects the entry, and its relation
+is read-only. If the table is detected without the entry (no extra columns),
+it stays many-to-many, read-only. If the entry was needed to declare it, the
+relation cannot be used safely (its `columns` may be the broken key), so the
+table is an ordinary **listed table forced read-only**: all its fields are
+read-only, with no create or delete. It is not hidden, because the entry did
+not validly ask for that. The errors are:
 
 - `columns` that is not exactly two distinct strings;
 - a `headings` value that is not a non-empty string;
@@ -547,7 +593,14 @@ for hidden). The database always opens and can be browsed.
 | names a view, virtual, shadow or internal table | warning | entry ignored |
 | bound, `type` or `unit` not valid for the field's kind or affinity, or set on a foreign-key field | error | field read-only |
 | duration bound not a whole number of the unit | error | field read-only |
+| `pattern` has a `]` straight after `[`/`[^`, an unescaped `]` or `}` outside a class, a `{` that is not a valid quantifier, or `\-` outside a class | error | pattern dropped; field read-only |
+| `pattern` uses a shorthand class (`\d \D \w \W \s \S \b \B`), a construct outside the common subset (nested class, POSIX class, `&&`/`--`/`~~` in a class, inline flag or look-around, `\A \z \Z`, `\p \P`, back-reference, other escape), or does not compile | error | pattern dropped; field read-only |
+| `pattern` has an unescaped `.` outside a class | warning | pattern still applies |
 | `nullable = true` on a `NOT NULL` column | error | field read-only |
+| `editable` on a foreign key whose target is not a primary or unique key | error | field read-only |
+| `multiline` on a non-text field | warning | ignored |
+| `empty_is_null` on a non-nullable or non-text field | error | field read-only |
+| the same table, field or junction configured more than once (names match without case) | warning on each entry after the first | hidden if any entry hides it; otherwise treated as a rejected entry (read-only table, field or relation) |
 | explicit `editable`/`create-only` on a forced-read-only column | error | field read-only |
 | field explicitly `editable`/`create-only` in a read-only or pickable table | warning | stays read-only |
 | `allow_create`/`allow_delete` set explicitly on a non-editable (read-only, pickable, hidden) table | warning | ignored |
@@ -557,8 +610,15 @@ for hidden). The database always opens and can be browsed.
 | a junction `NOT NULL` column without default that no editable/create-only link field supplies, while the relation is editable | error if the relation `mode` was explicit, warning if inherited | relation read-only |
 | label/order_by/field_order names an unknown or hidden column | error | that key ignored, default used |
 | FK to a missing table/column | warning | plain field |
+| FK to a column that is not a primary or unique key | warning | plain read-only field |
 | self-referential junction declared | warning | not many-to-many |
 | table with no usable identity | warning | table skipped |
 
 Config diagnostics carry line and column. Database diagnostics carry the
 table and column.
+
+Diagnostics may name any table or column, hidden ones included. Views and
+values never do. Diagnostics describe the config and the schema to whoever
+maintains them, and the config file already names those columns; `hidden`
+controls what object data the user sees, not whether the schema is secret.
+(Warnings about foreign keys are only given for visible tables and columns.)
