@@ -1,6 +1,7 @@
 //! Session tests. Every test builds its database in its own temp dir.
 
 mod config;
+mod labels;
 mod lists;
 mod objects;
 mod relations;

@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::DbValue;
 
-/// Opaque to the UI. A rowid table is keyed by its rowid (a decimal string);
+/// Opaque. May carry hidden identity values. Never render it.
+///
+/// A rowid table is keyed by its rowid (a decimal string);
 /// a `WITHOUT ROWID` table by its primary-key values in key order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "camelCase")]

@@ -5,6 +5,7 @@ use super::key::key_text;
 use super::types::{ObjectKey, ValueProblem};
 use crate::model::{ResolvedField, ResolvedLabelPart, ResolvedTable};
 use crate::rules::{duration, validate, FieldIssueCode, FieldKind};
+use crate::schema::Identity;
 use crate::value::DbValue;
 
 /// A cell as label text.
@@ -33,10 +34,22 @@ pub(super) fn render(table: &ResolvedTable, key: &ObjectKey, row: &Row) -> Strin
             }
         }
     }
-    if out.is_empty() {
-        format!("{} #{}", table.display_name, key_text(key))
-    } else {
+    if !out.is_empty() {
         out
+    } else if identity_hidden(table) {
+        table.display_name.clone()
+    } else {
+        format!("{} #{}", table.display_name, key_text(key))
+    }
+}
+
+/// True if any identity column is hidden, so the key must not show in a label.
+/// A rowid without an alias column is not a column and cannot be hidden.
+fn identity_hidden(table: &ResolvedTable) -> bool {
+    let hidden = |c: &usize| table.hidden_columns.contains(c);
+    match &table.identity {
+        Identity::Rowid { alias_column, .. } => alias_column.iter().any(hidden),
+        Identity::PrimaryKey { columns } => columns.iter().any(hidden),
     }
 }
 

@@ -2,7 +2,9 @@
 import type { DbValue } from "./DbValue";
 
 /**
- * Opaque to the UI. A rowid table is keyed by its rowid (a decimal string);
+ * Opaque. May carry hidden identity values. Never render it.
+ *
+ * A rowid table is keyed by its rowid (a decimal string);
  * a `WITHOUT ROWID` table by its primary-key values in key order.
  */
 export type ObjectKey = { "type": "rowid", value: string, } | { "type": "primary", values: Array<DbValue>, };
