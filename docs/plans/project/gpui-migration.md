@@ -2,6 +2,8 @@
 
 Status: **awaiting approval.** Written by the planner on 2026-11-19, after the
 human's decisions on [`gpui-ce-assessment.md`](gpui-ce-assessment.md) (§1.1).
+Revised 2026-11-20: the human answered Q4, Q5, Q6 and Q12 (D6–D9 in §1.1,
+§14.1); the spike task plans were updated to match.
 
 Only the spike (M1) has full task plans. Every milestone after it is listed in
 §9 with its goal, dependencies and acceptance in brief. Their task plans are
@@ -30,6 +32,10 @@ the TypeScript frontend, ts-rs and npm/Node from the application entirely.
 | D3 | **The UI looks similar to today:** same layout, tokens (colours, spacing, type scale, radii), components and states as `DESIGN.md` and `apps/desktop/src/styles/tokens.css` describe. Light and dark, following the system, as today. |
 | D4 | **The manual's screenshots stay auto-generated** from the real UI with a mocked or fixture backend, without Node. |
 | D5 | **Accessibility is no longer a hard requirement.** Keep keyboard operation and labels where gpui-kit gives them cheaply; screen-reader support is not a gate. The `CLAUDE.md` invariant change is a decision the human approves explicitly (§10.3, Q1). |
+| D6 | **Spike location (Q4):** new branch `spike/gpui-migration`, standalone `spike/gpui/` workspace with its own workflow, never merged. Pushing that branch is approved. |
+| D7 | **Similarity (Q5):** same layout and token colours. Sampled colours within ±1 per channel, region geometry within about 2 px of today's images; text rendering may differ. |
+| D8 | **Exe size and build time (Q6):** no limit. Measured and reported only. |
+| D9 | **Minimum Windows (Q12):** **Windows 11 only.** Windows 10 is not supported. |
 
 ### 1.2 What does not change
 
@@ -224,7 +230,7 @@ harness API.
   name prefix, as `shoot.js` does.
 - Window sizes as today: 1366×800 for the Tar Packager, 1000×700 for the
   others, scale factor 1.
-- The capture method is chosen by the spike (§8, item B6). Windows-only:
+- The capture method is chosen by the spike (§8, item B6). Windows-only (Windows 11, D9):
   the screenshots are generated on Windows (CI and the developer's machine),
   not on Linux as today.
 - CI runs the harness on the Windows job and uploads the PNGs as an artifact.
@@ -234,7 +240,10 @@ harness API.
 
 ## 6. CI after the migration
 
-- **windows** job: `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+- **windows** job, on a runner pinned to `windows-2025` (Windows Server
+  2025, which shares the Windows 11 24H2 code base; GitHub has no x64
+  Windows 11 client image, so Windows 11 itself is covered by the human's
+  manual checks): `cargo clippy --workspace --all-targets --locked -- -D warnings`,
   `cargo test --workspace --locked` (including `#[gpui::test]`),
   `cargo build --release -p filemanager --locked`, the `dumpbin` check
   (forbidden list unchanged), the screenshot harness and upload, and the
@@ -277,7 +286,7 @@ These change in M10, **after the human approves** them (Q1–Q3):
 ## 8. The spike (M1) — go/no-go gate
 
 Time-boxed, throwaway, on branch `spike/gpui-migration`, in a standalone
-workspace `spike/gpui/` that is never merged to `main` (Q4). Two task plans,
+workspace `spike/gpui/` with its own workflow, never merged to `main` (D6). Two task plans,
 run in order by the backend `implementer`; the themed screen is a
 transcription of existing values, not design work.
 
@@ -295,9 +304,9 @@ Items, criteria and what failure means (full detail in the task plans):
 | A3 | Files and folders dropped from Explorer | Drag-over and leave are observable (for the overlay); drop delivers every path exactly | Hard |
 | A4 | Window close interception | Close (X, Alt+F4) can be held, a prompt shown, then cancelled or completed programmatically | Hard |
 | A5 | Open a file in the system editor; reveal in Explorer | Default handler opens; Explorer opens with the file selected | Soft (Win32 fallback is cheap) |
-| A6 | `#[gpui::test]` headless tests on Windows CI | Model and view tests (keystrokes into a gpui-kit input, a click) pass on `windows-latest`, 3 runs, no flake | Hard |
+| A6 | `#[gpui::test]` headless tests on Windows CI | Model and view tests (keystrokes into a gpui-kit input, a click) pass on `windows-2025`, 3 runs, no flake | Hard |
 | A7 | Background job + progress + file watcher reach the UI | Progress at ≤ 50 ms granularity without blocking input; a watcher event updates the view | Hard |
-| A8 | Exe size, clean release build time, incremental debug rebuild time, toolchain/MSRV, licenses | Measured and reported; no GPL/AGPL/LGPL dependency | Soft (human weighs) |
+| A8 | Exe size, clean release build time, incremental debug rebuild time, toolchain/MSRV, licenses | Measured and reported, no thresholds (D8); no GPL/AGPL/LGPL dependency | Soft (report only) |
 | A9 | Linux build and test | Reported: builds or not, packages needed | Soft |
 | A10 | clippy `pedantic` with `-D warnings` on GPUI code | Clean with at most a few scoped `#[expect]`s, none crate-wide | Hard |
 | B1 | gpui-kit text input | Typing, paste, selection, placeholder, read-only, invalid border, mono font, Enter event | Hard |
@@ -305,16 +314,16 @@ Items, criteria and what failure means (full detail in the task plans):
 | B3 | Virtual list / table | 10,000 rows scroll smoothly; fixed rem columns; custom cells (icon + word); keyboard row focus Up/Down; sticky header | Hard |
 | B4 | Modal confirmation | Scrim, focus starts on Cancel, Escape cancels, focus returns, busy state keeps it open and inert | Hard |
 | B5 | Menu and popover | A Recent-style menu (keys Up/Down/Escape) and a non-modal popover, both themable with our shadow | Soft (custom allowed) |
-| B6 | Theming: today's Pipeline "folder chosen" screen in light and dark from the tokens | Sampled colours equal the tokens (±1 per channel); region geometry within 2 px of `docs/manual/images/pipeline-chosen.png`; follows the system theme live | Hard |
-| B7 | Screenshot to PNG unattended | A command renders the B6 screen to PNG at scale 1 on `windows-latest`, identical across two runs; also works on a developer's Windows machine | Hard (local-only = partial; human decides) |
+| B6 | Theming: today's Pipeline "folder chosen" screen in light and dark from the tokens | Sampled colours equal the tokens (±1 per channel); region geometry within ~2 px of `docs/manual/images/pipeline-chosen.png`; text rendering may differ (D7); follows the system theme live | Hard |
+| B7 | Screenshot to PNG unattended | A command renders the B6 screen to PNG at scale 1 on `windows-2025`, identical across two runs; also works on a developer's Windows machine | Hard (local-only = partial; human decides) |
 | B8 | Keyboard and labels, as found (incl. the Ctrl+Alt+Shift+D chord) | Reported per widget; no extra work | Soft |
 
 **Gate.** All Hard items pass → go: the planner writes M2+ task plans, the
 ui-designer writes the UI plan. Any Hard fail → no-go by default; the
 report says what would change the answer, and the human may override. Soft
 items are weighed by the human. Manual items (dialogs, Explorer drop, close,
-editor, live theme switch) are verified by the human on Windows with the CI
-exe, using the checklist the spike writes, because the implementer has no
+editor, live theme switch) are verified by the human on Windows 11 (D9) with the
+CI exe, using the checklist the spike writes, because the implementer has no
 interactive Windows desktop.
 
 ## 9. Milestone index
@@ -397,12 +406,12 @@ no `package.json`, `*.ts`, `*.tsx`; `cargo tree` has no tauri or ts-rs;
 the artifact `FileManager-<version>-x64.exe` passes dumpbin; both CI jobs
 green.
 
-**M10 — Docs and governance.** `CLAUDE.md` (status, layout, commands,
+**M10 — Docs and governance.** `CLAUDE.md` (status incl. Windows 11 only per D9, layout, commands,
 invariants per §10, "Adding a tool"), `docs/pipeline.md`, `docs/schedule.md`
 (no `lib/generated` references), `.env.example` unchanged, agent roles per
 §7 in both runtimes, `.claude/settings.json` per Q2, the hook per Q3. The
 ui-designer updates `DESIGN.md` (normative source `theme/tokens.rs`) and
-`PRODUCT.md` (platform, accessibility section). *Acceptance:* no doc names
+`PRODUCT.md` (platform, Windows 11 only per D9, accessibility section). *Acceptance:* no doc names
 npm, Tauri, ts-rs, `lib/*.ts` or `tokens.css` except as history; every
 `.claude` role matches its `.codex` twin.
 
@@ -486,7 +495,7 @@ this plan's M8.
    Chromium on Linux with Inter; new ones in DirectWrite with Segoe UI, so
    every image changes once. Cascadia Mono may be missing on CI images.
 5. **GPU-less CI.** GPUI's DirectX renderer must run on WARP on
-   `windows-latest`, or screenshots and real-window tests become local-only.
+   `windows-2025`, or screenshots and real-window tests become local-only.
 6. **Build time and exe size** grow; LTO with `codegen-units = 1` on a GPUI
    tree may be slow.
 7. **Test rewrite cost.** ~395 frontend tests are ported by behaviour; some
@@ -496,7 +505,11 @@ this plan's M8.
 9. **Two apps during the migration** (M3–M8): the Tauri exe ships; changes to
    tool behaviour in that window must be made in the session layer (M2) so
    both apps get them.
-10. **Sunk work:** `DESIGN.md`'s web specifics, the dbmanager UI plan's
+10. **CI is not Windows 11.** The hosted `windows-2025` runner is Windows
+    Server 2025 (Windows 11 24H2 code base), not the client OS. Client-only
+    behaviour (Explorer drag, theme switching, fonts such as Cascadia Mono)
+    is proved only by the manual checklist on Windows 11.
+11. **Sunk work:** `DESIGN.md`'s web specifics, the dbmanager UI plan's
     implementation details, and the `impeccable` audit flow.
 
 ## 13. Handoff to ui-designer
@@ -552,7 +565,9 @@ Backend milestones the UI depends on (ordering)
   - M8 consumes all scenario tasks; M9 waits for M8.
 
 Constraints already established
-  - Similar, not redesigned (D3). Tolerance per Q5.
+  - Similar, not redesigned (D3). Tolerance (D7): same layout and token
+    colours, sampled colours ±1 per channel, geometry within ~2 px; text
+    rendering may differ.
   - Light and dark follow the system; no toggle.
   - Accessibility: keyboard paths and visible labels where gpui-kit gives
     them; screen readers not a gate (D5, pending Q1). No axe, no jsx-a11y.
@@ -560,11 +575,14 @@ Constraints already established
   - Confirmations as today: overwrite, apply, changing pipeline steps,
     dbmanager save/delete, close with unsaved edits. Modal only for those.
   - impeccable: shape/critique only, on screenshots (pending Q2).
-  - Windows only; scale factor 1 for screenshots; 1000×700 default,
+  - Windows 11 only (D9); scale factor 1 for screenshots; 1000×700 default,
     1366×800 for Tar Packager shots, min window 800×560.
 ```
 
 ## 14. Open questions for the human
+
+Remaining questions keep their original numbers; they stay open until after
+the spike.
 
 1. **Accessibility invariant (D5).** Approve the replacement text in §10.3?
    Keep the token contrast test as a cheap guard?
@@ -573,16 +591,6 @@ Constraints already established
 3. **The Node hook.** `.claude/hooks/task-plan-only.mjs` needs Node, which
    Claude Code itself already brings. Keep it, or port it to a shell script so
    the repository has no `.mjs` at all?
-4. **Spike location.** Separate branch `spike/gpui-migration` with a
-   standalone `spike/gpui/` workspace, never merged (proposed), or merge it
-   as a reference?
-5. **How similar is "similar"?** Same layout and token values with region
-   geometry within a few pixels (proposed), or a pixel-diff tolerance against
-   today's images? Text will differ (Segoe UI via DirectWrite instead of
-   Inter in Chromium).
-6. **Exe size and build time.** Acceptable ceilings? Proposed: exe ≤ 50 MB,
-   clean CI release build ≤ 30 min, incremental debug rebuild of one view
-   ≤ 60 s.
 7. **Fonts.** Embed Cascadia Mono (OFL) for identical rendering everywhere,
    or rely on the system with a Consolas fallback?
 8. **Screenshots in CI.** Upload only (proposed), or fail CI when committed
@@ -593,7 +601,18 @@ Constraints already established
     Rust validates (a loosening, compatible), or keep it?
 11. **Vendoring.** Vendor `gpui-pre` and `gpui-component` sources, or rely
     on crates.io with a committed lock file?
-12. **Minimum Windows version.** Windows 10 22H2 and 11 (proposed), given
-    GPUI needs DirectX 11 (feature level per the spike)?
 13. **Linux CI.** If GPUI does not build on the Linux runner cheaply, may the
     linux job cover only the domain crates?
+
+### 14.1 Answered (2026-11-20)
+
+- **Q4 Spike location →** D6: branch `spike/gpui-migration`, standalone
+  `spike/gpui/` workspace and workflow, never merged; pushing the branch is
+  approved.
+- **Q5 Similarity →** D7: same layout and token colours; sampled colours
+  ±1 per channel, geometry within ~2 px; text rendering may differ.
+- **Q6 Exe size and build time →** D8: no limit; measure and report only
+  (A8 is soft and report-only).
+- **Q12 Minimum Windows →** D9: Windows 11 only. CI runs on a pinned
+  `windows-2025` runner (the closest hosted x64 image); the spike's manual
+  checklist is run on Windows 11 and records its build number.

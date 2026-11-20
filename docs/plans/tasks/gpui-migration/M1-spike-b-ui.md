@@ -1,6 +1,8 @@
 # M1b — Spike, part B: gpui-kit widgets, the themed screen, PNG capture, the report
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-20: the human's answers on
+similarity, size/build time, minimum Windows version and spike location are
+folded in)
 Project: gpui-migration   Depends on: M1a (landed on branch `spike/gpui-migration`)
 
 ## Goal
@@ -30,6 +32,21 @@ React, TypeScript, ts-rs and npm, **if** this spike passes. Part A
 Extend those files. Read `REPORT.md` first: if A1 (exe), A3 (drop) or A6
 (headless tests) failed, still do this part, but say in the summary that the
 gate already failed.
+
+### The human's decisions that bind the spike
+
+- **Similarity:** same layout and token colours. Sampled colours within ±1
+  per channel of the tokens, region geometry within about 2 px of today's
+  images. **Text rendering may differ** (glyph shapes, antialiasing, exact
+  text widths); it is not a failure.
+- **Windows 11 only.** CI runs on the pinned `windows-2025` runner (Windows
+  Server 2025, Windows 11 24H2 code base; GitHub has no x64 Windows 11 client
+  image). The human runs the manual checklist on Windows 11.
+- **Exe size and build time have no limit**; part A measures and reports
+  them.
+- **Location:** branch `spike/gpui-migration`, standalone `spike/gpui/`
+  workspace and workflow, never merged. Committing to and pushing that
+  branch is approved; no other branch.
 
 ### Rules that bind this task
 
@@ -147,7 +164,7 @@ the app runs; part of the human's checklist).
     border, disabled button, row rule, muted text) equal the token values,
     after the stated opacity, within ±1 per channel, in light and in dark;
   - the bounding boxes of the sidebar, the title, the input, the two
-    buttons, and the four step rows are within 2 px of the reference
+    buttons, and the four step rows are within ~2 px of the reference
     image's in x, y, width and height (measure the reference by pixel
     inspection; record both sets);
   - a side-by-side PNG (reference | GPUI light | GPUI dark) is in the
@@ -155,8 +172,11 @@ the app runs; part of the human's checklist).
 - Write a small Rust test or binary that does the sampling and the box
   comparison so it is repeatable; boxes may come from GPUI debug bounds.
 - Fail means: no-go if tokens cannot be applied to gpui-kit's controls
-  without forking it; geometry misses of more than 2 px are listed with
-  their cause, for the human (similar vs exact is their call).
+  without forking it. A sampled colour off by more than ±1, or a box off by
+  more than ~2 px, fails B6 (the human set this tolerance); list each miss
+  with its cause and the fix it would need, so the human can judge whether
+  it is fixable in the migration. Differences in text rendering alone never
+  fail B6.
 
 **B7 — Screenshot to PNG, unattended.** A command,
 `fm-spike --shoot <dir> [--dark]`, opens the B6 screen with fixture data
@@ -171,12 +191,13 @@ others were not needed or failed:
    `PW_RENDERFULLCONTENT`, or Windows.Graphics.Capture, or a read-back of
    the DirectX swap chain), encoded with a pure-Rust PNG encoder;
 3. screen capture cropped to the window rectangle (last resort).
-- Pass: on `windows-latest` the command produces the PNGs in CI, two
+- Pass: on `windows-2025` the command produces the PNGs in CI, two
   consecutive runs produce byte-identical images (or report the exact
   pixel difference), uploaded as artifacts; the human confirms it also
-  works on their Windows machine, including at a display scale other than
+  works on their Windows 11 machine, including at a display scale other than
   100% (does the PNG come out at scale 1? If not, record it).
-- Record which fonts were used (is Cascadia Mono present on the runner?
+- Record which fonts were used (is Cascadia Mono present on the
+  `windows-2025` runner, and on the human's Windows 11 machine?
   if not, what fell back) and whether embedding the font would make
   output identical across machines.
 - Fail means: CI-only failure with local success is PARTIAL (the human
@@ -192,13 +213,15 @@ developer mode) can be bound and toggles a flag. Pass: reported.
 
 Finish `spike/gpui/REPORT.md`:
 
-1. **Versions:** `gpui-component`, GPUI snapshot, Rust, Windows runner
-   image.
+1. **Versions:** `gpui-component`, GPUI snapshot, Rust, the CI runner image
+   (`windows-2025` and its image version), and the Windows 11 edition,
+   version and build the human's checklist ran on.
 2. **Results table:** every item A1–A10 and B1–B8 with PASS / FAIL /
    PARTIAL / NEEDS-HUMAN, a one-line evidence pointer, and whether it is
    Hard or Soft per this classification: Hard = A1, A2, A3, A4, A6, A7,
-   A10, B1, B2, B3, B4, B6, B7; Soft = A5, A8, A9, B5, B8.
-3. **Measurements:** exe size, build times, test durations, dependency
+   A10, B1, B2, B3, B4, B6, B7; Soft = A5, A8 (report only, no
+   thresholds), A9, B5, B8.
+3. **Measurements (report only, no thresholds):** exe size, build times, test durations, dependency
    count, licenses, `#[expect]` count, lines of custom widget code.
 4. **Gaps found:** every place GPUI or gpui-kit could not do what today's
    UI does, with the workaround used or proposed and its cost.

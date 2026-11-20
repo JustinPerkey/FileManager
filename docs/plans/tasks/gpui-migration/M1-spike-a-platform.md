@@ -1,6 +1,7 @@
 # M1a — Spike, part A: GPUI exe, platform integration, headless tests
 
-Status: awaiting approval
+Status: awaiting approval (revised 2026-11-20: the human's answers on spike
+location, size/build time, and minimum Windows version are folded in)
 Project: gpui-migration   Depends on: none
 
 ## Goal
@@ -20,6 +21,20 @@ npm. Before any migration work, a time-boxed, throwaway spike must answer the
 unknowns. This task is part A (build and platform). Part B (widgets, theme,
 screenshots, and the final report) runs after it on the same branch and
 extends the same spike app. This task writes no production code.
+
+### The human's decisions that bind the spike
+
+- **Location:** a new branch `spike/gpui-migration` with a standalone
+  `spike/gpui/` workspace and its own workflow, never merged to `main`.
+  Committing to and **pushing that branch is approved** (CI must run there).
+  Do not push any other branch.
+- **Windows 11 only.** Windows 10 is not a target: write no Windows 10
+  fallbacks, and where an API needs Windows 11 that is acceptable (record
+  it). GitHub has no hosted x64 Windows 11 client image, so CI runs on a
+  runner **pinned to `windows-2025`** (Windows Server 2025, which shares the
+  Windows 11 24H2 code base), never on the moving `windows-2025` label.
+  The human runs the manual checklist on Windows 11.
+- **Exe size and build time have no limit.** Measure and report them only.
 
 ### Known facts to start from (fetched 2026-11-19; verify, do not trust)
 
@@ -135,7 +150,9 @@ run is quick and its results are recorded:
   in the window (paths received, `{:?}` of each `PathBuf`, booleans) and
   appends it to `fm-spike-results.txt` beside the exe.
 - `spike/gpui/CHECKLIST.md`: numbered steps per manual item, each with the
-  expected outcome and a blank result line (PASS / FAIL / note), plus
+  expected outcome and a blank result line (PASS / FAIL / note), run on
+  **Windows 11**; its header asks for the edition, version and build
+  (`winver`) and the display scale of the test machine; plus
   instructions to create the lone-surrogate test file (a PowerShell
   one-liner using `[char]0xD800` in the name).
 
@@ -145,7 +162,14 @@ For each: **Pass** is the criterion; **Evidence** is what goes in the report;
 **Fail means** is the consequence for the migration.
 
 **A1 — Portable exe with a static C runtime.** `cargo build --release` of
-`fm-spike` on `windows-latest`.
+`fm-spike` on `windows-2025`. Embed an application manifest from `build.rs`
+with a resource compiler crate (no runtime DLL), unless GPUI already embeds
+one (record which): `supportedOS` Windows 10/11 (the one GUID Windows 11
+uses, `{8e0f7a12-bfb3-4fe8-b9a5-1d49d3a3d0bd}`), per-monitor-v2 DPI
+awareness if GPUI does not set it at runtime, and the app icon from
+`apps/desktop/src-tauri/icons/icon.ico`. Windows has no manifest field that
+refuses Windows 10; the Windows 11 minimum is a support policy, not a load
+check. Record any API the spike uses that exists only on Windows 11.
 - Pass: the dumpbin step (verbatim copy, pointed at
   `spike/gpui/target/release/fm-spike.exe`) passes, and every DLL
   `dumpbin /dependents` lists is a Windows system DLL (for example
@@ -207,7 +231,7 @@ app; reveal a file in Explorer.
   with simulated keystrokes and assert the input's value; click a button
   (by debug selector or bounds) and assert the handler ran;
 - a drop-routing test (from A3) and, if possible, a close-hold test (A4).
-- Pass: `cargo test` in `spike/gpui` passes on `windows-latest` three runs
+- Pass: `cargo test` in `spike/gpui` passes on `windows-2025` three runs
   in a row (use a job matrix or `workflow_dispatch` reruns) with no GPU.
 - Evidence: test names, run links, duration.
 - Fail means: no-go; behaviour parity for ~395 ported frontend tests relies
@@ -228,19 +252,18 @@ shows "changed on disk" in the window.
 - Fail means: no-go; builds and pipeline steps are long.
 
 **A8 — Size, build time, toolchain, licenses.**
-- Measure on `windows-latest`: release exe size (bytes); clean release build
+- Report only: the human set **no limit** on size or build time. Measure on
+  `windows-2025`: release exe size (bytes); clean release build
   wall time (no cache); cached release build time; debug build time after
   touching one view file. Record `rustc -V`, the minimum Rust version
   GPUI/gpui-kit need (their `rust-version`/edition) against the repo's
   `rust-version = "1.90"`, and the number of crates in the lock file.
 - Licenses: list every dependency license (`cargo metadata` script or
   `cargo-license` installed in CI); flag any GPL, AGPL or LGPL.
-- Pass: measured and reported; no copyleft dependency. Size and time have
-  no hard threshold here; the human's proposed ceilings are exe ≤ 50 MB,
-  clean CI release build ≤ 30 min, incremental debug rebuild ≤ 60 s. Report
-  against them.
-- Fail means: a copyleft dependency is no-go unless replaceable; size and
-  time are the human's call.
+- Pass: every number measured and reported; no copyleft dependency. There
+  are no size or time thresholds.
+- Fail means: a copyleft dependency is no-go unless replaceable. Size and
+  time cannot fail this item.
 
 **A9 — Linux build.** A non-blocking linux job (`continue-on-error: true`):
 try `cargo build` and `cargo test` of `spike/gpui`.
@@ -317,9 +340,12 @@ Named tests (rename to fit, keep the meaning): `job_finishes_on_main_thread`,
 
 ## Risks
 
-- `windows-latest` has no GPU: GPUI's DirectX renderer must start on WARP
+- `windows-2025` has no GPU: GPUI's DirectX renderer must start on WARP
   for `--self-check` and real-window work. If it does not, record it; it
   decides whether part B's screenshots can run in CI.
+- `windows-2025` is a server SKU: Explorer drag, theme switching and
+  bundled fonts may differ from Windows 11 client; only the manual
+  checklist proves client behaviour.
 - GitHub's Windows runner may not give a GUI app a usable desktop session;
   record what `--self-check` does there.
 - `gpui-pre` may need a newer Rust than the repo's `rust-version`; record it
