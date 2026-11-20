@@ -132,7 +132,11 @@ Result lines: write `PASS`, `FAIL`, or a note.
 
 ## Wrap-up
 
-28. Rendering: note any flicker, blur, wrong DPI scaling, or slow redraw while
+28. Icon: the exe's icon in Explorer and the window's taskbar button show the
+    FileManager icon (CI cannot check this; the build script embeds
+    `icon.ico` as resource id 1, where GPUI looks for it).
+    Result: ______
+29. Rendering: note any flicker, blur, wrong DPI scaling, or slow redraw while
     resizing the window.
     Result: ______
-29. Attach `fm-spike-results.txt` (beside the exe) with this file.
+30. Attach `fm-spike-results.txt` (beside the exe) with this file.
