@@ -1,0 +1,152 @@
+# Throwaway: GPUI migration spike, part A. Lives on spike/gpui-migration only.
+name: spike-gpui
+
+on:
+  push:
+    branches: [spike/gpui-migration]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: spike/gpui
+
+jobs:
+  windows:
+    # Pinned, never the moving windows-latest: Windows Server 2025 shares the
+    # Windows 11 24H2 code base. Windows 11 client has no hosted x64 image.
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: clippy
+      # No cache action on purpose: the first release build is the clean timing.
+      - name: Toolchain
+        shell: pwsh
+        run: |
+          rustc -V
+          cargo -V
+          (Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber | Format-List | Out-String)
+          (Get-CimInstance Win32_VideoController | Select-Object Name | Format-List | Out-String)
+      - name: clippy (pedantic, -D warnings)
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: cargo test, three runs in a row
+        shell: pwsh
+        run: |
+          foreach ($i in 1..3) {
+            $t = Measure-Command { cargo test --locked 2>&1 | Tee-Object -FilePath "test-run-$i.txt" | Out-Host }
+            if ($LASTEXITCODE -ne 0) { Write-Error "cargo test run $i failed"; exit 1 }
+            "test run $i : $([math]::Round($t.TotalSeconds,1)) s" | Tee-Object -Append timings.txt
+          }
+      - name: Release build (clean, LTO + codegen-units=1)
+        shell: pwsh
+        run: |
+          $t = Measure-Command { cargo build --release --locked 2>&1 | Out-Host }
+          if ($LASTEXITCODE -ne 0) { Write-Error "release build failed"; exit 1 }
+          "release build, clean (no cache), LTO: $([math]::Round($t.TotalSeconds,1)) s" | Tee-Object -Append timings.txt
+          "release exe size: $((Get-Item target\release\fm-spike.exe).Length) bytes" | Tee-Object -Append timings.txt
+      - name: Release rebuild after touching one view file ("cached")
+        shell: pwsh
+        run: |
+          (Get-Item src\app.rs).LastWriteTime = Get-Date
+          $t = Measure-Command { cargo build --release --locked 2>&1 | Out-Host }
+          "release rebuild after touching app.rs (deps built): $([math]::Round($t.TotalSeconds,1)) s" | Tee-Object -Append timings.txt
+      - name: Debug build, then rebuild after touching one view file
+        shell: pwsh
+        run: |
+          $t = Measure-Command { cargo build --locked 2>&1 | Out-Host }
+          "debug build, deps from scratch: $([math]::Round($t.TotalSeconds,1)) s" | Tee-Object -Append timings.txt
+          (Get-Item src\app.rs).LastWriteTime = Get-Date
+          $t = Measure-Command { cargo build --locked 2>&1 | Out-Host }
+          "debug rebuild after touching app.rs: $([math]::Round($t.TotalSeconds,1)) s" | Tee-Object -Append timings.txt
+      - name: Release build without LTO (time only)
+        shell: pwsh
+        run: |
+          $t = Measure-Command { cargo build --release --locked --target-dir target-nolto --config "profile.release.lto=false" --config "profile.release.codegen-units=16" 2>&1 | Out-Host }
+          "release build, clean, no LTO, 16 CGUs: $([math]::Round($t.TotalSeconds,1)) s" | Tee-Object -Append timings.txt
+          "no-LTO exe size: $((Get-Item target-nolto\release\fm-spike.exe).Length) bytes" | Tee-Object -Append timings.txt
+      - name: Exe must import no C runtime, zstd, liblzma, sqlite3, or WebView2Loader DLL
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          if (-not $dumpbin) { Write-Error "dumpbin.exe not found"; exit 1 }
+          $out = (& $dumpbin /dependents target\release\fm-spike.exe | Out-String)
+          Write-Host $out
+          $out | Out-File -Encoding utf8 dumpbin-dependents.txt
+          if ($LASTEXITCODE -ne 0) { Write-Error "dumpbin failed"; exit 1 }
+          if ($out -notmatch '(?i)KERNEL32\.dll') { Write-Error "dumpbin output looks wrong"; exit 1 }
+          $bad = [regex]::Matches($out, '(?im)^\s*(vcruntime\S*\.dll|msvcp\S*\.dll|api-ms-win-crt-\S*|zstd\S*\.dll|liblzma\S*\.dll|sqlite3\S*\.dll|WebView2Loader\.dll)\s*$')
+          if ($bad.Count -gt 0) {
+            Write-Error ("Forbidden dependencies: " + (($bad | ForEach-Object { $_.Value.Trim() }) -join ', '))
+            exit 1
+          }
+      - name: Every imported DLL is a Windows system DLL (and the delay-load list)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          $deps = (& $dumpbin /dependents target\release\fm-spike.exe | Out-String)
+          $names = [regex]::Matches($deps, '(?im)^\s+(\S+\.dll)\s*$') | ForEach-Object { $_.Groups[1].Value }
+          $names | Sort-Object -Unique | Tee-Object -FilePath dlls.txt
+          foreach ($n in $names) {
+            $found = (Test-Path "$env:WINDIR\System32\$n") -or ($n -like 'api-ms-win-*')
+            if (-not $found) { Write-Warning "NOT a System32 DLL: $n" }
+          }
+          "--- delay-load imports ---"
+          & $dumpbin /imports target\release\fm-spike.exe | Select-String -Pattern 'Section contains|\.dll$' | Out-Host
+          "--- d3dcompiler in strings? ---"
+          Select-String -Path target\release\fm-spike.exe -Pattern 'd3dcompiler' -SimpleMatch -Quiet | Out-Host
+      - name: Self-check from an empty folder
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'only-the-exe'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item target\release\fm-spike.exe $dir
+          $p = Start-Process -FilePath "$dir\fm-spike.exe" -ArgumentList '--self-check' -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); Write-Host "self-check TIMED OUT"; $code = 124 } else { $code = $p.ExitCode }
+          "self-check exit code: $code" | Tee-Object -Append timings.txt
+          if (Test-Path "$dir\fm-spike-results.txt") { Get-Content "$dir\fm-spike-results.txt" | Tee-Object -FilePath self-check-results.txt }
+          else { Write-Host "no results file written" }
+          Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='Application Error'; StartTime=(Get-Date).AddMinutes(-5)} -ErrorAction SilentlyContinue | Select-Object -First 3 | Format-List | Out-Host
+          if ($code -ne 0) { exit $code }
+      - name: Licenses, crate count, rust-version needs
+        shell: pwsh
+        run: |
+          cargo metadata --format-version 1 --locked | python ci/licenses.py | Tee-Object -FilePath licenses.txt
+          "crates in Cargo.lock: $((Select-String -Path Cargo.lock -Pattern '^name = ' | Measure-Object).Count)" | Tee-Object -Append licenses.txt
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: |
+          & { foreach ($f in 'timings.txt','licenses.txt','dlls.txt') { if (Test-Path $f) { "### $f"; '```'; Get-Content $f; '```' } } } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      - name: Stage artifacts
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifact | Out-Null
+          Copy-Item target\release\fm-spike.exe artifact\ -ErrorAction SilentlyContinue
+          foreach ($f in 'timings.txt','licenses.txt','dlls.txt','dumpbin-dependents.txt','self-check-results.txt','test-run-1.txt','test-run-2.txt','test-run-3.txt') { if (Test-Path $f) { Copy-Item $f artifact\ } }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fm-spike
+          path: spike/gpui/artifact/
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo build --locked
+      - run: cargo test --locked

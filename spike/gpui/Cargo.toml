@@ -1,0 +1,51 @@
+# Throwaway spike (branch spike/gpui-migration, never merged to main).
+# Standalone workspace: the root workspace and its Cargo.lock stay untouched.
+[workspace]
+members = ["."]
+resolver = "2"
+
+[package]
+name = "fm-spike"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+rust-version = "1.90"
+
+[[bin]]
+name = "fm-spike"
+path = "src/main.rs"
+
+[dependencies]
+fm-core = { path = "../../crates/fm-core" }
+fm-dbmanager = { path = "../../crates/fm-dbmanager" }
+fm-pipeline = { path = "../../crates/fm-pipeline" }
+fm-schedule = { path = "../../crates/fm-schedule" }
+fm-tarpack = { path = "../../crates/fm-tarpack" }
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false }
+gpui-component = "=0.10.0"
+async-channel = "2"
+notify-debouncer-mini = "0.7.0"
+tempfile = "3"
+
+[dev-dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
+gpui-component = { version = "=0.10.0" }
+
+[target.'cfg(windows)'.dependencies]
+# Fallback for what GPUI's dialogs lack (save filter) and to compare path fidelity.
+rfd = { version = "0.18", default-features = false }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+[lints]
+workspace = true
