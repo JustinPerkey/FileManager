@@ -169,7 +169,9 @@ fn m2m_options_link_values() {
 
 #[test]
 fn link_version_tracks_junction_row() {
-    let toml = EXAMPLE.replace(
+    // Windows checkouts give the example CRLF line endings; the multi-line
+    // pattern below is written with \n, so normalise first.
+    let toml = EXAMPLE.replace("\r\n", "\n").replace(
         "[tables.contribution.fields.position]\nmin = 1\nmax = 99",
         "[tables.contribution.fields.position]\nmode = \"hidden\"",
     );
