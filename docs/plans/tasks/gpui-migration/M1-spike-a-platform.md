@@ -1,6 +1,6 @@
 # M1a — Spike, part A: GPUI exe, platform integration, headless tests
 
-Status: awaiting approval (revised 2026-11-20: the human's answers on spike
+Status: approved (2026-11-20; revised 2026-11-20: the human's answers on spike
 location, size/build time, and minimum Windows version are folded in)
 Project: gpui-migration   Depends on: none
 
