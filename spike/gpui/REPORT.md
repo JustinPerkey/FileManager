@@ -227,7 +227,7 @@ blocking the event loop.
 
 ## A8 - Size, build time, toolchain, licenses: PASS (report only)
 
-On `windows-2025` (rustc 1.100.0, 4-core standard runner):
+On `windows-2025` (rustc 1.100.0, GitHub-hosted runner; core count not recorded):
 
 | Measure | Value |
 | --- | --- |
@@ -262,7 +262,7 @@ clippy 2 m 04 s, debug build 2 m 11 s, test compile 60 s.
 `ubuntu-latest` (a non-blocking job): `cargo fmt --check`, clippy,
 `cargo build` and `cargo test` all pass **with no apt packages installed**
 (the runner's default image only). The Linux `gpui-pre-linux` backend compiles
-without webkit/gtk dev packages (X11/Wayland by dlopen). The 12 tests run on
+without webkit/gtk dev packages. The 12 tests run on
 the headless test platform. Not tested: running a Linux window.
 
 ## A10 - clippy pedantic: PASS with 3 scoped `#[expect]`s
