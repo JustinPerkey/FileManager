@@ -475,6 +475,15 @@ non-hidden **text** column named `name`, `title` or `label`
 #<key>"`, where `<key>` is the rowid or the primary-key values joined by
 `, `. A label that renders empty also falls back to `"<display name> #<key>"`.
 
+**Hidden identity.** If any identity column of the table is hidden (a hidden
+`INTEGER PRIMARY KEY` alias, or a hidden primary-key column of a `WITHOUT
+ROWID` table), the fallback is the display name alone, so the hidden value
+never shows. A rowid table without an alias column always shows its rowid,
+which cannot be hidden. Give any table whose id is hidden a `label`, or its
+objects all look alike in lists. Hiding a key column does not hide copies of
+its value in other tables: a foreign key column that references it shows the
+value unless that column is hidden too.
+
 Search in a table's object list matches the label's non-duration columns
 (substring, case-insensitive for ASCII). A table whose label has no such
 columns is not searchable.

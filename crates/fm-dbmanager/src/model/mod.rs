@@ -53,6 +53,13 @@ impl Model {
         self.tables.iter().flatten().find(|t| t.name == name)
     }
 
+    /// The resolved table at `schema_index` in `Schema::tables`; `None` when
+    /// it is hidden or not listed.
+    #[must_use]
+    pub fn table_at(&self, schema_index: usize) -> Option<&ResolvedTable> {
+        self.tables.get(schema_index)?.as_ref()
+    }
+
     /// Every resolved table, in schema order.
     pub fn tables(&self) -> impl Iterator<Item = &ResolvedTable> {
         self.tables.iter().flatten()

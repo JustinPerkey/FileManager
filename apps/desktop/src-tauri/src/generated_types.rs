@@ -50,6 +50,14 @@ const EXPORTERS: &[Exporter] = &[
     <fm_dbmanager::config::RelationMode as ts_rs::TS>::export_all,
     <fm_dbmanager::config::DurationUnit as ts_rs::TS>::export_all,
     <fm_dbmanager::model::TableView as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::ObjectKey as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::ListQuery as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::ReferencingFilter as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::ObjectPage as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::ObjectView as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::M2mQuery as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::M2mPage as ts_rs::TS>::export_all,
+    <fm_dbmanager::config::ConfigStatus as ts_rs::TS>::export_all,
 ];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");

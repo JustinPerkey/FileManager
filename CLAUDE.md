@@ -49,7 +49,11 @@ crates/
   fm-core/                    shared, tool-agnostic library. No tauri dependency.
   fm-dbmanager/               Database Manager domain library. Depends on fm-core only.
                               No tauri dependency. `db.rs` opens a SQLite file;
-                              `state.rs` is the recent list, persisted as dbmanager/state
+                              `state.rs` is the recent list, persisted as dbmanager/state;
+                              `config/load.rs` reads the one config file (LoadedConfig);
+                              `src/session/` is Session: reads (list, object, m2m_options),
+                              schema/config change detection; `session/sql.rs` is the only
+                              module that assembles SQL text
     src/value.rs              DbValue (boundary value; integers, reals, durations as strings)
     src/rules/                FieldRule/FieldKind/FieldIssue types, pure validate, and
                               duration.rs (the duration grammar, parse, format; config

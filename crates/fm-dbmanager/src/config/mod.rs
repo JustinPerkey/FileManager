@@ -3,12 +3,14 @@
 //! This module parses and checks what the config text alone can show; the
 //! reference is `docs/dbmanager-config.md`.
 
+mod load;
 mod model;
 mod raw;
 mod validate;
 
 use toml::de::{DeTable, DeValue};
 
+pub use load::{ConfigStatus, LoadedConfig};
 pub use model::{
     AllowedValues, At, Bound, Config, ConfigDiagnostic, Defaults, DiagnosticSeverity, DurationUnit,
     FieldConfig, FieldEntry, FieldMode, FieldType, Heading, LabelPart, LabelTemplate, Located,
