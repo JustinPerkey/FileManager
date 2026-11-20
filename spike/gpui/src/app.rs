@@ -637,51 +637,53 @@ pub fn run(self_check: bool) -> i32 {
     let failed = std::rc::Rc::new(std::cell::Cell::new(false));
     let failed_in = failed.clone();
     let results_in = results.clone();
-    gpui_platform::application().run(move |cx: &mut App| {
-        gpui_component::init(cx);
-        cx.on_window_closed(|cx, _| {
-            if cx.windows().is_empty() {
-                cx.quit();
-            }
-        })
-        .detach();
-        let bounds = Bounds::centered(None, size(px(1000.0), px(700.0)), cx);
-        let opened = cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(800.0), px(560.0))),
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("FileManager".into()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            |window, cx| {
-                let results = results_in.clone();
-                let view = cx.new(|cx| CheckScreen::new(Some(results), window, cx));
-                cx.new(|cx| Root::new(view, window, cx))
-            },
-        );
-        if let Err(e) = opened {
-            results::append(&results_in, &format!("open_window FAILED: {e:#}"));
-            failed_in.set(true);
-            cx.quit();
-            return;
-        }
-        if self_check {
-            results::append(
-                &results_in,
-                "self-check: window opened and rendered one frame",
-            );
-            cx.spawn(async move |cx| {
-                cx.background_executor()
-                    .timer(Duration::from_millis(500))
-                    .await;
-                cx.update(|cx| cx.quit());
+    gpui_platform::application()
+        .with_assets(crate::assets::Assets)
+        .run(move |cx: &mut App| {
+            gpui_component::init(cx);
+            cx.on_window_closed(|cx, _| {
+                if cx.windows().is_empty() {
+                    cx.quit();
+                }
             })
             .detach();
-        }
-    });
+            let bounds = Bounds::centered(None, size(px(1000.0), px(700.0)), cx);
+            let opened = cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_min_size: Some(size(px(800.0), px(560.0))),
+                    titlebar: Some(gpui::TitlebarOptions {
+                        title: Some("FileManager".into()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                |window, cx| {
+                    let results = results_in.clone();
+                    let view = cx.new(|cx| CheckScreen::new(Some(results), window, cx));
+                    cx.new(|cx| Root::new(view, window, cx))
+                },
+            );
+            if let Err(e) = opened {
+                results::append(&results_in, &format!("open_window FAILED: {e:#}"));
+                failed_in.set(true);
+                cx.quit();
+                return;
+            }
+            if self_check {
+                results::append(
+                    &results_in,
+                    "self-check: window opened and rendered one frame",
+                );
+                cx.spawn(async move |cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(500))
+                        .await;
+                    cx.update(|cx| cx.quit());
+                })
+                .detach();
+            }
+        });
     i32::from(failed.get())
 }
 

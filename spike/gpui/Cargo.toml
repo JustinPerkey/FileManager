@@ -16,6 +16,11 @@ rust-version = "1.90"
 name = "fm-spike"
 path = "src/main.rs"
 
+[features]
+# B7: GPUI's `Window::render_to_image` sits behind its `test-support` feature.
+default = ["shoot"]
+shoot = ["gpui/test-support", "gpui_platform/test-support"]
+
 [dependencies]
 fm-core = { path = "../../crates/fm-core" }
 fm-dbmanager = { path = "../../crates/fm-dbmanager" }
@@ -25,9 +30,11 @@ fm-tarpack = { path = "../../crates/fm-tarpack" }
 gpui = { package = "gpui-pre", version = "=0.3.12" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false }
 gpui-component = "=0.10.0"
+gpui-kit-assets = "=0.10.0"
 async-channel = "2"
 notify-debouncer-mini = "0.7.0"
 tempfile = "3"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }

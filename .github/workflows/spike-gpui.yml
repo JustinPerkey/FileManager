@@ -29,6 +29,8 @@ jobs:
           cargo -V
           (Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber | Format-List | Out-String)
           (Get-CimInstance Win32_VideoController | Select-Object Name | Format-List | Out-String)
+      - name: cargo fmt
+        run: cargo fmt --all --check
       - name: clippy (pedantic, -D warnings)
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: cargo test, three runs in a row
@@ -135,6 +137,82 @@ jobs:
         with:
           name: fm-spike
           path: spike/gpui/artifact/
+          if-no-files-found: error
+
+  # B7: unattended screenshots. Its own job (with a build cache, because the
+  # clean-build timings belong to the job above) so it can be iterated on.
+  shoot:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spike/gpui
+      - name: Release build
+        run: cargo build --release --locked
+      - name: Machine
+        shell: pwsh
+        run: |
+          (Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber | Format-List | Out-String)
+          (Get-CimInstance Win32_VideoController | Select-Object Name, CurrentHorizontalResolution, CurrentVerticalResolution | Format-List | Out-String)
+          Add-Type -AssemblyName System.Drawing
+          "Cascadia Mono installed: " + ((New-Object System.Drawing.Text.InstalledFontCollection).Families.Name -contains 'Cascadia Mono')
+          "Consolas installed: " + ((New-Object System.Drawing.Text.InstalledFontCollection).Families.Name -contains 'Consolas')
+          "Segoe UI installed: " + ((New-Object System.Drawing.Text.InstalledFontCollection).Families.Name -contains 'Segoe UI')
+      - name: Shoot, twice per theme
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path target\release\fm-spike.exe).Path
+          function Run($arguments) {
+            $p = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru -Wait
+            return $p.ExitCode
+          }
+          $fail = 0
+          foreach ($run in 'run1','run2') {
+            New-Item -ItemType Directory -Force "shots\$run" | Out-Null
+            $fail += [int](Run "--shoot shots\$run")
+            $fail += [int](Run "--shoot shots\$run --dark")
+            Get-ChildItem "shots\$run" | Format-Table Name, Length | Out-String | Write-Host
+            Get-Content "shots\$run\*.shoot-result.txt" | Write-Host
+          }
+          if ($fail -ne 0) { Write-Error "a shoot run failed"; exit 1 }
+      - name: Two consecutive runs are byte-identical?
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path target\release\fm-spike.exe).Path
+          foreach ($n in 'pipeline-chosen','pipeline-chosen-dark') {
+            $a = (Get-FileHash "shots\run1\$n.png").Hash
+            $b = (Get-FileHash "shots\run2\$n.png").Hash
+            "$n : run1 $a run2 $b" | Tee-Object -Append shots\determinism.txt
+            if ($a -eq $b) { "$n : byte-identical" | Tee-Object -Append shots\determinism.txt }
+            else {
+              $p = Start-Process -FilePath $exe -ArgumentList "--diff shots\run1\$n.png shots\run2\$n.png shots\diff-$n.txt" -PassThru -Wait
+              "$n : DIFFERENT: " + (Get-Content "shots\diff-$n.txt") | Tee-Object -Append shots\determinism.txt
+            }
+          }
+      - name: Colour and geometry check against the reference image
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path target\release\fm-spike.exe).Path
+          $ref = (Resolve-Path ..\..\docs\manual\images\pipeline-chosen.png).Path
+          $p = Start-Process -FilePath $exe -ArgumentList "--verify shots\run1 $ref" -PassThru -Wait
+          Get-Content shots\run1\check-result.txt | Write-Host
+          "check exit code: $($p.ExitCode)" | Tee-Object -Append shots\determinism.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: |
+          & { foreach ($f in 'shots\determinism.txt','shots\run1\check-result.txt','shots\run1\pipeline-chosen.shoot-result.txt') { if (Test-Path $f) { "### $f"; '```'; Get-Content $f; '```' } } } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fm-spike-shots
+          path: spike/gpui/shots/
           if-no-files-found: error
 
   linux:
