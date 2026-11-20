@@ -165,7 +165,7 @@ For each: **Pass** is the criterion; **Evidence** is what goes in the report;
 `fm-spike` on `windows-2025`. Embed an application manifest from `build.rs`
 with a resource compiler crate (no runtime DLL), unless GPUI already embeds
 one (record which): `supportedOS` Windows 10/11 (the one GUID Windows 11
-uses, `{8e0f7a12-bfb3-4fe8-b9a5-1d49d3a3d0bd}`), per-monitor-v2 DPI
+uses, `{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}`), per-monitor-v2 DPI
 awareness if GPUI does not set it at runtime, and the app icon from
 `apps/desktop/src-tauri/icons/icon.ico`. Windows has no manifest field that
 refuses Windows 10; the Windows 11 minimum is a support policy, not a load
