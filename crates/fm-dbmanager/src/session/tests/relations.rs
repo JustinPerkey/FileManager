@@ -171,11 +171,12 @@ fn m2m_options_link_values() {
 fn link_version_tracks_junction_row() {
     // Windows checkouts give the example CRLF line endings; the multi-line
     // pattern below is written with \n, so normalise first.
-    let toml = EXAMPLE.replace("\r\n", "\n").replace(
+    let base = EXAMPLE.replace("\r\n", "\n");
+    let toml = base.replace(
         "[tables.contribution.fields.position]\nmin = 1\nmax = 99",
         "[tables.contribution.fields.position]\nmode = \"hidden\"",
     );
-    assert_ne!(toml, EXAMPLE);
+    assert_ne!(toml, base);
     let fx = Fixture::new(SCHEMA, Some(&toml));
     let fetch = |fx: &Fixture| {
         let page = fx
