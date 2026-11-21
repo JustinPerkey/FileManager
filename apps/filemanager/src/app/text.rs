@@ -13,3 +13,6 @@ pub const PICK_FAILED: &str = "The file dialog could not be shown. See Details."
 
 /// Shown when a dropped name could not be delivered by the OS drop.
 pub const DROPPED_NAMES_UNREADABLE: &str = "Some dropped items could not be read: their names are not valid Unicode. Rename them and drop them again.";
+
+/// Shown on the drop overlay while a dialog or sheet is open: the drop is refused.
+pub const DROP_BLOCKED_BY_DIALOG: &str = "Close the open dialog to drop files.";

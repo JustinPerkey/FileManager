@@ -8,10 +8,12 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use gpui::{
-    div, AnyView, App, AppContext as _, Context, DragMoveEvent, Entity, ExternalPaths,
-    FileDropEvent, Global, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    Styled as _, Task, Window,
+    canvas, div, AnyView, App, AppContext as _, Context, DispatchPhase, DragMoveEvent, Entity,
+    ExternalPaths, FileDropEvent, Global, InteractiveElement as _, IntoElement, MouseUpEvent,
+    ParentElement as _, Render, Styled as _, Task, Window,
 };
+
+use gpui_component::WindowExt as _;
 
 use crate::app::drop::DropTarget;
 use crate::app::guard::{self, CloseRequest};
@@ -115,7 +117,7 @@ impl Shell {
         };
         self.current = id;
         slot.hooks.activated(window, cx);
-        self.refresh_drag_over(cx);
+        self.refresh_drag_over(window, cx);
         cx.notify();
     }
 
@@ -206,16 +208,28 @@ impl Shell {
         false
     }
 
-    fn current_target(&self, cx: &App) -> DropTarget {
-        self.tools
+    /// What the current tool's target is right now. While a modal layer
+    /// (dialog or sheet) is open a drop is refused, so an existing target
+    /// reads as disabled with the reason.
+    fn current_target(&self, window: &mut Window, cx: &mut App) -> DropTarget {
+        let target = self
+            .tools
             .iter()
             .find(|s| s.id == self.current)
-            .map_or(DropTarget::None, |s| s.hooks.drop_target(cx))
+            .map_or(DropTarget::None, |s| s.hooks.drop_target(cx));
+        if target != DropTarget::None
+            && (window.has_active_dialog(cx) || window.has_active_sheet(cx))
+        {
+            return DropTarget::Disabled {
+                reason: text::DROP_BLOCKED_BY_DIALOG.into(),
+            };
+        }
+        target
     }
 
-    fn refresh_drag_over(&mut self, cx: &mut Context<Self>) {
+    fn refresh_drag_over(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let next = if self.file_drag {
-            match self.current_target(cx) {
+            match self.current_target(window, cx) {
                 DropTarget::None => None,
                 target => Some(target),
             }
@@ -228,28 +242,27 @@ impl Shell {
         }
     }
 
-    fn drag_entered(&mut self, cx: &mut Context<Self>) {
+    fn drag_entered(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.file_drag {
             self.file_drag = true;
             self.coalescer.drag_started();
         }
-        self.refresh_drag_over(cx);
+        self.refresh_drag_over(window, cx);
     }
 
-    fn drag_left(&mut self, cx: &mut Context<Self>) {
+    /// The drag ended (left the window, or was dropped, accepted or not).
+    fn drag_left(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.file_drag {
             self.file_drag = false;
             self.coalescer.drag_ended(Instant::now());
         }
-        self.refresh_drag_over(cx);
+        self.refresh_drag_over(window, cx);
     }
 
     fn drop_paths(&mut self, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
-        self.drag_left(cx);
-        if paths.is_empty() {
-            return;
-        }
-        if !matches!(self.current_target(cx), DropTarget::Enabled { .. }) {
+        let target = self.current_target(window, cx);
+        self.drag_left(window, cx);
+        if paths.is_empty() || !matches!(target, DropTarget::Enabled { .. }) {
             return;
         }
         if let Some(slot) = self.tools.iter().find(|s| s.id == self.current) {
@@ -267,17 +280,49 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The end of a drag is tracked by window-level capture listeners, not
+        // element listeners: an element only hears events while its hitbox is
+        // hovered, and a dialog, sheet or popover above the Shell takes that
+        // away. The element listeners below only deliver the drop itself.
+        let weak = cx.entity().downgrade();
+        let tracker = canvas(
+            |_, _, _| (),
+            move |_, (), window, _cx| {
+                let on_exit = weak.clone();
+                window.on_mouse_event(move |event: &FileDropEvent, phase, window, cx| {
+                    if phase == DispatchPhase::Capture
+                        && matches!(event, FileDropEvent::Exited | FileDropEvent::Ended)
+                    {
+                        on_exit
+                            .update(cx, |shell, cx| shell.drag_left(window, cx))
+                            .ok();
+                    }
+                });
+                let on_up = weak.clone();
+                window.on_mouse_event(move |_: &MouseUpEvent, phase, window, cx| {
+                    if phase == DispatchPhase::Capture {
+                        on_up
+                            .update(cx, |shell, cx| {
+                                if shell.file_drag {
+                                    shell.drag_left(window, cx);
+                                }
+                            })
+                            .ok();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_full();
         let root = div()
             .key_context("Shell")
             .size_full()
+            .child(tracker)
             .on_drag_move(
-                cx.listener(|this, _: &DragMoveEvent<ExternalPaths>, _window, cx| {
-                    this.drag_entered(cx);
+                cx.listener(|this, _: &DragMoveEvent<ExternalPaths>, window, cx| {
+                    this.drag_entered(window, cx);
                 }),
             )
-            .on_file_drop_exit(cx.listener(|this, _: &FileDropEvent, _window, cx| {
-                this.drag_left(cx);
-            }))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
                 this.drop_paths(paths.paths().to_vec(), window, cx);
             }));
@@ -592,5 +637,70 @@ mod tests {
         tx.try_send(()).expect("open channel");
         cx.run_until_parked();
         assert_eq!(notice(cx), Some(ShellNotice::DroppedNamesUnreadable));
+    }
+
+    fn open_dialog(cx: &mut gpui::VisualTestContext) {
+        cx.update(|window, cx| {
+            window.open_dialog(cx, |dialog, _, _| dialog.title("A dialog"));
+        });
+        cx.run_until_parked();
+    }
+
+    /// With a dialog open: the overlay says refused, the end of the drag is
+    /// seen anyway, nothing is dropped, and the next path-loss notice is not
+    /// suppressed.
+    #[gpui::test]
+    fn dialog_open_drag_exit_clears_and_resets(cx: &mut TestAppContext) {
+        let (tx, rx) = async_channel::unbounded();
+        cx.update(|cx| cx.set_global(PathLossFeed(rx)));
+        let (states, build) = test_support::probes();
+        let (shell, cx) = open(cx, build);
+        states[0].borrow_mut().target = enabled();
+        open_dialog(cx);
+        cx.simulate_event(FileDropEvent::Entered {
+            position: inside(),
+            paths: external(&["C:\\drop\\a.txt"]),
+        });
+        assert!(matches!(
+            shell.read_with(cx, |s, _| s.drag_over().cloned()),
+            Some(DropTarget::Disabled { .. })
+        ));
+        tx.try_send(()).expect("open channel");
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |s, _| s.notice()).is_some());
+        shell.update(cx, Shell::dismiss_notice);
+        cx.simulate_event(FileDropEvent::Exited);
+        assert_eq!(shell.read_with(cx, |s, _| s.drag_over().cloned()), None);
+        // A new drag: the notice comes back.
+        cx.simulate_event(FileDropEvent::Entered {
+            position: inside(),
+            paths: external(&["C:\\drop\\b.txt"]),
+        });
+        tx.try_send(()).expect("open channel");
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |s, _| s.notice()).is_some());
+        assert_eq!(states[0].borrow().dropped.len(), 0);
+    }
+
+    #[gpui::test]
+    fn dialog_open_drop_is_refused_and_ends_the_drag(cx: &mut TestAppContext) {
+        let (tx, rx) = async_channel::unbounded();
+        cx.update(|cx| cx.set_global(PathLossFeed(rx)));
+        let (states, build) = test_support::probes();
+        let (shell, cx) = open(cx, build);
+        states[0].borrow_mut().target = enabled();
+        open_dialog(cx);
+        drop_on(cx, external(&["C:\\drop\\a.txt"]));
+        assert_eq!(shell.read_with(cx, |s, _| s.drag_over().cloned()), None);
+        assert_eq!(states[0].borrow().dropped.len(), 0);
+        // The drag is over: a path-loss signal after it is a new episode only
+        // once the coalescing second has passed, but a new drag resets it.
+        cx.simulate_event(FileDropEvent::Entered {
+            position: inside(),
+            paths: external(&["C:\\drop\\b.txt"]),
+        });
+        tx.try_send(()).expect("open channel");
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |s, _| s.notice()).is_some());
     }
 }

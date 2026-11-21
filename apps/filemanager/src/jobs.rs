@@ -6,6 +6,10 @@
 //! Both report a panic in the work as [`JobPanicked`] instead of taking the
 //! app down. [`Worker::run`] returns `Task<Result<R, JobPanicked>>` so the
 //! caller sees a panicking closure; the worker keeps serving later calls.
+//!
+//! The panic is caught with `AssertUnwindSafe`, so the owned `T` may be left
+//! half-mutated and later closures still run on it. A tool should decide
+//! whether to rebuild its backend after a [`JobPanicked`].
 
 use std::any::Any;
 use std::fmt;

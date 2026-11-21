@@ -127,7 +127,8 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
   build.rs                    embeds assets/icon.ico as resource id 1 (Windows)
   assets/                     icon.ico, icons/*.svg (no font files: fonts are system fonts)
   src/main.rs                 parses `--self-check`, calls fm_app::run
-  src/lib.rs                  run(): gpui_component::init, mono font, dev mode, main window
+  src/lib.rs                  run(): gpui_component::init, mono font, dev mode, installs the
+                              platform (GpuiPlatform) and the path-loss logger, main window
   src/assets.rs, fonts.rs     embedded icons (icons! list); system fonts (Segoe UI, mono
                               Cascadia Mono else Consolas)
   src/platform/               Platform trait (pick, pick_save, open, reveal, copy_text;

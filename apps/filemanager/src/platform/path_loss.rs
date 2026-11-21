@@ -217,7 +217,10 @@ mod tests {
             .flatten()
             .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
             .any(|e| {
-                std::fs::read_to_string(e.path()).is_ok_and(|text| text.contains(PATH_LOSS_MESSAGE))
+                std::fs::read_to_string(e.path()).is_ok_and(|text| {
+                    // The level is part of what the logger matches.
+                    text.contains(&format!("log::error!(\"{PATH_LOSS_MESSAGE}"))
+                })
             });
         assert!(
             found,

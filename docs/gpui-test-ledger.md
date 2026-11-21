@@ -64,7 +64,7 @@ file's table equals that count. The file counts sum to 301.
 | hover shows the label on a plate; leave hides it | M3b, U | `app::shell::tests::drag_over_tracks_enter_and_exit` (state); the plate's look is U | done (state), open (look: U) |
 | drop hides the overlay and passes exactly the dropped paths | M3b | `app::shell::tests::drop_reaches_current_tool_when_enabled`, `dropped_non_unicode_path_survives_routing` (Windows) | done |
 | disabled: overlay shows the reason and a drop is ignored | M3b, U | `app::shell::tests::drop_ignored_when_disabled`, `empty_drop_ignored`; the reason's look is U | done (state), open (look: U) |
-| does not steal focus, and unsubscribes on unmount | U |  | open (the shell's drop handlers are element listeners on the root div: no focus handling, nothing to unsubscribe) |
+| does not steal focus, and unsubscribes on unmount | M3b | dropped: the shell's drop handling is listeners owned by the root element and the window's frame (nothing to subscribe or unsubscribe), and it never touches focus | dropped |
 | after a rerender, drops follow the latest enabled and onDrop | M3b | `app::shell::tests::drop_goes_to_the_current_tool_only` (the target is read from the tool at drop time) | done |
 
 ## `app/ToolNav.test.tsx` (4)

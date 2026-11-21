@@ -16,6 +16,10 @@
 //! released by polling `Window::modifiers()` (which GPUI updates for every
 //! modifiers-changed event whatever has focus) once per frame while the latch
 //! is set, and clearing it as soon as Ctrl, Alt or Shift is no longer down.
+//! A non-chord key-down resets a latch whose modifiers were never seen down,
+//! and the poll gives up after one second of never seeing them down (a time
+//! bound, so it does not depend on the display's frame rate). Each latch has a
+//! generation, so a stale poll chain stops instead of running beside a new one.
 //! Limit: releasing only `d` while still holding the modifiers does not clear
 //! the latch, so re-pressing `d` then needs the modifiers released first; and a
 //! window that stops producing frames while latched clears it on its next frame.
@@ -24,6 +28,8 @@
 //! The latch is global but polled on one window, which is fine while the app
 //! has a single window. An `AltGr` layout that turns the chord into a character
 //! sends `WM_CHAR` to a focused input regardless of the interceptor.
+
+use std::time::{Duration, Instant};
 
 use gpui::{App, Global, Keystroke, Modifiers, Window};
 
@@ -39,23 +45,36 @@ impl Global for DevMode {}
 struct ChordLatch {
     held: bool,
     seen_down: bool,
-    /// Frames polled while `seen_down` is false; bounded by `UNSEEN_FRAMES`.
-    unseen_frames: u32,
+    /// When the latch was set; the poll gives up `UNSEEN_TIMEOUT` after it if
+    /// it never saw the modifiers down.
+    since: Instant,
+    /// Identifies the poll chain that owns the latch. Every new latch and
+    /// every reset moves it on, so an older chain stops at its next frame and
+    /// two chains never run at once.
+    generation: u64,
 }
 
-/// How many frames (about one second at 60 Hz) the poll waits to see the chord
-/// modifiers down before giving up and clearing the latch.
-const UNSEEN_FRAMES: u32 = 60;
+/// How long the poll waits to see the chord modifiers down before giving up
+/// and clearing the latch. A time bound, not a frame count: at 240 Hz 60
+/// frames is 250 ms, shorter than a key-repeat delay.
+const UNSEEN_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl Global for ChordLatch {}
 
 impl ChordLatch {
-    const fn default() -> Self {
+    fn idle(generation: u64) -> Self {
         Self {
             held: false,
             seen_down: false,
-            unseen_frames: 0,
+            since: Instant::now(),
+            generation,
         }
+    }
+
+    /// Releases the latch and retires any poll chain still pending.
+    fn reset(cx: &mut App) {
+        let generation = cx.try_global::<ChordLatch>().map_or(0, |l| l.generation);
+        cx.set_global(ChordLatch::idle(generation + 1));
     }
 }
 
@@ -64,7 +83,7 @@ impl DevMode {
     /// startup.
     pub fn init(cx: &mut App) {
         cx.set_global(DevMode(false));
-        cx.set_global(ChordLatch::default());
+        cx.set_global(ChordLatch::idle(0));
         cx.intercept_keystrokes(|event, window, cx| {
             if Self::handle_keystroke(&event.keystroke, window, cx) {
                 cx.stop_propagation();
@@ -95,19 +114,21 @@ impl DevMode {
                 .try_global::<ChordLatch>()
                 .is_some_and(|l| l.held && !l.seen_down)
             {
-                cx.set_global(ChordLatch::default());
+                ChordLatch::reset(cx);
             }
             return false;
         }
         let latched = cx.try_global::<ChordLatch>().is_some_and(|l| l.held);
         if !latched {
+            let generation = cx.try_global::<ChordLatch>().map_or(0, |l| l.generation) + 1;
             cx.set_global(ChordLatch {
                 held: true,
                 seen_down: chord_modifiers_down(window.modifiers()),
-                unseen_frames: 0,
+                since: Instant::now(),
+                generation,
             });
             Self::toggle(cx);
-            watch_release(window);
+            watch_release(window, generation);
         }
         true
     }
@@ -120,34 +141,26 @@ fn chord_modifiers_down(m: Modifiers) -> bool {
 /// Clears the latch on the first frame where the chord modifiers are not all
 /// down, but only after a frame has seen them down (a key-down can arrive
 /// before its modifiers-changed event). Until then it checks every frame, for
-/// at most `UNSEEN_FRAMES` frames. It stops when the latch is no longer held.
-fn watch_release(window: &Window) {
-    window.on_next_frame(|window, cx| {
-        let Some(mut latch) = cx.try_global::<ChordLatch>().map(|l| ChordLatch {
-            held: l.held,
-            seen_down: l.seen_down,
-            unseen_frames: l.unseen_frames,
-        }) else {
+/// at most `UNSEEN_TIMEOUT`. It stops when the latch is released or a newer
+/// chain (`generation`) owns it.
+fn watch_release(window: &Window, generation: u64) {
+    window.on_next_frame(move |window, cx| {
+        let Some(latch) = cx.try_global::<ChordLatch>() else {
             return;
         };
-        if !latch.held {
+        if !latch.held || latch.generation != generation {
             return;
         }
-        let down = chord_modifiers_down(window.modifiers());
-        if down {
-            latch.seen_down = true;
-        } else if latch.seen_down {
-            cx.set_global(ChordLatch::default());
-            return;
-        } else {
-            latch.unseen_frames += 1;
-            if latch.unseen_frames >= UNSEEN_FRAMES {
-                cx.set_global(ChordLatch::default());
-                return;
+        let (seen_down, since) = (latch.seen_down, latch.since);
+        if chord_modifiers_down(window.modifiers()) {
+            if !seen_down {
+                cx.global_mut::<ChordLatch>().seen_down = true;
             }
+        } else if seen_down || since.elapsed() >= UNSEEN_TIMEOUT {
+            ChordLatch::reset(cx);
+            return;
         }
-        cx.set_global(latch);
-        watch_release(window);
+        watch_release(window, generation);
     });
 }
 
@@ -309,21 +322,40 @@ mod tests {
     }
 
     #[gpui::test]
-    fn unseen_latch_clears_after_the_frame_bound(cx: &mut TestAppContext) {
+    fn unseen_latch_clears_after_the_time_bound(cx: &mut TestAppContext) {
         let cx = open_shell(cx);
         key_down(cx, false);
         assert!(on(cx));
-        for _ in 0..UNSEEN_FRAMES - 1 {
+        // Many frames inside the bound do not clear it, however fast they come.
+        for _ in 0..1000 {
             frame(cx);
         }
         key_down(cx, true);
-        assert!(on(cx), "still latched just inside the bound");
+        assert!(on(cx), "still latched inside the time bound");
+        // Pretend the latch is older than the bound.
+        cx.update(|_, cx| {
+            cx.global_mut::<ChordLatch>().since = Instant::now()
+                .checked_sub(UNSEEN_TIMEOUT * 2)
+                .expect("clock far enough from its origin");
+        });
         frame(cx);
         // The poll has stopped: no callbacks remain.
         let ran = cx.update(gpui::Window::simulate_next_frame);
         assert_eq!(ran, 0);
         key_down(cx, false);
         assert!(!on(cx), "latch cleared at the bound");
+    }
+
+    #[gpui::test]
+    fn a_stale_poll_chain_stops_when_a_new_latch_starts(cx: &mut TestAppContext) {
+        let cx = open_shell(cx);
+        key_down(cx, false); // chain A
+        cx.simulate_keystrokes("x"); // resets the stale latch
+        key_down(cx, false); // chain B, while A's callback is still pending
+        let both = cx.update(gpui::Window::simulate_next_frame);
+        assert_eq!(both, 2, "both callbacks were pending");
+        let after = cx.update(gpui::Window::simulate_next_frame);
+        assert_eq!(after, 1, "only the newest chain reschedules");
     }
 
     #[gpui::test]

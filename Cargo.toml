@@ -24,6 +24,7 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-fe
 gpui-component = "=0.10.0"
 gpui-kit-assets = "=0.10.0"
 async-channel = "2"
+log = "0.4"
 
 # Every crate opts in with `[lints] workspace = true`. CI runs clippy with
 # `-D warnings`, so a pedantic finding fails the build.
