@@ -228,7 +228,7 @@ on `surface_sunken`, 1 px border, padding 0/4.
 | Chrome | `mod.rs` | `theme::init`; the two-column frame; the notice; the drop overlay; the close prompt | — |
 | Sidebar | `sidebar.rs` | one nav item per `Shell::tools()` | current (surface fill, border, 600, 6 px accent dot), hover (surface), focus |
 | Notice | `notice.rs` | `Shell::notice()` as a warn `Banner` at the top of the tool area, dismiss → `Shell::dismiss_notice` | none, shown |
-| Drop overlay | `drop_overlay.rs` | `Shell::drag_over()`: full-window `drop_overlay` fill, 2 px dashed accent border inset 8 px, a surface plate (lg) with `folder` + label, or `info` + reason | hidden, enabled, disabled |
+| Drop overlay | `drop_overlay.rs` | `Shell::drag_over()`: full-window `drop_overlay` fill, 2 px dashed accent border inset 8 px, a surface plate (lg) with `folder` + label, or `info` + reason | hidden, enabled, disabled (also while a modal dialog is open: the Shell reports Disabled with "Close the open dialog first." and refuses the drop; the human's decision, 2026-11-21) |
 | Close prompt | `close_prompt.rs` | `Shell::close_request()` as a confirm dialog | hidden, shown |
 
 ### 3.3 Tool views

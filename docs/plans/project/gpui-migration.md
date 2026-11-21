@@ -73,6 +73,8 @@ the TypeScript frontend, ts-rs and npm/Node from the application entirely.
 | — | 11-21 | **The plan and its post-spike task plans are approved.** |
 | — | 11-21 | **The UI plan (`gpui-migration-ui.md`) and every U task are approved as written**, including V1–V8 and 25 objects per page. |
 | D28 | 11-21 | **Q7 reversed: do not embed Cascadia Mono, for now.** The mono family resolves from the system: Cascadia Mono (shipped with Windows 11), falling back to Consolas. No font files go in the repository. Reason: this cloud session cannot download from github.com, and the human declined the only reachable copy (Ubuntu's 2021 variable font). Embedding can return later as its own small task. |
+| D29 | 11-21 | **Path-loss notice scope (planner, after the M3b review).** (1) A path-loss log signal counts only during an active file drag or within 1 s after it ends; the timed no-drag fallback is dropped, because GPUI's clipboard paste logs the same text and would show a false "dropped items" notice. (2) GPUI's other silent skip, `"unable to read file name of dragged file"`, raises a notice too ("Some dropped items could not be read. Drop them again, or use Browse."), since the invariant forbids skipping a dropped item silently. Follow-up task `M3-app-b2-path-loss.md`. |
+| — | 11-21 | **Drops while a modal is open are refused** (the human): the overlay shows Disabled, the drop does nothing, the drag ends cleanly. |
 | D27 | 11-21 | **The task-plan guard moves to a `.claude/settings.json` `PreToolUse` hook** that applies only when the hook input's `agent_type` is `implementer` or `ui-implementer` (the human's condition: the input must identify the calling subagent; Claude Code's hook reference says it does, §7). The agent-frontmatter hook is removed once the live check passes (M11b). |
 
 ### 1.2 What does not change
@@ -337,15 +339,28 @@ Ownership:
   Manager "SQLite database" with "All files"). A failed dialog is
   `PickError::Failed` with the copy "The file dialog could not be shown. See
   Details." Tests use `FakePlatform`, which records every spec. Not `rfd`.
-- **Drop (D11, D26).** GPUI skips a name that is not valid UTF-16 and only
-  logs `log::error!("dragged file name is not UTF-16")`. FileManager installs
-  its own `log` logger at startup; `platform::path_loss` recognises that
-  record and sends a signal on a channel; the Shell shows a notice ("Some
-  dropped items could not be read: their names are not valid Unicode.
-  Rename them and drop them again."), coalesced per drag. Detection depends
-  on GPUI's exact message text, so a Windows-only test pins the text against
-  the `gpui-pre-windows` source in the lock file; a GPUI upgrade that changes
-  it fails that test. Accepted (D26).
+- **Drop (D11, D26, D29).** GPUI skips a name that is not valid UTF-16 and
+  only logs, at Error level with target `gpui_windows::clipboard`,
+  `"dragged file name is not UTF-16: {err}"` (gpui-pre-windows
+  `clipboard.rs:145`). FileManager installs its own `log` logger at startup;
+  `platform::path_loss` matches that text as a prefix followed by the end of
+  the message or `':'`, and sends a signal on a channel; the Shell shows a
+  notice ("Some dropped items could not be read: their names are not valid
+  Unicode. Rename them and drop them again."), coalesced per drag. GPUI's
+  other silent skip, `"unable to read file name of dragged file"`
+  (`DragQueryFileW` returns 0), raises a notice too ("Some dropped items
+  could not be read. Drop them again, or use Browse."). A signal counts only
+  during a file drag or within 1 s after it ends: GPUI's clipboard
+  `read_files` (clipboard.rs:271) logs the same text on a paste and must not
+  raise a drop notice; Windows always sends `Entered` for an HDROP drag,
+  even when every name fails, so no drop is missed (D29). Detection depends
+  on GPUI's message texts, so a Windows-only test pins both against the
+  `gpui-pre-windows` source in the lock file; a GPUI upgrade that changes
+  them fails that test. Accepted (D26).
+- **Drops during a modal (the human's decision, 2026-11-21).** While a
+  gpui-component dialog is open over the window, a file drop is refused: the
+  overlay shows its Disabled state ("Close the open dialog first."), the drop
+  does nothing, and the drag ends cleanly.
 - Everything else stays exact: dialog results, `read_dir` results, stored
   state, typed and pasted paths, open and reveal (`HSTRING::from(&OsStr)`).
 
@@ -497,6 +512,7 @@ recommendation was go-with-conditions; the human decided go (D10–D14).
 | M3a | [`M3-app-a-skeleton.md`](../tasks/gpui-migration/M3-app-a-skeleton.md) | `apps/filemanager` crate, pins, window, assets and fonts, Shell, tool registry, dev mode, placeholder chrome, CI, test ledger | M2b | contract for the U shell and theme tasks |
 | M3a2 | [`M3-app-a2-dev-mode-fix.md`](../tasks/gpui-migration/M3-app-a2-dev-mode-fix.md) | Review follow-up: dev-mode chord via `cx.intercept_keystrokes` (works with no focus or focus in a dialog), CI output and positive control, stale `CLAUDE.md`, `lib.rs` comment | M3a | no |
 | M3b | [`M3-app-b-plumbing.md`](../tasks/gpui-migration/M3-app-b-plumbing.md) | `Platform` (real + fake), path-loss reporting, `jobs.rs`, drop routing, close guard | M3a | contract for the U shell tasks |
+| M3b2 | [`M3-app-b2-path-loss.md`](../tasks/gpui-migration/M3-app-b2-path-loss.md) | Review follow-up: path-loss signal only during or just after a drag; notice for the unreadable-name skip; drops refused during a modal (D29) | M3b | no |
 | M3c | [`M3-app-c-file-dialogs.md`](../tasks/gpui-migration/M3-app-c-file-dialogs.md) | Our own Windows common item dialog wrapper (filters, default extension, initial folder, `OsString` paths) behind `Platform` (D24) | M3b | no |
 | M4 | [`M4-screenshot-harness.md`](../tasks/gpui-migration/M4-screenshot-harness.md) | Feature `shoot`, `filemanager-shoot`, scenario API, CI upload | M3b (may run beside M3c) | contract for every U scenario task |
 | M5 | [`M5-pipeline-model.md`](../tasks/gpui-migration/M5-pipeline-model.md) | Pipeline backend, model, copy, fixtures | M4, M3c | **depends on UI plan** (views) |
@@ -523,7 +539,7 @@ validation mirror (dbmanager M11) is dropped and nothing but Rust validates.
 
 1. **M11** (landed), then **M11b** next: it makes the guard actually run (§7). M11 was recommended first, because it changes the hook every
    later implementer run uses.
-2. **M2a → M2b → M3a → M3a2 → M3b → (M3c, M4 in either order) → M5.** The U theme and shared-widget tasks may
+2. **M2a → M2b → M3a → M3a2 → M3b → M3b2 → (M3c, M4 in either order) → M5.** The U theme and shared-widget tasks may
    start after **M3a** (they need the crate, assets and fonts). The U shell
    tasks (sidebar, close prompt, drop overlay, notices, dev-mode surface)
    need **M3b**. No U scenario task starts before **M4**.

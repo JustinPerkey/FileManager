@@ -122,12 +122,20 @@ Install a `log::Log` implementation at startup in `run()` (`log` is
 already in GPUI's graph; add it as a direct dependency at the locked
 version). It forwards nothing anywhere else except, in debug builds, to
 stderr. It recognises the record GPUI writes when it skips a dropped name:
-message exactly `PATH_LOSS_MESSAGE = "dragged file name is not UTF-16"`,
-level error, target starting with `gpui`. On a match it sends `()` on an
+level Error, target `gpui_windows::clipboard` (any target starting with
+`gpui` is accepted), message `"dragged file name is not UTF-16: {err}"`
+(gpui-pre-windows `clipboard.rs`, about line 145): it matches when the
+message **starts with** `PATH_LOSS_MESSAGE = "dragged file name is not UTF-16"`
+and is followed by the end of the message or `':'`. *(Corrected
+2026-11-21 from "message exactly"; the reviewer approved prefix matching.
+`M3-app-b2-path-loss.md` narrows when a match counts and adds a second
+message.)* On a match it sends `()` on an
 `async_channel`. The Shell drains the channel on the foreground executor
 and sets `Shell::notice` to `Some(ShellNotice::DroppedNamesUnreadable)`,
 **coalescing** matches that arrive within one drag (from `Entered` to
 `Submit`/`Exited`, or within 1 s if no drag events come) into one notice.
+*(Superseded by `M3-app-b2-path-loss.md`: a match counts only during a drag
+or within 1 s after it ends; the no-drag fallback goes.)*
 Copy in `src/app/text.rs`: "Some dropped items could not be read: their
 names are not valid Unicode. Rename them and drop them again." The notice
 stays until `Shell::dismiss_notice`. The logger must be safe to install
@@ -184,13 +192,22 @@ ignored; an empty drop is ignored.
   on change, and on drop calls the current tool's `dropped` only if its
   target is `Enabled` and the path list is non-empty. The chrome (UI) renders
   the overlay from `drag_over()`.
+- **While a modal layer is open** (a gpui-component dialog over the window,
+  `window.has_active_dialog(cx)`), a file drop is refused whatever the tool
+  says: `drag_over()` reports `Disabled { reason }` with the Shell's reason
+  from `src/app/text.rs` ("Close the open dialog first."), a drop does
+  nothing, and the drag state ends cleanly on `Submit`/`Exited` (the overlay
+  goes away). *(The human's decision, 2026-11-21; built in
+  `M3-app-b2-path-loss.md`.)*
 
 **`src/app/guard.rs` and the Shell: close guard.** Only the tools know about
 unsaved work (the Database Manager's drafts, later).
 
 - `ToolHooks` gains `fn unsaved_work(&self, cx: &App) -> Vec<SharedString>`
   (default empty): one short description per item.
-- In `run()`, register `on_window_should_close` once for the main window.
+- Register `on_window_should_close` in `Shell::with_tools`, once per window
+  (the Shell is the window's root, so this is once for the main window).
+  *(Corrected 2026-11-21 from "in `run()`"; the reviewer approved it.)*
   It asks every tool; if all are empty, the window closes. Otherwise it
   returns false and sets `Shell::close_request() -> Option<&CloseRequest>`
   (`CloseRequest { items: Vec<(ToolId, SharedString)> }`) and notifies.
