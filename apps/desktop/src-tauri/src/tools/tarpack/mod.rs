@@ -1,7 +1,7 @@
 //! The Tar Packager's Tauri surface: `tarpack_*` commands, the managed state,
 //! and the two events. Commands are thin glue over [`Core`], which holds
-//! the logic as plain functions in `fm_tarpack::session`. This module never touches the `Builder`;
-//! `tools::register` wires it in.
+//! the logic as plain functions in `fm_tarpack::session`. This module never
+//! touches the `Builder`; `tools::register` wires it in.
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -10,13 +10,12 @@ use fm_core::watch::FileWatcher;
 use fm_core::AppDirs;
 use fm_tarpack::archive::BuildSummary;
 use fm_tarpack::format::ArchiveFormat;
-use tauri::{AppHandle, Emitter, State};
-use tauri_plugin_opener::OpenerExt;
-
 use fm_tarpack::session::{
     coalescing, Core, DroppedAssignment, ManifestChanged, TarpackError, TarpackErrorKind,
     TarpackSession,
 };
+use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_opener::OpenerExt;
 
 const EVENT_MANIFEST_CHANGED: &str = "tarpack://manifest-changed";
 const EVENT_BUILD_PROGRESS: &str = "tarpack://build-progress";

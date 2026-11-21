@@ -73,7 +73,8 @@ impl BuildJob {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `OutputExists`, `SourceMissing`,
+    /// `SourceUnreadable`, `SourceChanged`, `VerifyFailed` or `Io`.
     pub fn run(
         &self,
         overwrite: bool,
@@ -281,7 +282,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `ManifestUnreadable` when the file
+    /// cannot be read or loaded.
     pub fn open(&mut self, path: &Path) -> Result<(), TarpackError> {
         self.restored = true;
         self.load_manifest(path)
@@ -291,7 +293,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoManifest` when none is loaded, or
+    /// `ManifestUnreadable` when the file cannot be read.
     pub fn reload(&mut self) -> Result<(), TarpackError> {
         let path = self.loaded()?.manifest.path.clone();
         let manifest =
@@ -348,7 +351,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoManifest`, `UnknownEntry` or
+    /// `NotAFile`.
     pub fn assign(&mut self, id: &str, source: &Path) -> Result<(), TarpackError> {
         self.require_entry(id)?;
         if !source.is_file() {
@@ -368,7 +372,7 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoManifest` or `UnknownEntry`.
     pub fn clear(&mut self, id: &str) -> Result<(), TarpackError> {
         self.require_entry(id)?;
         self.loaded_mut()?.assignments.remove(id);
@@ -381,7 +385,7 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoManifest` when none is loaded.
     pub fn begin_drop(&self) -> Result<DropJob, TarpackError> {
         let l = self.loaded()?;
         Ok(DropJob {
@@ -396,7 +400,7 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoManifest` when none is loaded.
     pub fn finish_drop(
         &mut self,
         job: &DropJob,
@@ -417,7 +421,7 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoManifest` when none is loaded.
     pub fn set_format(&mut self, format: ArchiveFormat) -> Result<(), TarpackError> {
         let l = self.loaded_mut()?;
         l.format = format;
@@ -433,7 +437,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoManifest` when none is loaded, or
+    /// `Io` when the path cannot be used.
     pub fn set_output(&mut self, path: &Path) -> Result<(), TarpackError> {
         let l = self.loaded_mut()?;
         let Some(name) = path.file_name() else {
@@ -454,7 +459,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `PathExists` when `path` exists, or
+    /// `Io` when it cannot be written.
     pub fn create_from_example(&mut self, path: &Path) -> Result<(), TarpackError> {
         write_new_file(path, |f| f.write_all(EXAMPLE_MANIFEST.as_bytes()))?;
         self.open(path)
@@ -465,7 +471,9 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoManifest`, `NoEntries`,
+    /// `BuildInProgress`, `ManifestChangedOnDisk`, `NoOutput` or
+    /// `EntriesNotReady`.
     pub fn begin_build(&mut self) -> Result<BuildJob, TarpackError> {
         let l = self.loaded()?;
         if l.manifest.report.manifest.entries().is_empty() {
@@ -525,7 +533,7 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoManifest` when none is loaded.
     pub fn manifest_path_for_open(&self) -> Result<PathBuf, TarpackError> {
         Ok(self.loaded()?.manifest.path.clone())
     }
@@ -534,7 +542,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns a [`TarpackError`] describing what went wrong.
+    /// Returns a [`TarpackError`] of kind `NoOutput` when this session has
+    /// built nothing.
     pub fn reveal_target(&self) -> Result<PathBuf, TarpackError> {
         self.last_built.clone().ok_or_else(|| {
             TarpackError::new(K::NoOutput, "no archive has been built in this session")

@@ -115,7 +115,7 @@ docs/manual/user-manual.md    end-user manual; images/ are its screenshots, rege
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, .oxlintrc.json, index.html
   src-tauri/                  package and binary name: filemanager
-    Cargo.toml                (incl. notify-debouncer-mini: manifest file watcher)
+    Cargo.toml
     build.rs                  tauri_build::build()
     tauri.conf.json, capabilities/default.json
     icons/

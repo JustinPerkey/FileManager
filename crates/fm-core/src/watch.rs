@@ -102,7 +102,7 @@ mod tests {
             "exactly one event"
         );
 
-        // Another file in the same directory is not this manifest.
+        // Another file in the same directory is not the watched file.
         fs::write(dir.path().join("other.toml"), "x").unwrap();
         assert!(rx.recv_timeout(Duration::from_millis(900)).is_err());
     }
