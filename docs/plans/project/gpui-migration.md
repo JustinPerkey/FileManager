@@ -60,7 +60,7 @@ the TypeScript frontend, ts-rs and npm/Node from the application entirely.
 | D14 | 11-21 | **Screenshot capture never ships in the release exe** (condition 5). `render_to_image` needs GPUI's `test-support`; it is only in a separate cargo feature and binary built for CI and docs. |
 | D15 | 11-21 | **Q1: the accessibility invariant replacement is approved:** every interactive element is keyboard reachable and labelled; no screen-reader or axe checks (§10.3). |
 | D16 | 11-21 | **Q2: `impeccable` stays for `shape` and `critique` on screenshots only.** `audit` and `polish` are dropped from the UI roles. |
-| D17 | 11-21 | **Q3: `.claude/hooks/task-plan-only.mjs` is ported to a small Rust binary in the workspace**, called from the agent settings, with identical behaviour. |
+| D17 | 11-21 | **Q3: `.claude/hooks/task-plan-only.mjs` is ported to a small Rust binary in the workspace**, called from the project's `.claude/settings.json` `PreToolUse` hook (D27; first wired as an agent-frontmatter hook, which never fired here), with identical path rules. |
 | D18 | 11-21 | **Q7: Cascadia Mono (OFL) is embedded in the exe.** |
 | D19 | 11-21 | **Q8: CI uploads the screenshots and never fails on image differences.** |
 | D20 | 11-21 | **Q9: the dbmanager screen-reader and 200% text work is dropped from U12;** keyboard operation and the shortcuts help stay. |
@@ -424,8 +424,15 @@ Changed in M10 (roles, docs) and M11 (hook):
   checks screenshots against the parity list; checks that release builds
   carry no `test-support`.
 - **planner:** its accessibility rule follows the new invariant.
-- **The hook (D17).** `devtools/task-plan-guard`, a workspace binary with the
-  exact behaviour of `task-plan-only.mjs`. The agents' hook command is
+- **The hook (D17, D27).** `devtools/task-plan-guard`, a workspace binary with
+  the path rules of `task-plan-only.mjs`. It runs from the project's
+  `.claude/settings.json` as a `PreToolUse` hook (matcher
+  `Read|Edit|Write|NotebookEdit|Grep|Glob|Bash`), not from the agents'
+  frontmatter, so it fires for every tool call in every session; the binary
+  itself gates on the hook input's `agent_type` and guards only
+  `implementer` and `ui-implementer`, allowing every other caller (the main
+  conversation, other roles, a missing `agent_type`) at once. The settings
+  hook command is
   `cargo run --quiet --locked --manifest-path "$CLAUDE_PROJECT_DIR/devtools/task-plan-guard/Cargo.toml" --target-dir "$CLAUDE_PROJECT_DIR/target/task-plan-guard"`.
   Claude Code runs it with the repository's toolchain, which every
   contributor already has; the first call builds it (seconds: its only
