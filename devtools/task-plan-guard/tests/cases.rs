@@ -1,8 +1,8 @@
 //! Table-driven cases for the guard. Nothing here touches the disk.
 //!
-//! `PARITY_DUMP=<file>` makes `dump_parity_cases` write the non-Windows rows as
-//! JSON lines (`stdin`, `project_dir`, `code`) for comparison with the former
-//! Node script.
+//! Setting `PARITY_DUMP` (any value) makes `dump_parity_cases` write the
+//! non-Windows rows as JSON lines to `parity-cases.jsonl` in
+//! `CARGO_TARGET_TMPDIR`, for comparison with the former Node script.
 
 use std::path::Path;
 
@@ -407,6 +407,30 @@ fn cases() -> Vec<Case> {
             "bash tasks",
             "Bash",
             r#"{"command":"cat docs/plans/tasks/a/M1.md"}"#,
+            None,
+        ),
+        c(
+            "lone surrogate escape still judged",
+            "Bash",
+            r#"{"command":"cat docs/plans/project/x.md \ud800"}"#,
+            Some("Bash command naming plans/project"),
+        ),
+        c(
+            "lone low surrogate escape still judged",
+            "Bash",
+            r#"{"command":"\udc00 docs/plans/project/x.md"}"#,
+            Some("Bash command naming plans/project"),
+        ),
+        c(
+            "valid surrogate pair kept",
+            "Read",
+            r#"{"file_path":"docs/plans/project/\ud83d\ude00.md"}"#,
+            Some("Read of docs/plans/project/\u{1F600}.md"),
+        ),
+        c(
+            "escaped backslash before uD800 stays literal",
+            "Bash",
+            r#"{"command":"echo \\ud800 cargo test"}"#,
             None,
         ),
         c(

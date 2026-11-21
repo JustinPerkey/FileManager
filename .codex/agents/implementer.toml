@@ -21,10 +21,10 @@ Your only plan is the task plan. It is self-contained by design. Read it, and no
 other file under docs/plans/: not the project plans in docs/plans/project/, not
 other task plans, and not docs/plans/README.md. Do not search those directories
 either; scope searches to source directories. (Under Claude the
-`devtools/task-plan-guard` hook enforces this; here the rule rests on you.) If the task plan does not tell you something
-you need, stop and report the gap as a blocker. Do not guess, and do not look
-for the answer in a project plan. CLAUDE.md, the code, and reference docs
-outside docs/plans/ are fair game.
+`devtools/task-plan-guard` hook enforces this; here the rule rests on you.) If
+the task plan does not tell you something you need, stop and report the gap as a
+blocker. Do not guess, and do not look for the answer in a project plan.
+CLAUDE.md, the code, and reference docs outside docs/plans/ are fair game.
 
 Before editing:
 1. Read the task plan.

@@ -33,6 +33,10 @@ impl Decision {
 }
 
 /// Decide on one hook invocation, using the host platform's path rules.
+///
+/// `process_cwd` goes through `to_string_lossy`, and the caller treats a
+/// non-UTF-8 `CLAUDE_PROJECT_DIR` as unset. Both only affect the fallback
+/// root, and mirror the JS script's string handling of paths.
 #[must_use]
 pub fn decide(input: &str, env_project_dir: Option<&str>, process_cwd: &Path) -> Decision {
     decide_with(input, env_project_dir, process_cwd, cfg!(windows))
@@ -47,8 +51,9 @@ pub fn decide_with(
     process_cwd: &Path,
     win: bool,
 ) -> Decision {
-    let trimmed = input.trim();
-    let Ok(parsed) = serde_json::from_str::<Value>(if trimmed.is_empty() { "{}" } else { trimmed })
+    let cleaned = replace_lone_surrogates(input.trim());
+    let Ok(parsed) =
+        serde_json::from_str::<Value>(if cleaned.is_empty() { "{}" } else { &cleaned })
     else {
         return Decision::Allow; // unreadable hook input: a guardrail fails open
     };
@@ -88,6 +93,52 @@ pub fn decide_with(
         )),
         None => Decision::Allow,
     }
+}
+
+/// `serde_json` rejects an unpaired surrogate escape (`\uD800`..`\uDFFF`) that
+/// JS `JSON.parse` accepts. Replace each with `\uFFFD` so the call is still
+/// judged; an escaped backslash followed by `uD800` stays literal text.
+fn replace_lone_surrogates(s: &str) -> String {
+    let hex4 = |t: &[char]| -> Option<u32> {
+        if t.len() < 4 || !t[..4].iter().all(char::is_ascii_hexdigit) {
+            return None;
+        }
+        u32::from_str_radix(&t[..4].iter().collect::<String>(), 16).ok()
+    };
+    let c: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < c.len() {
+        if c[i] != '\\' || i + 1 >= c.len() {
+            out.push(c[i]);
+            i += 1;
+            continue;
+        }
+        if c[i + 1] == 'u' {
+            if let Some(n) = hex4(&c[i + 2..]) {
+                if (0xD800..0xDC00).contains(&n) {
+                    let low = (c.get(i + 6) == Some(&'\\') && c.get(i + 7) == Some(&'u'))
+                        .then(|| hex4(&c[i + 8..]))
+                        .flatten()
+                        .filter(|l| (0xDC00..0xE000).contains(l));
+                    if low.is_some() {
+                        out.extend(&c[i..i + 12]);
+                        i += 12;
+                        continue;
+                    }
+                }
+                if (0xD800..0xE000).contains(&n) {
+                    out.push_str("\\uFFFD");
+                    i += 6;
+                    continue;
+                }
+            }
+        }
+        out.push(c[i]);
+        out.push(c[i + 1]);
+        i += 2;
+    }
+    out
 }
 
 /// Normalised project root and working directory, plus the platform flag.
