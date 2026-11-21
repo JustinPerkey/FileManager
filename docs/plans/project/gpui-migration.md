@@ -1,6 +1,6 @@
 # Project plan: migrating the UI from Tauri + React to GPUI + gpui-kit
 
-Status: **spike done; go decided; post-spike task plans awaiting approval.**
+Status: **approved (2026-11-21).** The spike is done, go is decided, and the human approved this plan and its post-spike task plans after answering Q14–Q16 (D24–D26).
 
 History:
 
@@ -13,6 +13,10 @@ History:
   (D10–D23, §14.1). The planner folded the spike's facts and those decisions
   into §2–§13, re-planned the Database Manager's UI-facing milestones (§11),
   and wrote the task plans for every backend milestone after the spike (§9).
+- 2026-11-21, later: the human answered Q14–Q16 (D24–D26: our own Windows
+  file dialogs with filters, the full Rust `regex` syntax in dbmanager
+  patterns, the drop log match accepted) and approved the plan and its task
+  plans. M3c was added for the dialogs.
 
 The visual half (theme, shared widgets, the shell's look, per-tool views,
 screenshot scenarios) belongs to the `ui-designer` (§13). It writes
@@ -43,7 +47,7 @@ the TypeScript frontend, ts-rs and npm/Node from the application entirely.
 | D8 | 11-20 | **Exe size and build time:** no limit; measured and reported only. |
 | D9 | 11-20 | **Windows 11 only.** |
 | D10 | 11-21 | **Go.** The human's Windows 11 run of `spike/gpui/CHECKLIST.md` is still outstanding; it does not block planning. Any FAIL found there reopens the milestone that owns the failing behaviour (§12, risk 1). |
-| D11 | 11-21 | **Non-Unicode paths: accept the loss** (report condition 1). GPUI's file dialogs and Explorer drop are used as shipped: no `rfd`, no own `IFileOpenDialog`/`IDropTarget`. A dropped or picked name that GPUI cannot deliver is **reported to the user, never skipped silently**. The path invariant is reworded for these entry points (§10.3). |
+| D11 | 11-21 | **Non-Unicode paths: accept the loss** (report condition 1). Explorer drop is used as shipped (no own `IDropTarget`), and no `rfd`. A dropped name that GPUI cannot deliver is **reported to the user, never skipped silently**. The path invariant is reworded for drop (§10.3). *(The dialog half of D11 is superseded by D24.)* |
 | D12 | 11-21 | **Overlay shadow** (condition 2): gpui-component's fixed dialog and popover shadow is accepted. The `--shadow-overlay` token is not applied. |
 | D13 | 11-21 | **Tar Packager table in narrow windows** (condition 3): it **scrolls sideways**. It does not stack rows into lines (today's below-64rem reflow is dropped). |
 | D14 | 11-21 | **Screenshot capture never ships in the release exe** (condition 5). `render_to_image` needs GPUI's `test-support`; it is only in a separate cargo feature and binary built for CI and docs. |
@@ -53,9 +57,13 @@ the TypeScript frontend, ts-rs and npm/Node from the application entirely.
 | D18 | 11-21 | **Q7: Cascadia Mono (OFL) is embedded in the exe.** |
 | D19 | 11-21 | **Q8: CI uploads the screenshots and never fails on image differences.** |
 | D20 | 11-21 | **Q9: the dbmanager screen-reader and 200% text work is dropped from U12;** keyboard operation and the shortcuts help stay. |
-| D21 | 11-21 | **Q10: M5's regex shorthand-class ban is lifted once only Rust validates.** |
+| D21 | 11-21 | **Q10: M5's regex shorthand-class ban is lifted once only Rust validates** (widened by D25 to every old restriction). |
 | D22 | 11-21 | **Q11: no vendoring.** crates.io with the committed `Cargo.lock` and exact pins. |
 | D23 | 11-21 | **Q13: the Linux CI job builds and runs the headless tests,** GPUI included. There is no Linux window backend. |
+| D24 | 11-21 | **Q14: "This should open the windows file picker."** Open and save show the native Windows file picker **with file-type filters**, as today (for example the Tar Packager's open dialog filters to manifests), plus a default extension and an initial folder. Since GPUI exposes no filters, FileManager has its own thin wrapper over the Windows common item dialog (`IFileOpenDialog` / `IFileSaveDialog`, `windows` crate), returning paths as `OsString`, behind `Platform` with a fake for tests (M3c). Not `rfd`. Side effect: dialogs no longer lose non-Unicode names; drop stays as D11. |
+| D25 | 11-21 | **Q15: lift all the old Rust/JavaScript pattern restrictions.** The full Rust `regex` syntax is allowed in dbmanager config patterns (dbmanager M15). |
+| D26 | 11-21 | **Q16: accept** the drop path-loss detection by GPUI's log message, guarded by the pin test. |
+| — | 11-21 | **The plan and its post-spike task plans are approved.** |
 
 ### 1.2 What does not change
 
@@ -100,8 +108,8 @@ produces byte-identical PNGs across runs on CI (B7).
 
 | Gap | Fate |
 |---|---|
-| 1 Non-Unicode names lost by GPUI's dialogs (whole selection errors) and by drop (name skipped, `log::error!`) | Accepted (D11). Reported to the user: §3.7. |
-| 2 Save dialog has no file-type filter (nor does the open dialog: `PathPromptOptions` has no filter) | Accepted with D11 (GPUI as shipped). Dialogs show all files; the backend's checks stay authoritative. Q14. |
+| 1 Non-Unicode names lost by GPUI's dialogs (whole selection errors) and by drop (name skipped, `log::error!`) | Dialogs: fixed by our own dialog wrapper (D24, M3c). Drop: accepted and reported (D11, D26, §3.7). |
+| 2 Save dialog has no file-type filter (nor does the open dialog: `PathPromptOptions` has no filter) | Fixed by our own wrapper over the common item dialog with `SetFileTypes`, default extension and initial folder (D24, M3c). |
 | 3, 4 Dialog, menu and popover shadow fixed | Accepted (D12). |
 | 5 Table rows have one fixed height | Accepted: no reflow, sideways scroll (D13). |
 | 6 No middle truncation | A shared widget (ui-designer). |
@@ -162,7 +170,8 @@ apps/filemanager/               package filemanager-gpui until M9, then filemana
   src/main.rs                   #![windows_subsystem = "windows"]; calls run()
   src/lib.rs                    app init, assets, fonts, logger, window (1000×700, min 800×560)
   src/assets.rs                 AssetSource: our icons, then gpui-kit-assets
-  src/platform/                 trait Platform (dialogs, open, reveal, clipboard): GPUI impl
+  src/platform/                 trait Platform (dialogs, open, reveal, clipboard): real impl
+                                (win_dialog.rs: our common item dialog wrapper; GPUI for the rest)
                                 and a scripted FakePlatform; path_loss.rs (§3.7)
   src/jobs.rs                   Worker<T> (serial, off the main thread) and spawn_thread
                                 (long jobs with a progress channel)
@@ -301,27 +310,33 @@ Ownership:
   attribute, DOM structure, CSS class, IPC wrapper, orphan polling). M9
   refuses to start while a row is open.
 
-### 3.7 Paths GPUI cannot deliver (D11)
+### 3.7 File dialogs and paths GPUI cannot deliver (D11, D24, D26)
 
-- **Dialogs.** GPUI's open dialog returns `Err` for the whole selection when
-  one name is not valid UTF-16; its save dialog errors the same way, and
-  converts its starting directory lossily. `Platform` turns a dialog `Err`
-  into `PickError::Unreadable { detail }`; models show it as an error banner
-  whose copy says the selection could not be read and that names which are
-  not valid Unicode cannot be picked (rename the item). The save dialog's
-  starting directory is the nearest ancestor that is valid Unicode; a
-  suggested file name that is not valid Unicode is not passed.
-- **Drop.** GPUI skips such a name and only logs
-  `log::error!("dragged file name is not UTF-16")`. FileManager installs its
-  own `log` logger at startup; `platform::path_loss` recognises that record
-  and sends a signal on a channel; the Shell shows a notice ("Some dropped
-  items could not be read: their names are not valid Unicode. Rename them
-  and drop them again."), coalesced per drag. Detection depends on GPUI's
-  exact message text, so a Windows-only test pins the text against the
-  `gpui-pre-windows` source in the lock file; a GPUI upgrade that changes it
-  fails that test (Q16).
-- Everything else stays exact: `read_dir` results, stored state, typed and
-  pasted paths, open and reveal (`HSTRING::from(&OsStr)`).
+- **Dialogs (D24, M3c).** `Platform::pick(OpenSpec)` and
+  `Platform::pick_save(SaveSpec)` carry file-type filters, a default
+  extension, a start folder, a suggested name and a title. On Windows they
+  are `platform/win_dialog.rs`, our thin wrapper over `IFileOpenDialog` /
+  `IFileSaveDialog` (`windows` crate): `SetFileTypes`, `SetFileTypeIndex`,
+  `SetDefaultExtension`, `SetFolder`, `SetFileName`, run on a dedicated STA
+  thread, modal to the main window, results read with
+  `GetDisplayName(SIGDN_FILESYSPATH)` into `OsString::from_wide`. Paths never
+  pass through `String`, so dialogs lose no name. Each tool passes today's
+  filters (Tar Packager "Manifest" `*.toml`, output "<format> archive"
+  `*.<last suffix>`; Schedule "Text"/"XML" with "All files"; Database
+  Manager "SQLite database" with "All files"). A failed dialog is
+  `PickError::Failed` with the copy "The file dialog could not be shown. See
+  Details." Tests use `FakePlatform`, which records every spec. Not `rfd`.
+- **Drop (D11, D26).** GPUI skips a name that is not valid UTF-16 and only
+  logs `log::error!("dragged file name is not UTF-16")`. FileManager installs
+  its own `log` logger at startup; `platform::path_loss` recognises that
+  record and sends a signal on a channel; the Shell shows a notice ("Some
+  dropped items could not be read: their names are not valid Unicode.
+  Rename them and drop them again."), coalesced per drag. Detection depends
+  on GPUI's exact message text, so a Windows-only test pins the text against
+  the `gpui-pre-windows` source in the lock file; a GPUI upgrade that changes
+  it fails that test. Accepted (D26).
+- Everything else stays exact: dialog results, `read_dir` results, stored
+  state, typed and pasted paths, open and reveal (`HSTRING::from(&OsStr)`).
 
 ## 4. Design-system port *(details are the ui-designer's)*
 
@@ -411,8 +426,10 @@ Changed in M10 (roles, docs) and M11 (hook):
   as the `.mjs` does on bad input. CI builds and tests it on both jobs.
 - Each `.claude/agents/*.md` change is mirrored in `.codex/agents/*.toml`.
 - `docs/plans/README.md` is out of the implementers' reach (the guard blocks
-  it). The planner applies its changes (the hook's name after M11; the UI
-  task template after M10) from the text those PRs propose.
+  it). The UI task template was updated by the planner on 2026-11-21 (tokens
+  in `theme/tokens.rs`, the model API, `shape`/`critique`, keyboard and
+  labels). The sentence naming the hook changes after M11 lands: M11's PR
+  proposes it and the planner applies it.
 
 ## 8. The spike (M1) — done
 
@@ -438,8 +455,9 @@ recommendation was go-with-conditions; the human decided go (D10–D14).
 | M2b | [`M2-session-b-tarpack-watch.md`](../tasks/gpui-migration/M2-session-b-tarpack-watch.md) | Move Tar Packager session logic into `fm-tarpack`; `fm_core::watch::FileWatcher` | M2a | no |
 | M3a | [`M3-app-a-skeleton.md`](../tasks/gpui-migration/M3-app-a-skeleton.md) | `apps/filemanager` crate, pins, window, assets and fonts, Shell, tool registry, dev mode, placeholder chrome, CI, test ledger | M2b | contract for the U shell and theme tasks |
 | M3b | [`M3-app-b-plumbing.md`](../tasks/gpui-migration/M3-app-b-plumbing.md) | `Platform` (real + fake), path-loss reporting, `jobs.rs`, drop routing, close guard | M3a | contract for the U shell tasks |
-| M4 | [`M4-screenshot-harness.md`](../tasks/gpui-migration/M4-screenshot-harness.md) | Feature `shoot`, `filemanager-shoot`, scenario API, CI upload | M3b | contract for every U scenario task |
-| M5 | [`M5-pipeline-model.md`](../tasks/gpui-migration/M5-pipeline-model.md) | Pipeline backend, model, copy, fixtures | M4 | **depends on UI plan** (views) |
+| M3c | [`M3-app-c-file-dialogs.md`](../tasks/gpui-migration/M3-app-c-file-dialogs.md) | Our own Windows common item dialog wrapper (filters, default extension, initial folder, `OsString` paths) behind `Platform` (D24) | M3b | no |
+| M4 | [`M4-screenshot-harness.md`](../tasks/gpui-migration/M4-screenshot-harness.md) | Feature `shoot`, `filemanager-shoot`, scenario API, CI upload | M3b (may run beside M3c) | contract for every U scenario task |
+| M5 | [`M5-pipeline-model.md`](../tasks/gpui-migration/M5-pipeline-model.md) | Pipeline backend, model, copy, fixtures | M4, M3c | **depends on UI plan** (views) |
 | M6 | [`M6-schedule-model.md`](../tasks/gpui-migration/M6-schedule-model.md) | Schedule Creator backend, model, copy, fixtures | M5 | **depends on UI plan** |
 | M7a | [`M7-tarpack-a-manifest-model.md`](../tasks/gpui-migration/M7-tarpack-a-manifest-model.md) | Tar Packager backend; model for manifest, recent, watcher, assignments, drop | M6 | **depends on UI plan** |
 | M7b | [`M7-tarpack-b-build-model.md`](../tasks/gpui-migration/M7-tarpack-b-build-model.md) | Tar Packager model for output, format, build, progress, overwrite, results, dev mode, shortcuts | M7a | **depends on UI plan** |
@@ -454,15 +472,15 @@ recommendation was go-with-conditions; the human decided go (D10–D14).
 | M13 | [`M13-dbmanager-docs.md`](../tasks/gpui-migration/M13-dbmanager-docs.md) | Database Manager docs, manual chapter, screenshots, Windows check | M12d, M8, every dbmanager U task | **depends on UI plan** |
 
 Also, in the dbmanager plan:
-[`../tasks/dbmanager/M15-pattern-shorthand.md`](../tasks/dbmanager/M15-pattern-shorthand.md)
-lifts the shorthand-class ban (D21); it can run any time, since the TS
+[`../tasks/dbmanager/M15-pattern-syntax.md`](../tasks/dbmanager/M15-pattern-syntax.md)
+allows the full Rust `regex` syntax in patterns (D21, D25); it can run any time, since the TS
 validation mirror (dbmanager M11) is dropped and nothing but Rust validates.
 
 ### 9.2 Execution order and interleaving with the UI pipeline
 
 1. **M11** any time; recommended first, because it changes the hook every
    later implementer run uses.
-2. **M2a → M2b → M3a → M3b → M4.** The U theme and shared-widget tasks may
+2. **M2a → M2b → M3a → M3b → (M3c, M4 in either order) → M5.** The U theme and shared-widget tasks may
    start after **M3a** (they need the crate, assets and fonts). The U shell
    tasks (sidebar, close prompt, drop overlay, notices, dev-mode surface)
    need **M3b**. No U scenario task starts before **M4**.
@@ -495,8 +513,10 @@ validation mirror (dbmanager M11) is dropped and nothing but Rust validates.
 7. Tests that touch the filesystem run in a temp dir; screenshots and view
    tests use fixture backends and `FakePlatform`, never real files.
 8. Paths per §10.3's reworded invariant: `Path`/`PathBuf`/`OsString`
-   everywhere; GPUI's dialogs and drop are the only lossy entry points, and a
-   lost name is reported (§3.7).
+   everywhere, dialogs included (D24); Explorer drop is the only lossy entry
+   point, and a lost name is reported (§3.7).
+13. File dialogs go through `Platform` with today's filters; never `rfd`
+    (D24).
 9. fmt and clippy `pedantic` with `-D warnings`; scoped `#[expect]` only.
 10. Every interactive element is keyboard reachable and labelled (D15).
 11. `test-support` and the harness never reach the release exe (D14).
@@ -508,7 +528,7 @@ validation mirror (dbmanager M11) is dropped and nothing but Rust validates.
 | Today | New text |
 |---|---|
 | "Accessibility is a requirement, not a polish item. Every interactive element is keyboard reachable and labelled." | "Keyboard operation and labels are requirements. Every interactive element is keyboard reachable and labelled (a visible label, or a tooltip for an icon-only control). Screen-reader support, axe-style audits, high contrast and text scaling are not requirements." (D15) |
-| "Paths are handled as the platform's path type, not as display strings. Code that renders a path does not assume it is valid UTF-8." | "Paths are handled as the platform's path type, not as display strings. Code that renders a path does not assume it is valid UTF-8. Exception: GPUI's file dialogs and Explorer drop deliver only names that are valid Unicode. A name they cannot deliver is reported to the user, never skipped silently, and the dialog's starting directory falls back to the nearest valid-Unicode ancestor. Paths from every other source stay exact." (D11) |
+| "Paths are handled as the platform's path type, not as display strings. Code that renders a path does not assume it is valid UTF-8." | "Paths are handled as the platform's path type, not as display strings. Code that renders a path does not assume it is valid UTF-8. File dialogs are our own wrapper over the Windows common item dialog and return paths exactly. Exception: Explorer drop is GPUI's and delivers only names that are valid Unicode; a dropped name it cannot deliver is reported to the user, never skipped silently." (D11, D24) |
 | Boundary types defined once and mirrored | Removed. Views use the domain crates' session types through the tool's model (§3.5). |
 | `lib/generated/` and ts-rs rules | Removed. |
 | `tools::register` is the only `invoke_handler`/`setup` caller | Replaced: tools are added to the single list in `apps/filemanager/src/tools/mod.rs`. |
@@ -535,7 +555,7 @@ task plans):
 |---|---|---|
 | M10 Tauri contract | Superseded | **M12a** (tool core, snapshot, errors, backend trait, model reads), **M12b** (drafts, save) and **M12c** (links, delete). No commands, no `lib/dbmanager.ts`, no generated types. Integers in the snapshot are integers; `DbValue` keeps its string forms. |
 | M11 TS validation mirror | **Dropped** | The model calls `fm_dbmanager::rules::validate` while the user types (M12b). `validation-cases.json` stays as the Rust test vectors. |
-| M5's pattern dialect | Shorthand ban lifted (D21) | **dbmanager M15** (any time). The rest of the common-subset scanner stays unless the human says otherwise (Q15). |
+| M5's pattern dialect | Every Rust/JavaScript restriction lifted (D21, D25) | **dbmanager M15** (any time): full Rust `regex` syntax; the scanner and the `.` warning go. |
 | M12 Docs, manual, Windows check | Superseded | **M13** of this plan (screenshots via the Rust harness, after this plan's M8). |
 | M13 Config watch and Edit config | Superseded, shrunk | `FileWatcher` moves in **M2b**; the missing-directory ancestor watch, automatic reload, re-checking drafts and Edit config are **M12d**. |
 | M14 Window-close guard | **Dropped** | This plan's **M3b** close guard; **M12b** registers dbmanager's unsaved drafts with it. No capability exists. |
@@ -552,7 +572,7 @@ in the rewritten UI plan.
 ## 12. Risks
 
 1. **The Windows 11 checklist is outstanding (D10).** Any FAIL reopens the
-   owning milestone: dialogs, drop, path-loss notice, close, open/reveal → M3b;
+   owning milestone: dialogs → M3c; drop, path-loss notice, close, open/reveal → M3b;
    live theme switch → the theme U task; `--shoot` at a non-100% scale →
    M4; table feel → the Tar Packager table U task. The planner amends that
    milestone's task plan when a FAIL is reported.
@@ -561,10 +581,12 @@ in the rewritten UI plan.
 3. **Single publisher / supply chain** for `gpui-pre` and `gpui-component`.
    Committed lock, `--locked`, no vendoring (D22).
 4. **Path-loss detection depends on a GPUI log message** (§3.7). Pinned by a
-   test; an upgrade that changes it fails CI rather than going silent (Q16).
-5. **Dialogs without filters** (gap 2, Q14): users see all files in open and
-   save dialogs. Backend checks stay authoritative (tarpack normalises the
-   output extension; a non-TOML manifest fails to parse with a diagnostic).
+   test; an upgrade that changes it fails CI rather than going silent
+   (accepted, D26).
+5. **Own COM dialog code** (D24, M3c): about 150 lines of `unsafe` COM that CI
+   cannot show; a manual check (`docs/gpui-dialogs-check.md`, run by the
+   human on Windows 11) covers filters, default extension, modality and a
+   lone-surrogate name. A FAIL reopens M3c.
 6. **Parity gaps** the ui-designer's checklist must settle: middle truncation
    (widget), sticky header inside a view-level scroll, dashed 2 px drop
    border, selectable read-only text, `tabular-nums`, focus return after a
@@ -661,8 +683,8 @@ Constraints already established
   - impeccable: shape and critique on screenshots only (D16).
   - Windows 11 only; scale factor 1 for screenshots; 1000×700 default,
     1366×800 for Tar Packager shots, min window 800×560.
-  - Dialogs have no file-type filters (Q14); path-loss notice copy is in
-    §3.7.
+  - Dialogs are the native Windows picker with today's filters (D24, M3c);
+    path-loss notice copy (drop only) is in §3.7.
 ```
 
 ## 14. Questions
@@ -674,18 +696,8 @@ Constraints already established
   condition 4 (the checklist) → D10 (2026-11-21).
 - **Q1 →** D15, **Q2 →** D16, **Q3 →** D17, **Q7 →** D18, **Q8 →** D19,
   **Q9 →** D20, **Q10 →** D21, **Q11 →** D22, **Q13 →** D23 (2026-11-21).
+- **Q14 →** D24, **Q15 →** D25, **Q16 →** D26; plan approved (2026-11-21).
 
-### 14.2 Open (new, 2026-11-21)
+### 14.2 Open
 
-14. **Dialog filters.** GPUI's open and save dialogs show "All files" only
-    (no filter parameter). Planned: accept, as part of "GPUI's dialogs as
-    shipped". Confirm, or allow `rfd` for the save dialog only (it panics on
-    non-Unicode names, so it would need wrapping)?
-15. **The rest of the pattern subset.** D21 lifts the shorthand classes. The
-    scanner also rejects inline flags, `\p`, `\A \z`, nested classes and set
-    operators, and warns on `.`, all for JavaScript parity that no longer
-    exists. Planned: lift only the shorthand classes, as decided. Lift the
-    rest too?
-16. **Path-loss detection.** The drop notice relies on GPUI's log message
-    text, guarded by a pin test (§3.7). Accept, or budget about one day for
-    our own `IDropTarget` that sees every name?
+None.

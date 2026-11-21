@@ -1,6 +1,6 @@
 # M13 — Database Manager: tool documentation, user manual chapter, screenshots, Windows release check
 
-Status: awaiting approval. **Depends on the UI plan:** runs only after every
+Status: approved (2026-11-21). **Depends on the UI plan:** runs only after every
 Database Manager view and scenario U task has landed.
 Project: gpui-migration   Depends on: M12d and M8 (landed), every Database Manager U task (landed)
 
@@ -36,8 +36,9 @@ Facts to document (all implemented; read the code to confirm wording):
 
 - Opening: an absolute path to an existing SQLite file, never created; drop
   one database file; recent databases; the most recent reopens on start
-  (if missing, the app starts empty and says why). Names that are not valid
-  Unicode cannot be picked or dropped; FileManager says so.
+  (if missing, the app starts empty and says why). The Open dialog filters
+  to SQLite databases, with All files. A dropped item whose name is not
+  valid Unicode cannot be dropped (FileManager says so); Open handles it.
 - **The config:** one file for the whole app at
   `%ProgramData%\FileManager\dbmanager.toml`, never chosen by the user; the
   app only reads it and reloads it automatically (unsaved edits are kept and

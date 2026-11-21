@@ -1,6 +1,6 @@
 # M12b — Database Manager, part B: drafts, validation while typing, save, create, conflicts, close guard
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M12a (landed)
 
 ## Goal

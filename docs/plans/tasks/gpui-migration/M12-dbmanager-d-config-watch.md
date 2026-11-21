@@ -1,6 +1,6 @@
 # M12d — Database Manager, part D: config watcher, automatic reload, Edit config
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M12c (landed)
 
 ## Goal

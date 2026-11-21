@@ -1,6 +1,6 @@
 # M3b — App plumbing: `Platform`, path-loss reporting, `jobs.rs`, drop routing, close guard
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M3a (landed)
 
 ## Goal
@@ -38,7 +38,7 @@ here; port from it by name with
 - `cx.prompt_for_paths(PathPromptOptions { files, directories, multiple, prompt })`
   and `cx.prompt_for_new_path(&Path, Option<&str>)` return a `oneshot`
   receiver of `Result<Option<…PathBuf…>>`. **Neither has a file-type
-  filter.** Files and folders cannot be picked in one dialog.
+  filter** (which is why M3c replaces them).
 - **Names that are not valid Unicode** (a lone UTF-16 surrogate): GPUI's
   open and save dialogs return `Err` for the whole selection; the save
   dialog's starting directory is converted lossily
@@ -61,14 +61,18 @@ here; port from it by name with
   work runs on a real `std::thread` needs `cx.executor().allow_parking()` and
   a polling loop; work on `cx.background_spawn` is deterministic.
 
-### The human's decision on paths (binding)
+### The human's decisions on paths and dialogs (binding)
 
-GPUI's dialogs and drop are used **as shipped**: no `rfd`, no own COM dialog
-or drop target. **A dropped or picked name that GPUI cannot deliver is
-reported to the user, never skipped silently.** The reworded invariant: paths
-are the platform's path type everywhere; GPUI's dialogs and drop are the only
-lossy entry points; a lost name is reported, and the save dialog starts in
-the nearest valid-Unicode ancestor.
+- **Explorer drop** is GPUI's, as shipped. **A dropped name that GPUI cannot
+  deliver is reported to the user, never skipped silently** (the path-loss
+  notice below).
+- **File dialogs** must be the native Windows file picker **with file-type
+  filters, a default extension and an initial folder**, returning paths as
+  `OsString`, without `rfd`. GPUI's dialogs have no filters, so the next
+  milestone (M3c) replaces them with our own wrapper over the Windows common
+  item dialog. This milestone defines the `Platform` trait with the final
+  dialog signatures, and its real implementation calls GPUI's prompts for
+  now (ignoring filters), so the app is usable until M3c lands.
 
 ### What to build
 
@@ -77,11 +81,15 @@ needs, so models and screenshots can run against a fake:
 
 ```rust
 pub enum PickKind { File, Folder }
-pub enum PickError { Unreadable { detail: String } }     // Display: user copy, see below
+pub struct FileFilter { pub name: String, pub patterns: Vec<String> }   // patterns like "*.toml"
+pub struct OpenSpec { pub kind: PickKind, pub filters: Vec<FileFilter>, pub start_dir: Option<PathBuf>, pub title: Option<String> }
+pub struct SaveSpec { pub filters: Vec<FileFilter>, pub default_extension: Option<String>,   // no dot
+                      pub start_dir: Option<PathBuf>, pub suggested_name: Option<OsString>, pub title: Option<String> }
+pub enum PickError { Failed { detail: String } }        // the dialog could not be shown or returned an error
 pub trait Platform: 'static {
-    fn pick(&self, kind: PickKind, start: Option<&Path>, cx: &mut App)
+    fn pick(&self, spec: OpenSpec, cx: &mut App)
         -> Task<Result<Option<PathBuf>, PickError>>;      // one item; None = cancelled
-    fn pick_save(&self, start_dir: &Path, suggested_name: Option<&OsStr>, cx: &mut App)
+    fn pick_save(&self, spec: SaveSpec, cx: &mut App)
         -> Task<Result<Option<PathBuf>, PickError>>;
     fn open_with_system(&self, path: &Path, cx: &mut App);
     fn reveal(&self, path: &Path, cx: &mut App);
@@ -91,26 +99,23 @@ pub trait Platform: 'static {
 
 Hold it as a global (`PlatformHandle(Rc<dyn Platform>)`, `platform(cx)`), set
 in `run()` to `GpuiPlatform` and in tests and screenshots to `FakePlatform`.
-Adjust signatures if GPUI's types require it (for example a start directory
-GPUI cannot take); keep the semantics.
+Keep these signatures: the tools' milestones and M3c rely on them.
 
-- `GpuiPlatform` (`src/platform/gpui.rs`): wraps the GPUI calls. A dialog
-  `Err` becomes `PickError::Unreadable { detail: <error text> }`. For
-  `pick_save`, pass the nearest ancestor of `start_dir` whose path is valid
-  Unicode (`to_str().is_some()`; a drive root always is), and pass the
-  suggested name only if it is valid Unicode. `copy_text` uses
-  `cx.write_to_clipboard(ClipboardItem::new_string(..))`. `pick`'s `start`
-  is used if GPUI's options support it; otherwise ignored (say which in a
-  doc comment).
+- `GpuiPlatform` (`src/platform/gpui.rs`): open, reveal and clipboard wrap
+  the GPUI calls (`cx.open_with_system`, `cx.reveal_path`,
+  `cx.write_to_clipboard(ClipboardItem::new_string(..))`). Its dialogs are a
+  **temporary** call to GPUI's `prompt_for_paths` / `prompt_for_new_path`
+  that ignores filters and default extension (a `// Replaced in M3c` doc
+  comment says so); a GPUI dialog `Err` becomes `PickError::Failed`.
 - `FakePlatform` (`src/platform/fake.rs`, always compiled: screenshots use
   it): a script of answers pushed by tests (`answer_pick(Ok(Some(path)))`,
   `answer_pick(Err(..))`, …) consumed in order, and a log of every call
-  (`calls() -> Vec<PlatformCall>`) including open, reveal and copied text.
+  (`calls() -> Vec<PlatformCall>`) including each dialog's full spec, open,
+  reveal and copied text.
   A call with no scripted answer resolves to `Ok(None)` (cancelled).
-- `PickError`'s user copy, in `src/app/text.rs`:
-  "The selection could not be read. Names that are not valid Unicode cannot
-  be picked here: rename the item and try again." Models show it with the
-  `detail` as technical detail.
+- `PickError`'s user copy, in `src/app/text.rs`: "The file dialog could not
+  be shown. See Details." Models show it with the `detail` as technical
+  detail.
 
 **`src/platform/path_loss.rs`: reporting dropped names GPUI skipped.**
 Install a `log::Log` implementation at startup in `run()` (`log` is
@@ -199,9 +204,10 @@ unsaved work (the Database Manager's drafts, later).
 
 - No filesystem or other blocking I/O on the UI thread.
 - Destructive operations are never silent: closing with unsaved work is
-  held and confirmed; a name lost by a drop or dialog is reported.
-- Paths stay `Path`/`PathBuf`/`OsStr`; only GPUI's dialogs and drop are
-  lossy, and they are reported as above.
+  held and confirmed; a name lost by a drop is reported.
+- Paths stay `Path`/`PathBuf`/`OsStr`; only Explorer drop is lossy (GPUI's),
+  and it is reported as above. The temporary GPUI dialogs are lossy until
+  M3c replaces them; do not add code that relies on that.
 - Tests touching the filesystem use temp dirs; tests never use real user
   files. `FakePlatform` never touches the filesystem.
 - You own `src/platform/`, `src/jobs.rs`, `src/app/*.rs`, `src/tools/mod.rs`.
@@ -250,10 +256,7 @@ Do not touch: `crates/`, `apps/desktop/`, `docs/plans/`.
   `allow_parking`), `spawn_thread_panic_is_reported`.
 - `platform::fake::tests::answers_in_order_and_logs_calls`,
   `unscripted_pick_is_cancelled`.
-- `platform::gpui::tests::save_start_dir_is_nearest_unicode_ancestor`
-  (pure helper; on Windows build a path with a lone surrogate component via
-  `OsString::from_wide`; on other platforms a non-UTF-8 byte component via
-  `OsStringExt::from_vec`).
+- `platform::fake::tests::records_dialog_specs`.
 - `platform::path_loss::tests::matching_record_signals`,
   `other_records_do_not_signal`, `matches_within_one_drag_coalesce`.
 - `platform::path_loss::tests::gpui_message_text_is_pinned`
@@ -281,6 +284,7 @@ Do not touch: `crates/`, `apps/desktop/`, `docs/plans/`.
 
 - The look of the overlay, notice and prompt (UI tasks).
 - Any tool model (M5 on). The screenshot harness (M4).
+- The native Windows dialog wrapper with filters (M3c).
 - File watching (each tool milestone wires `fm_core::watch::FileWatcher`
   through a channel into its model).
 

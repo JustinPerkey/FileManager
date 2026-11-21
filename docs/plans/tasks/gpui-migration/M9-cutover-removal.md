@@ -1,6 +1,6 @@
 # M9 — Cutover: remove Tauri, React, npm and ts-rs; the GPUI app becomes `filemanager`
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M8 (landed)
 
 ## Goal

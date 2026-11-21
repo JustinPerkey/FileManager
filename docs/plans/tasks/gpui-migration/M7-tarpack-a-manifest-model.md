@@ -1,6 +1,6 @@
 # M7a — Tar Packager, part A: backend trait; model for the manifest, recent list, watcher, assignments and drop
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M6 (landed)
 
 ## Goal
@@ -67,7 +67,8 @@ What exists:
 - `apps/filemanager`: `ToolHooks` (`activated`, `drop_target`, `dropped`,
   `unsaved_work`, `inject_file_changed`), `jobs::{Worker, spawn_thread}`,
   `Platform` (`pick`, `pick_save`, `open_with_system`, `reveal`,
-  `copy_text`; `PickError`), `DevMode::is_on`, `BackendSet`/`FixtureId`,
+  `copy_text`; `OpenSpec`, `SaveSpec`, `FileFilter`, `PickError`; native
+  Windows dialogs with filters), `DevMode::is_on`, `BackendSet`/`FixtureId`,
   placeholder `src/tools/tarpack/{mod.rs,view/mod.rs}`.
 - `docs/gpui-test-ledger.md`: the Tar Packager rows marked M7a.
 
@@ -134,11 +135,11 @@ impl TarpackModel {
     pub fn errors_expanded(&self) -> bool;  pub fn set_errors_expanded(&mut self, on: bool, cx);
     pub fn show_errors(&mut self, cx);                       // expand + focus_hint(Report); no-op with 0 errors
     pub fn recent(&self) -> &[String];  pub fn open_recent(&mut self, index: usize, cx);
-    pub fn open(&mut self, cx);                              // Platform::pick(File)
+    pub fn open(&mut self, cx);                              // Platform::pick, filter "Manifest" (*.toml)
     pub fn reload(&mut self, cx);
     pub fn can_edit(&self, cx: &App) -> bool;                // dev mode on and a manifest loaded
     pub fn edit(&mut self, cx);                              // Platform::open_with_system(manifest_path_for_open)
-    pub fn create_from_example(&mut self, cx);               // Platform::pick_save, suggested "manifest.toml"
+    pub fn create_from_example(&mut self, cx);               // Platform::pick_save, "Manifest" (*.toml), default extension toml
     pub fn browse(&mut self, entry_id: &str, cx);            // pick File, starting in the assigned folder
     pub fn clear(&mut self, entry_id: &str, cx);
     pub fn drop_state(&self) -> Option<&DropState>;  pub fn dismiss_drop_result(&mut self, cx);
@@ -166,9 +167,13 @@ Behaviour to port (each a test case today):
   `ToolHooks::inject_file_changed` does the same (screenshots and tests).
 - Create from example: start in the loaded manifest's folder, else the
   user's Documents folder (`directories::UserDirs`), else the home folder;
-  suggested name `manifest.toml`. The backend writes with `create_new` and
+  suggested name `manifest.toml`; filter "Manifest" (`*.toml`), default
+  extension `toml` (today's filter; Windows appends `.toml` when the user
+  types no extension). The backend writes with `create_new` and
   never overwrites; an existing file is its `PathExists` error.
-- Browse starts in the entry's assigned folder when it has one.
+- Open uses the filter "Manifest" (`*.toml`), as today. Browse (assigning
+  a source file) has no filter, as today, and starts in the entry's assigned
+  folder when it has one.
 - Drop: `drop_target` per `dropAvailability` (enabled with the label when a
   manifest with entries is loaded and nothing blocks it; disabled with
   today's reasons while building, confirming or a drop is pending).
@@ -180,7 +185,7 @@ Behaviour to port (each a test case today):
   then the error above; success applies the session and sets `Result` with
   its lines and announces `dropResultText`; an error clears the drop state
   and shows the banner.
-- Dialog `PickError` → banner with the path-loss copy from `app::text`.
+- Dialog `PickError` → banner with the `PickError` copy from `app::text`.
 - `activated()` clears `error`, `drop_state` (unless a drop is pending),
   `announcement`, `focus_hint`; keeps `changed_on_disk` (it is about the
   file) and the session; refreshes the session.
@@ -242,7 +247,7 @@ Do not touch: other crates, `apps/desktop/`, `docs/plans/`.
 - `restores_last_manifest_on_start` (real backend, temp `AppDirs`),
   `skeleton_only_after_150ms`, `restore_failure_sets_load_failed`.
 - `open_uses_platform_and_announces`, `open_cancel_does_nothing`,
-  `open_error_shows_unreadable_copy`, `open_recent_uses_stored_path`.
+  `open_passes_manifest_filter`, `open_error_shows_dialog_failure_copy`, `open_recent_uses_stored_path`.
 - `reload_clears_changed_and_results`, `load_expands_errors_when_present`,
   `show_errors_expands_and_hints_focus`, `show_errors_noop_without_errors`.
 - `state_warning_announced_once_and_dismissal_sticks`.
@@ -271,5 +276,5 @@ Do not touch: other crates, `apps/desktop/`, `docs/plans/`.
   it on the UI thread only after the path is known (registration is cheap)
   and say so in the PR.
 - The real watcher test is timing-based; keep generous timeouts.
-- GPUI's dialogs show all files (no `.toml` filter); a non-TOML file fails
-  to parse with a diagnostic, as a bad manifest does today.
+- A filter only guides the user; a non-TOML file still fails to parse with a
+  diagnostic, as a bad manifest does today.

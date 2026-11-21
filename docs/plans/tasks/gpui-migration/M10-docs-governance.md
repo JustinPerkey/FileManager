@@ -1,6 +1,6 @@
 # M10 — `CLAUDE.md`, docs, invariants and agent roles for the GPUI app
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M9 and M11 (landed)
 
 ## Goal
@@ -33,11 +33,10 @@ crates' `session` modules, `.github/workflows/ci.yml`, `.claude/agents/*.md`,
   are not requirements."
 - **Paths (approved rewording).** "Paths are handled as the platform's path
   type, not as display strings. Code that renders a path does not assume it
-  is valid UTF-8. Exception: GPUI's file dialogs and Explorer drop deliver
-  only names that are valid Unicode. A name they cannot deliver is reported
-  to the user, never skipped silently, and the dialog's starting directory
-  falls back to the nearest valid-Unicode ancestor. Paths from every other
-  source stay exact."
+  is valid UTF-8. File dialogs are our own wrapper over the Windows common
+  item dialog and return paths exactly. Exception: Explorer drop is GPUI's
+  and delivers only names that are valid Unicode; a dropped name it cannot
+  deliver is reported to the user, never skipped silently."
 - **`impeccable`:** kept (enabled in `.claude/settings.json`) for `shape`
   (design briefs) and `critique` (of generated screenshots) only; `audit`,
   `polish` and the detectors are removed from the UI roles.
@@ -46,6 +45,10 @@ crates' `session` modules, `.github/workflows/ci.yml`, `.claude/agents/*.md`,
   differences; capture never ships in the release exe.
 - **Fonts:** Cascadia Mono (OFL) is embedded; Segoe UI is the system UI
   font.
+- **File dialogs:** the native Windows file picker with file-type filters,
+  a default extension and an initial folder, through
+  `apps/filemanager/src/platform/win_dialog.rs` behind `Platform`; never
+  `rfd`.
 - **Windows 11 only;** Linux CI builds and runs headless tests (no Linux
   window backend).
 - **Dependencies:** exact pins of `gpui-pre`, `gpui-pre-platform`,
@@ -90,15 +93,8 @@ pedantic, no secrets, `.claude`/`.codex` role sync, review of every change.
 - `docs/pipeline.md`, `docs/schedule.md`: replace `lib/generated`, command
   and React references with the model and backend paths; keep the "where
   the hooks go" content.
-- `docs/plans/README.md` needs its UI task template updated too, but the
-  task-plan guard blocks implementers from every file under `docs/plans/`
-  outside `tasks/`. Do not edit it; write the replacement text in the PR
-  description for the planner: the template's Context line becomes "the
-  brief excerpt, the tokens it uses (by name; values live in
-  `apps/filemanager/src/theme/tokens.rs`), the inventory entries for its
-  widgets, and the model API it calls"; its Skill line names `impeccable`
-  `shape`/`critique` only; "Acceptance criteria — including keyboard
-  reachability and labels".
+- `docs/plans/README.md` is the planner's (the task-plan guard blocks
+  implementers from it); its UI task template is already updated. Leave it.
 - `.claude/agents/{planner,ui-designer,ui-implementer,implementer,reviewer}.md`
   and their `.codex/agents/*.toml` twins, same change in both:
   - all: no npm, npx, Tauri, React, TypeScript, `lib/`, `lib/generated`,

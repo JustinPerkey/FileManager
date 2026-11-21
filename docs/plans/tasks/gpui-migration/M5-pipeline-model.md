@@ -1,7 +1,7 @@
 # M5 — Pipeline: backend trait, view-model, copy, fixtures
 
-Status: awaiting approval
-Project: gpui-migration   Depends on: M4 (landed)
+Status: approved (2026-11-21)
+Project: gpui-migration   Depends on: M4 and M3c (landed)
 
 ## Goal
 
@@ -43,7 +43,8 @@ What exists:
   `activated`, `drop_target`, `dropped`, `unsaved_work`,
   `inject_file_changed`), placeholder `src/tools/pipeline/{mod.rs,view/mod.rs}`,
   `src/jobs.rs` (`Worker<T>`, `spawn_thread`), `src/platform/` (`Platform`,
-  `PickKind::Folder`, `PickError`, `FakePlatform`), `AppSetup`/`BackendSet`
+  `OpenSpec`, `PickKind::Folder`, `PickError`, `FakePlatform`; on Windows the
+  dialogs are the native common item dialog), `AppSetup`/`BackendSet`
   in `src/lib.rs`, the harness in `src/shoot/`.
 - `docs/gpui-test-ledger.md`: rows for `tools/pipeline/*.test.tsx`.
 
@@ -126,10 +127,10 @@ Emit `cx.notify()` on every change. Behaviour to port (each is a case in
   none) before `set_directory`. Only the newest folder change is applied:
   a response to an older request is discarded (sequence number). A folder
   with an error is shown via the snapshot's `directory.error`; the
-  announcement says its message. A pick `Err` from `Platform` becomes
-  `ViewError::Unexpected` with the path-loss copy from `fm_app`'s
-  `app::text` (the `PickError` message) and its detail. A cancelled pick
-  changes nothing.
+  announcement says its message. `browse` opens
+  `OpenSpec { kind: Folder, start_dir: <the chosen folder, if any>, .. }`.
+  A pick `Err` becomes `ViewError::Unexpected` with the `PickError` copy from
+  `fm_app`'s `app::text` and its detail. A cancelled pick changes nothing.
 - Running: `request_*` refuse silently when `!can_run()`. A step with
   confirm copy (or "Run all" when any step has one) sets `pending` with the
   folder **display path shown at that moment**; `confirm` runs exactly that
@@ -222,8 +223,8 @@ noted):
 - `clean_path_trims_and_unquotes` (plain test; today's `cleanPath` cases).
 - `loads_session_on_start`, `load_failure_shows_retry_and_retry_loads`.
 - `typed_folder_sets_directory`, `bad_folder_shows_slot_error_and_announces`,
-  `only_newest_folder_change_applies`, `browse_uses_platform_and_cancel_changes_nothing`,
-  `browse_error_shows_unreadable_copy`.
+  `only_newest_folder_change_applies`, `browse_uses_folder_spec_and_cancel_changes_nothing`,
+  `browse_error_shows_dialog_failure_copy`.
 - `step_status_covers_every_case`, `run_reason_and_can_run`.
 - `step_without_confirm_runs_immediately`,
   `step_with_confirm_waits_and_uses_the_confirmed_folder`,

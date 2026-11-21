@@ -1,6 +1,6 @@
 # M11 — The task-plan guard hook as a Rust binary
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: none (run it early: every later implementer run uses the hook)
 
 ## Goal

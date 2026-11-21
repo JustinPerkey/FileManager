@@ -1,6 +1,6 @@
 # M6 — Schedule Creator: backend trait, view-model, copy, fixtures
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M5 (landed)
 
 ## Goal
@@ -46,7 +46,8 @@ What exists:
 - `apps/filemanager`: `src/tools/mod.rs` (`ToolHooks`: `activated`,
   `drop_target` → `DropTarget::{None, Enabled { label }, Disabled { reason }}`,
   `dropped`, `unsaved_work`, `inject_file_changed`), `src/jobs.rs`
-  (`Worker`), `src/platform/` (`PickKind::File`, `PickError`, `FakePlatform`),
+  (`Worker`), `src/platform/` (`OpenSpec`, `FileFilter`, `PickKind::File`,
+  `PickError`, `FakePlatform`; native Windows dialogs with filters),
   `BackendSet`/`FixtureId` in `src/lib.rs`, placeholder
   `src/tools/schedule/{mod.rs,view/mod.rs}`.
 - `docs/gpui-test-ledger.md`: rows for `tools/schedule/ScheduleView.test.tsx`.
@@ -103,8 +104,10 @@ Behaviour to port, each a case in `ScheduleView.test.tsx`: typed paths are
 cleaned (as Pipeline); only the newest session command's response applies;
 any successful session command clears the error and the previous result;
 a typed path whose slot comes back with an error announces that error's
-message; a browse uses `Platform::pick(PickKind::File, …)` and a pick `Err`
-shows the path-loss copy; the confirmation records the two display paths
+message; a browse uses `Platform::pick` with today's filters — the schedule
+file: "Text" (`*.txt`) then "All files" (`*.*`); the XML file: "XML"
+(`*.xml`) then "All files" (`*.*`) — starting in the folder of the slot's
+current file if any; a pick `Err` shows the `PickError` copy; the confirmation records the two display paths
 shown and `confirm` applies exactly those (`expected_text`/`expected_xml`);
 the result sentence; the duplicate guard (`already_applied` when the current
 pair equals the last successfully applied pair); errors from apply
@@ -175,7 +178,7 @@ Do not touch: `crates/` (report a needed change instead), `apps/desktop/`,
 - `loads_session_and_retries_after_failure`.
 - `typed_paths_set_slots`, `typed_path_error_is_announced`,
   `only_newest_command_applies`, `browse_sets_slot_and_cancel_does_nothing`,
-  `browse_error_shows_unreadable_copy`.
+  `browse_passes_todays_filters`, `browse_error_shows_dialog_failure_copy`.
 - `apply_reason_and_can_apply`.
 - `apply_confirms_with_shown_paths_and_applies_exactly_those`,
   `cancel_applies_nothing`, `result_sentence_after_apply`,
@@ -195,6 +198,5 @@ Do not touch: `crates/` (report a needed change instead), `apps/desktop/`,
 
 ## Risks
 
-- GPUI's dialogs have no file-type filter, so the user sees all files.
-  That is the planned behaviour (GPUI's dialogs are used as shipped); the
+- A filter only guides the user ("All files" is always offered); the
   backend's checks (`is_xml`, parse) stay authoritative.

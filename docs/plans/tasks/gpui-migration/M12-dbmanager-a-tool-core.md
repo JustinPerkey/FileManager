@@ -1,6 +1,6 @@
 # M12a — Database Manager, part A: tool core, snapshot, errors, backend trait, and the reading model
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: dbmanager M9 (delete, landed), gpui-migration M7b (landed)
 
 ## Goal
@@ -57,7 +57,8 @@ can be picked, linked to and opened read-only).
   `activated()`, "only the newest request applies", drop target), and
   `ToolId`, `ToolSlot`, `ToolHooks` (`activated`, `drop_target`, `dropped`,
   `unsaved_work`, `inject_file_changed`), `jobs::Worker`, `Platform`
-  (`pick`, `PickError`, `FakePlatform`), `DevMode`, `BackendSet`/`FixtureId`,
+  (`pick` with `OpenSpec`/`FileFilter`, `PickError`, `FakePlatform`; native
+  Windows dialogs with filters), `DevMode`, `BackendSet`/`FixtureId`,
   the harness.
 - If the ts-rs cutover has not happened yet, `fm-dbmanager` types still
   derive `ts_rs::TS`; new types in this milestone **do not** derive it and
@@ -170,7 +171,7 @@ with:
       pub fn snapshot(&self) -> Option<&DbmanagerSnapshot>;  pub fn loading(&self) -> bool;
       pub fn error(&self) -> Option<&ViewError>;  pub fn error_generation(&self) -> u64;  pub fn dismiss_error(&mut self, cx);
       pub fn listed_tables(&self) -> Vec<&TableView>;        // not hidden, not pickable
-      pub fn open(&mut self, cx);  pub fn open_recent(&mut self, index: usize, cx);
+      pub fn open(&mut self, cx);  pub fn open_recent(&mut self, index: usize, cx);   // open: filters below
       pub fn reload(&mut self, cx);  pub fn close_database(&mut self, cx);
       pub fn place(&self) -> &Place;  pub fn can_back(&self) -> bool;  pub fn can_forward(&self) -> bool;
       pub fn back(&mut self, cx);  pub fn forward(&mut self, cx);
@@ -205,6 +206,10 @@ with:
     `linked_only` defaults off for editable relations and on for read-only
     ones.
   - **Pickable** targets open read-only.
+  - **Open** shows the Windows file picker with the filters "SQLite
+    database" (`*.db;*.sqlite;*.sqlite3;*.db3`) then "All files" (`*.*`),
+    starting in the folder of the open database, else of the most recent
+    one; a pick `Err` shows the `PickError` copy.
   - **Model state survives switching tools** (today's design: switching
     away and back keeps place, history and drafts): `activated()` refreshes
     the snapshot (cheap) and clears only `error` and `announcement`.
@@ -297,7 +302,7 @@ backend):
 - `pickable_target_opens_read_only`.
 - `drop_opens_single_database`, `dropped_toml_is_banner`.
 - `activated_keeps_place_and_history`.
-- `open_dialog_error_shows_unreadable_copy`.
+- `open_passes_database_filters`, `open_dialog_error_shows_dialog_failure_copy`.
 
 ## Out of scope
 

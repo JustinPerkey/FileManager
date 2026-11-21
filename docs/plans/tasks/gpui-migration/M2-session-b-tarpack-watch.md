@@ -1,6 +1,6 @@
 # M2b — Move the Tar Packager session logic into `fm-tarpack`; the shared `FileWatcher`
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M2a (landed)
 
 ## Goal

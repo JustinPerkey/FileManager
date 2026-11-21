@@ -30,15 +30,17 @@ GPUI:
 - **"Stack (decided)" below is historical.** Views go in
   `apps/filemanager/src/tools/dbmanager/view/` (ui-implementer); tokens in
   `apps/filemanager/src/theme/tokens.rs`.
+- **File dialogs** are the native Windows picker with filters (Open
+  database: "SQLite database", then "All files"), gpui-migration M3c.
 - **No Tauri commands and no `lib/dbmanager.ts`:** views call the model
   `apps/filemanager/src/tools/dbmanager/model.rs` (gpui-migration M12a–M12d),
   which holds places, history, lists, **the draft and staged link changes**,
   save, conflicts, delete and the config reload's re-check. The "view store"
   of §3.2 is that model.
 - **No `lib/dbmanagerValidation.ts` (dbmanager M11 dropped):** the model
-  validates with `fm_dbmanager::rules::validate` as the user types. The
-  pattern subset restriction is relaxed for shorthand classes (dbmanager
-  M15).
+  validates with `fm_dbmanager::rules::validate` as the user types. Config
+  patterns may use the full Rust `regex` syntax (dbmanager M15); examples
+  here need not stay in the old common subset.
 - **`onConfigChanged`, `guardWindowClose`, `closeWindow`** are replaced by
   the model's automatic reload (M12d) and the GPUI shell's close guard
   (gpui-migration M3b; dbmanager registers its draft in M12b).

@@ -1,6 +1,6 @@
 # M7b — Tar Packager, part B: model for output, format, build, progress, overwrite, results and shortcuts
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M7a (landed)
 
 ## Goal
@@ -90,8 +90,11 @@ impl TarpackModel {
   the current output's file name, else `suggested_output_name`. Paths come
   from state as `PathBuf` (add `Core::output_path() -> Option<PathBuf>` to
   `fm_tarpack::session` if it is missing; that and its test are the only
-  allowed crate change). GPUI's save dialog has no type filter; the backend
-  already normalises the extension to the format (`with_format`). When the
+  allowed crate change). The filter is today's: name
+  "<format name> archive (<extension>)", pattern `*.<filter_extension>`
+  (`ArchiveFormat::filter_extension`, the last suffix, e.g. `zst` for
+  `.tar.zst`), and `default_extension` = the same suffix. The backend still
+  normalises the full extension to the format (`with_format`). When the
   chosen name changes the format, `format_notice` says "Format changed to
   <name> to match the file name."; any later format or output change, a
   reload, or a new build clears it as today.
@@ -187,7 +190,7 @@ In `apps/filemanager/src/tools/tarpack/tests.rs`:
 
 - `report_text_matches_today`, `reason_and_left_out_note_cases` (plain tests,
   ported from `reportText.test.ts` and `BuildBar.test.tsx`).
-- `choose_output_starts_in_output_folder_with_name`,
+- `choose_output_starts_in_output_folder_with_name`, `choose_output_passes_format_filter`,
   `output_name_changing_format_sets_notice`, `notice_cleared_by_later_change`.
 - `build_runs_off_thread_with_ordered_progress` (real backend, temp dir,
   `allow_parking`), `build_success_sets_result_and_announces`,

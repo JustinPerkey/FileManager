@@ -1,6 +1,6 @@
 # M2a — Move the Pipeline and Schedule Creator session logic into their crates
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: none (the GPUI go decision is taken)
 
 ## Goal

@@ -1,6 +1,6 @@
 # M4 — The screenshot harness: feature `shoot`, `filemanager-shoot`, scenario API, CI upload
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M3b (landed)
 
 ## Goal

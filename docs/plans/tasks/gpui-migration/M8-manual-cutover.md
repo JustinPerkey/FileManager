@@ -1,6 +1,6 @@
 # M8 — Manual and screenshots from the GPUI harness; the Node screenshot scripts go
 
-Status: awaiting approval. **Depends on the UI plan:** runs only after every
+Status: approved (2026-11-21). **Depends on the UI plan:** runs only after every
 U task for the shell, Pipeline, Schedule Creator and Tar Packager views and
 scenarios has landed.
 Project: gpui-migration   Depends on: M5, M6, M7b and their U tasks (landed)
@@ -49,13 +49,13 @@ What exists now:
    run URL or machine).
 3. **Manual text.** Read `user-manual.md` against the GPUI app and fix
    wording that no longer holds: anything about a browser or webview, page
-   reload, the text-size or screen-reader behaviour of the old UI, dialog
-   type filters (GPUI's dialogs show all files), the Tar Packager table
+   reload, the text-size or screen-reader behaviour of the old UI, the Tar Packager table
    stacking rows in narrow windows (it now scrolls sideways), and the notice
-   shown when dropped or picked names are not valid Unicode (add one
-   sentence where drop and Browse are described: such names cannot be
-   picked or dropped; FileManager says so; rename the item). Do not
-   redescribe unchanged flows.
+   shown when dropped names are not valid Unicode (add one sentence where
+   drop is described: such items cannot be dropped, FileManager says so;
+   rename them or use Browse, which handles them). File dialogs are the
+   Windows file picker with filters, as before. Do not redescribe unchanged
+   flows.
 4. **Delete** `docs/manual/screenshots/{shoot.js,lib.js,mock.js}`; the README
    keeps only the GPUI harness section (command, Windows at 100%, output
    folder, the CI artifact, that scenarios live in
@@ -100,8 +100,7 @@ Do not touch: `apps/filemanager/src/shoot/scenarios/`, views, theme,
   size (1366×800 for Tar Packager images, 1000×700 for the rest).
 - No Node file remains under `docs/manual/`.
 - The manual mentions no browser, webview, reload of the page, or row
-  stacking, and describes the non-Unicode name notice once for drop and
-  once for Browse.
+  stacking, and describes the non-Unicode name notice for drop.
 - The `side-by-side` artifact exists on the PR's CI run; the human has
   reviewed it (recorded in the PR).
 - CI is green on both jobs.

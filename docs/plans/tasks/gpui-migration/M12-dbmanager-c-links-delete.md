@@ -1,6 +1,6 @@
 # M12c — Database Manager, part C: many-to-many staging with link fields, link conflicts, delete
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M12b (landed)
 
 ## Goal

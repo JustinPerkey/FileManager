@@ -93,14 +93,16 @@ Project: <slug>   Depends on: U<k>, M<k>
 
 ## Goal
 ## Context
-The brief excerpt, the tokens it uses (by name; values live in tokens.css
-once U1 lands), the inventory entries for its components, and the lib/ API it
-calls.
+The brief excerpt, the tokens it uses (by name; values live in
+apps/filemanager/src/theme/tokens.rs once the theme task lands; tokens.css
+for the legacy Tauri UI), the inventory entries for its widgets, and the
+model API it calls (apps/filemanager/src/tools/<tool>/model.rs; lib/ for the
+legacy Tauri UI).
 ## Files
 ## Skill
-The impeccable skill to apply.
+The impeccable sub-command to apply: shape or critique (of screenshots).
 ## Acceptance criteria
-Including accessibility and keyboard checks.
+Including keyboard reachability and labels.
 ## Tests proving completion
 ## States covered
 Loading / empty / error / success.

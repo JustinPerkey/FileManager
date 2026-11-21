@@ -1,6 +1,6 @@
 # M3a — The GPUI app skeleton: crate, window, assets, fonts, Shell, tool registry, dev mode, CI
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M2b (landed)
 
 ## Goal

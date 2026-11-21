@@ -44,8 +44,9 @@ For this tool that means:
 - **Dropped:** M11 (TS validation mirror): the model calls
   `rules::validate` directly; M14 (window-close guard): the GPUI app's close
   guard (gpui-migration M3b), with dbmanager registering its drafts (M12b).
-- **New:** [M15](../tasks/dbmanager/M15-pattern-shorthand.md) lifts the
-  pattern shorthand-class ban (any time).
+- **New:** [M15](../tasks/dbmanager/M15-pattern-syntax.md) allows the full
+  Rust `regex` syntax in config patterns, lifting every old Rust/JavaScript
+  restriction (the human's decision, 2026-11-21; any time).
 - **UI:** `dbmanager-ui.md`'s design decisions carry over; its implementation
   parts and U1–U13 are superseded and are rewritten by the ui-designer for
   GPUI.
@@ -530,7 +531,7 @@ meaningful once the shell links the crate, in M10.
 | M12 | ~~[`M12-docs-release.md`](../tasks/dbmanager/M12-docs-release.md)~~ **superseded** by gpui-migration M13 | — | — |
 | M13 | ~~[`M13-config-watch-and-edit.md`](../tasks/dbmanager/M13-config-watch-and-edit.md)~~ **superseded** by gpui-migration M2b (watcher move) and M12d | — | — |
 | M14 | ~~[`M14-window-close-guard.md`](../tasks/dbmanager/M14-window-close-guard.md)~~ **dropped** (GPUI close guard: gpui-migration M3b, M12b) | — | — |
-| M15 | [`M15-pattern-shorthand.md`](../tasks/dbmanager/M15-pattern-shorthand.md) | **New 2026-11-21:** allow `\d \w \s \b` and their negations in patterns (only Rust validates) | M5 |
+| M15 | [`M15-pattern-syntax.md`](../tasks/dbmanager/M15-pattern-syntax.md) | **New 2026-11-21:** the full Rust `regex` syntax in patterns; the common-subset scanner and the `.` warning go (only Rust validates) | M5 |
 
 **Execution order (revised 2026-11-21 for the GPUI migration):**
 
