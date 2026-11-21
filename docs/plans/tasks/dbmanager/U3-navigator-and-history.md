@@ -1,6 +1,6 @@
 # U3 — Database Manager: panes, table nav, object list, Back/Forward, sheet shell
 
-Status: awaiting approval (rewritten 2026-11-21 for GPUI; the React version is in git history)
+Status: approved (2026-11-21) (rewritten 2026-11-21 for GPUI; the React version is in git history)
 Project: dbmanager (GPUI: gpui-migration)   Depends on: U2 (landed), gpui-migration M12a (landed)
 
 ## Goal

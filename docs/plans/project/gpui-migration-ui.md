@@ -1,6 +1,6 @@
 # UI project plan: porting FileManager's interface to GPUI + gpui-component
 
-Status: **awaiting approval** (written 2026-11-21 by the `ui-designer`).
+Status: **approved (2026-11-21)**, as written, including V1–V8 and 25 objects per page (written 2026-11-21 by the `ui-designer`).
 Backend project plan: [`gpui-migration.md`](gpui-migration.md) (its §13 is the
 handoff this plan answers; D1–D26 there are binding). Task plans:
 [`../tasks/gpui-migration/`](../tasks/gpui-migration/) `U1`–`U12`; the

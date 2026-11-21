@@ -22,7 +22,7 @@ Pin the API below: the UI task plans cite it.
 **Follow the Pipeline's shape exactly.** `apps/filemanager/src/tools/pipeline/`
 (M5) has `backend.rs` (trait + real impl), `model.rs` (the entity:
 `ViewError`, `error_generation`, `load_failed`/`retry_load`, "only the newest
-request applies", `announcement`, `focus_hint`, `activated()` clearing
+request applies", `announcement`, `take_focus_hint`, `activated()` clearing
 transient state), `text.rs`, `fixtures.rs`, `tests.rs`. Reuse its patterns;
 if a helper is needed by both tools (for example `clean_path`), move it to
 `apps/filemanager/src/app/` rather than importing one tool from the other.
@@ -96,7 +96,7 @@ impl ScheduleModel {
     pub fn result(&self) -> Option<&ApplySummary>;
     pub fn already_applied(&self) -> bool;                  // the same pair was applied before: duplicate warning
     pub fn announcement(&self) -> Option<&str>;
-    pub fn focus_hint(&self) -> Option<FocusHint>;          // Outcome | AddButton, after applying ends
+    pub fn take_focus_hint(&mut self) -> Option<FocusHint>; // cleared on read; Outcome | AddButton, after applying ends
 }
 ```
 
@@ -121,7 +121,7 @@ the XML file, any other the schedule file; more than allowed gives
 `DropAmbiguous`) and announces `dropSentence`.
 
 **`activated()`** clears `error`, `pending`, `result`, `announcement`,
-`focus_hint` (React's `useState`), keeps the "applied" pair only if today's
+the pending focus hint (React's `useState`), keeps the "applied" pair only if today's
 view keeps it across remounts (it does not: clear it too), and refreshes
 the session. An apply in progress continues and its result lands.
 

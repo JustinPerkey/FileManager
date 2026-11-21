@@ -1,6 +1,6 @@
 # U1 — Theme: tokens, gpui-component mapping, live light and dark
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M3a (landed)
 
 ## Goal

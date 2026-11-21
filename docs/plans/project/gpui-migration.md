@@ -17,13 +17,20 @@ History:
   file dialogs with filters, the full Rust `regex` syntax in dbmanager
   patterns, the drop log match accepted) and approved the plan and its task
   plans. M3c was added for the dialogs.
+- 2026-11-21, later still: the ui-designer's plan landed and was approved;
+  its requests R1–R7 were applied to M3a, M3b, M4, M5–M7b, M8 and M12a–M12d.
+  Live tests found the agent-frontmatter hook never fires in the cloud
+  runtime; the human chose a settings-file hook filtered by the calling
+  agent (D27, M11b).
 
 The visual half (theme, shared widgets, the shell's look, per-tool views,
 screenshot scenarios) belongs to the `ui-designer` (§13). It writes
 `docs/plans/project/gpui-migration-ui.md` and the `U<n>` task plans under
-`docs/plans/tasks/gpui-migration/`. **That plan does not exist yet**; the
-backend milestones below are ordered so that the U tasks can interleave
-(§9.2).
+`docs/plans/tasks/gpui-migration/`. It exists and is **approved**
+([`gpui-migration-ui.md`](gpui-migration-ui.md): U1–U12 here, the Database
+Manager's U2–U12 and U14 rewritten in place under `tasks/dbmanager/`); its
+requests R1–R7 to this plan are applied (§13.1). The backend milestones below
+are ordered so that the U tasks can interleave (§9.2).
 
 Task plans: [`../tasks/gpui-migration/`](../tasks/gpui-migration/).
 
@@ -64,6 +71,8 @@ the TypeScript frontend, ts-rs and npm/Node from the application entirely.
 | D25 | 11-21 | **Q15: lift all the old Rust/JavaScript pattern restrictions.** The full Rust `regex` syntax is allowed in dbmanager config patterns (dbmanager M15). |
 | D26 | 11-21 | **Q16: accept** the drop path-loss detection by GPUI's log message, guarded by the pin test. |
 | — | 11-21 | **The plan and its post-spike task plans are approved.** |
+| — | 11-21 | **The UI plan (`gpui-migration-ui.md`) and every U task are approved as written**, including V1–V8 and 25 objects per page. |
+| D27 | 11-21 | **The task-plan guard moves to a `.claude/settings.json` `PreToolUse` hook** that applies only when the hook input's `agent_type` is `implementer` or `ui-implementer` (the human's condition: the input must identify the calling subagent; Claude Code's hook reference says it does, §7). The agent-frontmatter hook is removed once the live check passes (M11b). |
 
 ### 1.2 What does not change
 
@@ -148,7 +157,8 @@ feel of 10,000 rows). D10 governs it.
 
 ```
 Cargo.toml                      workspace: members crates/*, apps/filemanager,
-                                devtools/task-plan-guard (apps/desktop/src-tauri until M9);
+                                devtools/* (today devtools/task-plan-guard;
+                                apps/desktop/src-tauri until M9);
                                 [workspace.dependencies] pins gpui, gpui_platform,
                                 gpui-component, gpui-kit-assets (exact), async-channel,
                                 notify-debouncer-mini, image, tempfile; ts-rs removed in M9
@@ -421,15 +431,34 @@ Changed in M10 (roles, docs) and M11 (hook):
   contributor already has; the first call builds it (seconds: its only
   dependency is `serde_json`), later calls start the cached binary. The
   separate target directory means it never waits on the build lock of a
-  `cargo build` the agent is running. A build failure exits non-zero but not
+  `cargo build` the agent is running (it can still wait briefly on the shared
+  `$CARGO_HOME` package-cache lock while another cargo is downloading or
+  updating the registry). A build failure exits non-zero but not
   2, so Claude Code reports it and the call proceeds: the guard fails open,
   as the `.mjs` does on bad input. CI builds and tests it on both jobs.
+- **The hook never fired here (finding, 2026-11-21).** Live tests in the
+  cloud runtime showed that the agents' frontmatter `hooks:` block never
+  runs: implementer subagents read project plans with both the Node and the
+  Rust guard, with no hook error. The guard has never been enforced in this
+  runtime. Claude Code's hook reference (code.claude.com/docs/en/hooks,
+  sub-agents, permissions; read 2026-11-21, Claude Code 2.1.330 here)
+  explains it: frontmatter hooks of a **project** subagent run only after
+  the workspace-trust dialog is accepted for that folder; `-p`, SDK and
+  cloud sessions never show it, and then Claude Code skips them silently
+  (a debug-log line only). **Hooks in settings files do run** there (the
+  table "What runs before you trust a folder": used under `-p`/SDK). And
+  "hooks from settings files … also run inside subagents … the input carries
+  the `agent_id` and `agent_type` common input fields that identify the
+  subagent"; for a custom subagent `agent_type` is its frontmatter `name`
+  (`implementer`, `ui-implementer`); it is absent in the main conversation
+  unless the session runs with `--agent`. So a settings-file hook can apply
+  the guard to exactly the two roles (D27, M11b).
 - Each `.claude/agents/*.md` change is mirrored in `.codex/agents/*.toml`.
 - `docs/plans/README.md` is out of the implementers' reach (the guard blocks
   it). The UI task template was updated by the planner on 2026-11-21 (tokens
   in `theme/tokens.rs`, the model API, `shape`/`critique`, keyboard and
-  labels). The sentence naming the hook changes after M11 lands: M11's PR
-  proposes it and the planner applies it.
+  labels). Its hook sentence names `devtools/task-plan-guard/` (planner,
+  2026-11-21).
 
 ## 8. The spike (M1) — done
 
@@ -464,7 +493,8 @@ recommendation was go-with-conditions; the human decided go (D10–D14).
 | M8 | [`M8-manual-cutover.md`](../tasks/gpui-migration/M8-manual-cutover.md) | Manual and screenshots from the harness; Node screenshot scripts removed | M5–M7b and every U task of the three tools | **depends on UI plan** |
 | M9 | [`M9-cutover-removal.md`](../tasks/gpui-migration/M9-cutover-removal.md) | Remove Tauri, React, npm, ts-rs; rename to `filemanager`; CI cleanup | M8 | no |
 | M10 | [`M10-docs-governance.md`](../tasks/gpui-migration/M10-docs-governance.md) | `CLAUDE.md`, docs, invariants (§10.3), agent roles in both runtimes (plans README text proposed to the planner) | M9, M11 | partly (`DESIGN.md`/`PRODUCT.md` are the ui-designer's) |
-| M11 | [`M11-task-plan-guard.md`](../tasks/gpui-migration/M11-task-plan-guard.md) | The hook as a Rust binary (D17) | none (run early) | no |
+| M11 | [`M11-task-plan-guard.md`](../tasks/gpui-migration/M11-task-plan-guard.md) | The hook as a Rust binary (D17) | none (run early) | no (landed) |
+| M11b | [`M11b-settings-hook.md`](../tasks/gpui-migration/M11b-settings-hook.md) | The guard as a `.claude/settings.json` hook filtered by `agent_type` (D27); frontmatter hooks removed after the live check | M11 | no |
 | M12a | [`M12-dbmanager-a-tool-core.md`](../tasks/gpui-migration/M12-dbmanager-a-tool-core.md) | `fm_dbmanager::tool::Core`, snapshot, errors, backend trait; model: places, history, lists, objects, referenced-by, m2m pages | dbmanager M9, M7b | **depends on UI plan** |
 | M12b | [`M12-dbmanager-b-edits.md`](../tasks/gpui-migration/M12-dbmanager-b-edits.md) | Drafts in the model, validation while typing, save, create, object conflicts, leave and close guards | M12a | **depends on UI plan** |
 | M12c | [`M12-dbmanager-c-links-delete.md`](../tasks/gpui-migration/M12-dbmanager-c-links-delete.md) | Many-to-many staging with link fields, link conflicts, confirmed delete | M12b | **depends on UI plan** |
@@ -478,7 +508,7 @@ validation mirror (dbmanager M11) is dropped and nothing but Rust validates.
 
 ### 9.2 Execution order and interleaving with the UI pipeline
 
-1. **M11** any time; recommended first, because it changes the hook every
+1. **M11** (landed), then **M11b** next: it makes the guard actually run (§7). M11 was recommended first, because it changes the hook every
    later implementer run uses.
 2. **M2a → M2b → M3a → M3b → (M3c, M4 in either order) → M5.** The U theme and shared-widget tasks may
    start after **M3a** (they need the crate, assets and fonts). The U shell
@@ -604,6 +634,14 @@ in the rewritten UI plan.
     behaviour is proved by the checklist.
 12. **Closing during a build** kills the worker thread at exit, as today; the
     atomic writer leaves at most a temp file. Unchanged behaviour.
+13. **The task-plan guard has never been enforced in the cloud runtime**
+    (§7 finding): project-subagent frontmatter hooks are skipped without
+    workspace trust, silently. Until M11b lands and its live check passes,
+    the only protection is the agents' own instructions, and every
+    implementer run so far may have read project plans. M11b moves the guard
+    to `.claude/settings.json`; if `agent_type` ever stops arriving, the
+    guard allows everything (fails open), so M11b's live check is repeated
+    after each Claude Code upgrade that touches hooks.
 
 ## 13. Handoff to ui-designer
 
@@ -686,6 +724,22 @@ Constraints already established
   - Dialogs are the native Windows picker with today's filters (D24, M3c);
     path-loss notice copy (drop only) is in §3.7.
 ```
+
+### 13.1 The ui-designer's requests, applied (2026-11-21)
+
+| # | Request | Applied in |
+|---|---|---|
+| R1 | `Scenario::clip` (crop to a debug selector's bounds) | M4; M8's size check reads "size or clip" |
+| R2 | ui-implementer may add icon SVGs and `icons!` lines | M3a ownership rule |
+| R3 | `--dark` calls `fm_app::theme::set_override(Some(ThemeMode::Dark), cx)` | M4 |
+| R4 | `EditorInput`; reference picker in the model with its own list query; `request_delete_of` | M12b, M12c |
+| R5 | consumable `take_focus_hint`; dbmanager hints `SheetHeading`, `ListHeading`, `ErrorSummary`, `ErrorBanner`, `PickerTrigger(field)`, `DeleteNotice` | M5, M6, M7a, M7b, M12a (enum), M12b, M12c |
+| R6 | dbmanager fixtures: config reload making `pages` read-only; deletable but referenced `publisher`; one error + one warning; syntax error | M12b, M12c, M12d |
+| R7 | `Shell::request_close(window, cx)`, same path as the should-close hook | M3b |
+
+Also settled: the Database Manager's list page is **25** objects
+(`dbmanager-ui.md` §1.5 said 100 in its first draft; M12a, the U tasks and
+the approved UI plan use 25).
 
 ## 14. Questions
 

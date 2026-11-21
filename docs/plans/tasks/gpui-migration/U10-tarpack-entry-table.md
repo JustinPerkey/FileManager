@@ -1,6 +1,6 @@
 # U10 — Tar Packager: the entry table
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: U9 (landed), M7a (landed)
 
 ## Goal

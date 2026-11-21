@@ -1,6 +1,6 @@
 # U7 — Database Manager: editing references with the object picker
 
-Status: awaiting approval (rewritten 2026-11-21 for GPUI; the React version is in git history)
+Status: approved (2026-11-21) (rewritten 2026-11-21 for GPUI; the React version is in git history)
 Project: dbmanager (GPUI: gpui-migration)   Depends on: U6 (landed), gpui-migration M12b (landed, with the picker API of planner request R4)
 
 ## Goal

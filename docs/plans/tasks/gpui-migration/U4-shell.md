@@ -1,6 +1,6 @@
 # U4 — Shell views: sidebar, tool area, notice, drop overlay, close prompt
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: U3 (landed), M3b (landed)
 
 ## Goal

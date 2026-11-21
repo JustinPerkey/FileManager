@@ -1,6 +1,6 @@
 # U12 — Tar Packager screenshot scenarios
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: U11 (landed), U8 (landed), M4 (landed), and the harness's `Scenario::clip` (planner request R1, added to M4)
 
 ## Goal

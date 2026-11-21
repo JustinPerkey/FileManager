@@ -1,6 +1,6 @@
 # U6 — Database Manager: save bar, error summary, conflict panel, leave dialog, notices
 
-Status: awaiting approval (rewritten 2026-11-21 for GPUI; the React version is in git history)
+Status: approved (2026-11-21) (rewritten 2026-11-21 for GPUI; the React version is in git history)
 Project: dbmanager (GPUI: gpui-migration)   Depends on: U5 (landed), gpui-migration M12b (landed)
 
 ## Goal

@@ -57,7 +57,10 @@ What exists:
 - `fm-pipeline` and `fm-schedule` gain `serde` (derive) and
   `ts-rs = { workspace = true }`, and `tempfile = { workspace = true }` as a
   dev-dependency where the tests need it. Use the versions the workspace
-  already locks.
+  already locks. `fm-schedule` also gains `fm-core` (path dependency): the
+  moved `core.rs` writes the XML with `fm_core`'s atomic write
+  (`atomic_write`). *(Recorded 2026-11-21: the implementer found and added
+  this; the plan had missed it.)*
 - `tools/pipeline/mod.rs` and `tools/schedule/mod.rs` import from
   `fm_pipeline::session` / `fm_schedule::session` and keep only the
   `#[tauri::command]` functions and the managed-state constructor. Delete the

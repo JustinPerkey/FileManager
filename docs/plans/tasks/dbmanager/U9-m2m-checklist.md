@@ -1,6 +1,6 @@
 # U9 — Database Manager: many-to-many checklists
 
-Status: awaiting approval (rewritten 2026-11-21 for GPUI; the React version is in git history)
+Status: approved (2026-11-21) (rewritten 2026-11-21 for GPUI; the React version is in git history)
 Project: dbmanager (GPUI: gpui-migration)   Depends on: U8 (landed), gpui-migration M12a and M12c (landed)
 
 ## Goal

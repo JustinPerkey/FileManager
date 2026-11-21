@@ -1,6 +1,6 @@
 # U9 — Tar Packager: view frame, states, header, Recent, banners, empty state, errors region, drop result
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: U4 (landed), M7a (landed)
 
 ## Goal

@@ -1,6 +1,6 @@
 # U14 — Database Manager screenshot scenarios
 
-Status: awaiting approval (new, 2026-11-21, GPUI)
+Status: approved (2026-11-21) (new, 2026-11-21, GPUI)
 Project: dbmanager (GPUI: gpui-migration)   Depends on: U12 (landed), gpui-migration U12 (landed), gpui-migration M4 (landed, with `Scenario::clip` of planner request R1), the scenario fixtures of planner request R6 (gpui-migration M12b–M12d), `Shell::request_close` of request R7 (gpui-migration M3b)
 
 ## Goal

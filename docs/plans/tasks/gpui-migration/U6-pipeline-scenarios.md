@@ -1,6 +1,6 @@
 # U6 — Pipeline screenshot scenarios
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: U5 (landed), M4 (landed)
 
 ## Goal

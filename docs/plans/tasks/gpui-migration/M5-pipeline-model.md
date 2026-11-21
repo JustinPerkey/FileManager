@@ -111,7 +111,7 @@ impl PipelineModel {
     pub fn pending(&self) -> Option<(&Pending, &str)>;       // with the folder named in the confirmation
     pub fn confirm(&mut self, cx);  pub fn cancel(&mut self, cx);
     pub fn announcement(&self) -> Option<&str>;              // the latest outcome sentence
-    pub fn focus_hint(&self) -> Option<FocusHint>;           // Step(id) | RunNext: where today's view moves focus after a run
+    pub fn take_focus_hint(&mut self) -> Option<FocusHint>; // cleared on read; Step(id) | RunNext: where today's view moves focus after a run
 }
 ```
 
@@ -120,7 +120,7 @@ Emit `cx.notify()` on every change. Behaviour to port (each is a case in
 
 - Startup / `activated()`: fetch the session through the Worker; a failure
   sets `load_failed` and the error; `retry_load` refetches. `activated()`
-  clears `error`, `pending`, `announcement` and `focus_hint` (the state the
+  clears `error`, `pending`, `announcement` and any pending focus hint (the state the
   React view held), then refreshes the session; a running step or run-all
   continues and its result lands in the model.
 - Folder: typed text is cleaned (trimmed, surrounding `"` removed, empty =
@@ -142,7 +142,7 @@ Emit `cx.notify()` on every change. Behaviour to port (each is a case in
   session, not a banner. Run all runs the steps in order and stops at the
   first that does not pass; announcement "All steps passed." or
   "Stopped at <title>.". A single run announces "<title>: <status label>.".
-  `focus_hint` after a "Run next" run is `RunNext` when another step can run
+  the focus hint after a "Run next" run is `RunNext` when another step can run
   next, otherwise `Step(id)`.
 - Any command failing in an unexpected way (a panicked job) is
   `ViewError::Unexpected`. Each new error increments `error_generation` (the
@@ -151,7 +151,7 @@ Emit `cx.notify()` on every change. Behaviour to port (each is a case in
 
 Dropped on purpose (record in the ledger): the "orphan" polling (GPUI models
 outlive views), `aria-live`/`aria-describedby` wiring, DOM focus calls (the
-view uses `focus_hint`).
+view uses `take_focus_hint`).
 
 **`src/tools/pipeline/mod.rs`.** Registers the tool: the model is created in
 `tools::build` with `RealPipeline` or a fixture per `BackendSet`; `ToolHooks`
@@ -230,7 +230,7 @@ noted):
   `step_with_confirm_waits_and_uses_the_confirmed_folder`,
   `cancel_runs_nothing`, `run_all_confirms_once_and_stops_at_first_failure`,
   `run_all_all_passed_announces`, `run_next_busy_only_for_its_step`,
-  `focus_hint_after_run_next`.
+  `focus_hint_after_run_next`, `focus_hint_is_cleared_on_read` (two "Run next" runs give two hints).
 - `begin_error_is_a_banner_and_step_failure_is_not`,
   `repeated_error_bumps_generation`, `dismiss_error_clears_it`,
   `panicked_step_is_unexpected_failure`.
@@ -252,4 +252,4 @@ Command: `cargo test -p filemanager-gpui`, then the workspace commands.
 - `Worker` serialises calls; `set_directory` on a slow share delays a
   session refresh queued behind it, never the UI thread.
 - The React view's announcement and focus timing are approximated by
-  `announcement` and `focus_hint`; the UI task decides how they show.
+  `announcement` and `take_focus_hint`; the UI task decides how they show.

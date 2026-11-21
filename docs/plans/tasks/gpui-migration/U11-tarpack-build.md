@@ -1,6 +1,6 @@
 # U11 — Tar Packager: build bar, progress, overwrite, result, report, developer extras, shortcuts
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: U10 (landed), M7b (landed)
 
 ## Goal

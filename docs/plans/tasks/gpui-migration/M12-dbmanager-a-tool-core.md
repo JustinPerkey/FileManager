@@ -53,7 +53,7 @@ can be picked, linked to and opened read-only).
   `example.toml`, `starter.toml`.
 - `apps/filemanager` (lib `fm_app`): the tool pattern of the Pipeline,
   Schedule Creator and Tar Packager (`src/tools/<tool>/{backend,model,text,fixtures,mod,tests}.rs`,
-  `ViewError` + `error_generation`, `announcement`, `focus_hint`,
+  `ViewError` + `error_generation`, `announcement`, `take_focus_hint` (consumable: cleared on read),
   `activated()`, "only the newest request applies", drop target), and
   `ToolId`, `ToolSlot`, `ToolHooks` (`activated`, `drop_target`, `dropped`,
   `unsaved_work`, `inject_file_changed`), `jobs::Worker`, `Platform`
@@ -185,8 +185,17 @@ with:
       pub fn show_more_referenced_by(&mut self, relation: &str, cx);
       pub fn m2m(&self, relation: &str) -> Option<&M2mState>;          // query, page
       pub fn set_m2m_query(&mut self, relation: &str, search: &str, linked_only: bool, offset: u64, cx);
+      pub fn take_focus_hint(&mut self) -> Option<FocusHint>;          // consumable: cleared on read
   }
+  pub enum FocusHint { SheetHeading, ListHeading, ErrorSummary, ErrorBanner, PickerTrigger(String), DeleteNotice }
   ```
+
+  Focus hints (all defined here; later parts raise the ones they own): a
+  place change raises `SheetHeading` (object, new) or `ListHeading` (table);
+  a banner error raises `ErrorBanner`; parts B and C raise `ErrorSummary`
+  (a refused save), `PickerTrigger(field)` (the reference picker closed) and
+  `DeleteNotice` (impact changed, or delete done). A hint is returned once,
+  so a repeated hint is distinct from an old one.
 
   Behaviour:
   - **History:** every place is an entry; choosing a table, opening an

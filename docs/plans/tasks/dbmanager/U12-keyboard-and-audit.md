@@ -1,6 +1,6 @@
 # U12 — Database Manager: Edit config, reload notices, the complete keyboard map and help
 
-Status: awaiting approval (rewritten 2026-11-21 for GPUI; scope reduced by the human's decision: no screen-reader, 200% text or `/impeccable audit` work; the React version is in git history)
+Status: approved (2026-11-21) (rewritten 2026-11-21 for GPUI; scope reduced by the human's decision: no screen-reader, 200% text or `/impeccable audit` work; the React version is in git history)
 Project: dbmanager (GPUI: gpui-migration)   Depends on: U2–U11 (landed), gpui-migration M12d (landed)
 
 ## Goal

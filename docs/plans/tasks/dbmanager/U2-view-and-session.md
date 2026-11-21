@@ -1,6 +1,6 @@
 # U2 — Database Manager: view frame, session header, empty state, banners, config problems
 
-Status: awaiting approval (rewritten 2026-11-21 for GPUI; the React version is in git history)
+Status: approved (2026-11-21) (rewritten 2026-11-21 for GPUI; the React version is in git history)
 Project: dbmanager (GPUI: gpui-migration)   Depends on: gpui-migration U4 (landed), gpui-migration M12a (landed)
 
 ## Goal

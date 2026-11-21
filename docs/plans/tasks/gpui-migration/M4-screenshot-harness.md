@@ -80,6 +80,7 @@ pub struct Scenario {
     pub size: (f32, f32),                   // logical px; 1000×700 default, 1366×800 Tar Packager
     pub setup: fn(&mut AppSetup),           // fixtures, scripted platform answers
     pub steps: &'static [Step],
+    pub clip: Option<&'static str>,         // debug selector: crop the PNG to that element's bounds (no margin)
 }
 pub enum Step {
     SelectTool(ToolId),
@@ -103,10 +104,14 @@ variant cannot be done in GPUI; record the change in the module doc.
 
 `src/bin/filemanager-shoot.rs`: `filemanager-shoot --out <dir> [--only <name>,…] [--prefix <p>] [--dark]`.
 For each scenario: start the app with its setup (light theme, or dark with
-`--dark` by forcing the window appearance, if the theme follows it), open the
+`--dark`: call `fm_app::theme::set_override(Some(ThemeMode::Dark), cx)` before
+the first frame; the theme U task provides that function, so until it lands
+`--dark` is a documented no-op), open the
 window at its size, play the steps, wait for idle plus a settle time (start
 from the spike's 1.5 s for the first frame, then render as soon as idle),
-call `render_to_image`, and write `<out>/<prefix><name>.png`. It fails that
+call `render_to_image`, crop to `clip`'s element bounds (in device pixels)
+when the scenario sets one, and write `<out>/<prefix><name>.png`. A `clip`
+selector that does not resolve fails the scenario. It fails that
 scenario, and exits non-zero at the end, if a selector does not resolve, a
 wait times out (30 s), the capture fails, or `window.scale_factor() != 1.0`
 (message: "display scale is not 100%; screenshots are taken at 100%"). It
@@ -190,6 +195,9 @@ the capture itself is Windows-only, so capture tests are `#[cfg(windows)]`):
   scenario's steps run in a `VisualTestContext`, ending with Schedule
   current).
 - `shoot::tests::missing_selector_fails_the_scenario`.
+- `shoot::tests::clip_crops_to_element_bounds` (`#[cfg(windows)]`, temp dir:
+  the PNG's size equals the element's bounds) and
+  `shoot::tests::unknown_clip_fails_the_scenario`.
 - `shoot::tests::capture_writes_png` (`#[cfg(windows)]`, temp dir).
 - CI: the two runs and the determinism comparison.
 

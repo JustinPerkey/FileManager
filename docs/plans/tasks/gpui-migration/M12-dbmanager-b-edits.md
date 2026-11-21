@@ -117,7 +117,15 @@ the model calls `validate` directly while the user types.
   ```rust
   impl DbmanagerModel {
       pub fn draft(&self) -> Option<&Draft>;  pub fn dirty(&self) -> bool;  pub fn dirty_count(&self) -> usize;
-      pub fn edit(&mut self, field: &str, text: &str, cx);      // also bool/choice/null variants as needed
+      pub fn edit(&mut self, field: &str, input: EditorInput, cx);
+      // reference picker, held in the model with its own list query (it never
+      // touches the table's list state of part A):
+      pub fn open_picker(&mut self, field: &str, cx);
+      pub fn picker(&self) -> Option<&PickerState>;            // field, search text, items, total, loading, error
+      pub fn picker_search(&mut self, text: &str, cx);  pub fn picker_more(&mut self, cx);  // 25 more
+      pub fn pick(&mut self, key: ObjectKey, cx);              // stages Reference { key }, closes, hint PickerTrigger(field)
+      pub fn clear_reference(&mut self, field: &str, cx);      // stages Reference { key: None } (nullable only)
+      pub fn close_picker(&mut self, cx);                      // hint PickerTrigger(field)
       pub fn blur(&mut self, field: &str, cx);  pub fn revert_field(&mut self, field: &str, cx);
       pub fn discard(&mut self, cx);
       pub fn save(&mut self, cx);  pub fn saving(&self) -> bool;
@@ -132,10 +140,25 @@ the model calls `validate` directly while the user types.
 
   Every navigation method of M12a goes through `leave_request` when the
   draft is dirty. History gains **replace** (after create).
+- `pub enum EditorInput { Text(String), Bool(Option<bool>), Choice(Option<String>) }`:
+  `Text` for integer, real, text and duration editors (the draft converts it
+  as above); `Bool(None)` = not set on a nullable bool; `Choice` for
+  allowed-values selects (`None` = "Not set"). References change only
+  through the picker methods.
+- The picker lists the FK's target table with `list(target, ListQuery { search, offset, limit: 25 })`,
+  25 per page with "show more"; only the newest picker request applies;
+  pickable targets are listed. Picking or clearing makes the field changed
+  like any edit.
+- A refused save raises the `ErrorSummary` focus hint; a banner error
+  `ErrorBanner`; create success `SheetHeading`.
 - `ToolHooks::unsaved_work` for the tool.
 - Copy in `text.rs` for every sentence above.
 - Fixtures: a dirty draft, a validation error, a conflict, a create form,
-  a saved-with-backup notice (for the UI's scenarios).
+  a saved-with-backup notice, an open picker (for the UI's scenarios); and,
+  for the `dbmanager-config-reloaded` scenario, a fixture step that rewrites
+  the temp config so book `pages` becomes read-only and then injects the
+  file-changed signal (part D wires the signal; until then the fixture calls
+  `recheck_after_reload` directly).
 
 ### Rules that bind this task
 
@@ -192,7 +215,9 @@ needed domain change instead), other tools, `docs/plans/`.
 `schema_changed_and_busy_banners`, `busy_try_again_repeats_request`,
 `dirty_navigation_asks_and_confirm_discards`, `cancel_leave_keeps_draft`,
 `create_prefills_defaults_and_replaces_place`, `new_button_noun_uses_object_name`,
-`cancel_new_goes_back`, `unsaved_work_reports_draft_for_close_guard`,
+`cancel_new_goes_back`, `edit_inputs_convert_per_kind`,
+`picker_has_its_own_query_and_keeps_list_state`, `pick_stages_reference_and_hints_trigger`,
+`clear_reference_only_when_nullable`, `unsaved_work_reports_draft_for_close_guard`,
 `close_guard_holds_window_with_dirty_draft` (through the Shell and
 `simulate_close`).
 

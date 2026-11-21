@@ -1,6 +1,6 @@
 # U8 — Schedule Creator screenshot scenarios
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: U7 (landed), U6 (landed), M4 (landed)
 
 ## Goal

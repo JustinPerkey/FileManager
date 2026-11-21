@@ -212,7 +212,11 @@ registry-order cases, and every `lib/*.test.ts` row (dropped).
 - Ownership: you own everything this task creates **except** the body of
   `src/app/view/` beyond the placeholder, and `src/tools/<tool>/view/`
   beyond the placeholder; those belong to the ui-implementer later. Make no
-  visual decisions: no colours, spacing or theme.
+  visual decisions: no colours, spacing or theme. Icons are visual: after
+  this milestone the ui-implementer may add SVGs to
+  `apps/filemanager/assets/icons/` and their names to the `icons!` list in
+  `src/assets.rs` (one line per icon); keep that list one name per line so
+  those additions stay one-line edits.
 - Every interactive element is keyboard reachable and labelled: the
   placeholder buttons are gpui-component `Button`s with their label.
 - GPUI's `test-support` feature must not reach the release exe: it is a

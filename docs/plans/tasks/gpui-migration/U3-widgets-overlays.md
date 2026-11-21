@@ -1,6 +1,6 @@
 # U3 — Shared widgets, part 2: confirmation dialog, menu button, shortcuts help
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: U2 (landed)
 
 ## Goal

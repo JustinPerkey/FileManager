@@ -24,7 +24,7 @@ What exists (read first):
   `TarpackBackend` trait, including `set_output`, `set_format`,
   `begin_build` → `BuildWork`, `finish_build`, `abort_build`,
   `reveal_target`; `RealTarpack`), `model.rs` (`TarpackModel`, manifest
-  side: `ViewError`, `error_generation`, `announcement`, `focus_hint`,
+  side: `ViewError`, `error_generation`, `announcement`, `take_focus_hint`,
   `activated()`, `drop_target`, the watcher and `changed_on_disk`, `show_errors`,
   `can_edit`), `text.rs`, `fixtures.rs`, `tests.rs`. Extend these files.
 - `crates/fm-tarpack/src/session/`: `ProgressCoalescer` and `coalescing`

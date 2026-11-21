@@ -69,6 +69,11 @@ Read first:
 - Model API: `can_edit_config(cx) -> bool`, `edit_config(cx)`,
   `config_reloaded_notice()` (the re-check notice is the M12b `notice`).
 - Copy in `text.rs` for the sentences above.
+- Fixtures for the UI's scenarios: a config with exactly one error and one
+  warning (`dbmanager-diagnostics`), and a config with a syntax error, so
+  everything is read-only with the reason (`dbmanager-readonly-config`);
+  make the `dbmanager-config-reloaded` fixture of part B go through the
+  watcher path (`inject_file_changed`).
 
 ### Rules that bind this task
 
@@ -110,7 +115,8 @@ Do not touch: the Tar Packager's code (its tests must pass unchanged),
   (real `FileWatcher`, temp dir, `allow_parking`),
   `inject_file_changed_reloads`, `reload_drops_edits_that_no_longer_apply`,
   `reload_waits_for_running_save`, `edit_config_needs_dev_mode`,
-  `edit_config_opens_with_system_and_notices_creation`.
+  `edit_config_opens_with_system_and_notices_creation`,
+`fixtures_build_diagnostics_and_readonly_config_states`.
 
 ## Out of scope
 

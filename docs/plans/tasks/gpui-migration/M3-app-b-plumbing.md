@@ -194,6 +194,11 @@ unsaved work (the Database Manager's drafts, later).
   It asks every tool; if all are empty, the window closes. Otherwise it
   returns false and sets `Shell::close_request() -> Option<&CloseRequest>`
   (`CloseRequest { items: Vec<(ToolId, SharedString)> }`) and notifies.
+- `Shell::request_close(window, cx)` runs **the same path** as the
+  window's should-close hook (ask every tool; close at once if nothing is
+  unsaved, otherwise set the close request), so screenshot scenarios and
+  view tests can raise the prompt without a real `WM_CLOSE`. The hook
+  itself calls the same internal function.
 - `Shell::confirm_close(window, cx)` closes the window (`remove_window`),
   which quits the app; `Shell::cancel_close(cx)` clears the request. A second
   close attempt while a request is showing keeps the existing request (no
@@ -234,7 +239,7 @@ Do not touch: `crates/`, `apps/desktop/`, `docs/plans/`.
 ## Acceptance criteria
 
 - The Shell's public API includes `drag_over`, `notice`, `dismiss_notice`,
-  `close_request`, `confirm_close`, `cancel_close`, as specified, each with
+  `close_request`, `request_close`, `confirm_close`, `cancel_close`, as specified, each with
   a doc comment; `ToolHooks` has `activated`, `drop_target`, `dropped`,
   `unsaved_work`.
 - No model-facing API in `platform/` or `jobs.rs` performs I/O on the
@@ -277,6 +282,8 @@ Do not touch: `crates/`, `apps/desktop/`, `docs/plans/`.
 - `app::guard::tests::close_without_unsaved_work_closes`,
   `close_with_unsaved_work_is_held_and_requested`,
   `cancel_keeps_window_open`, `confirm_closes_window`,
+  `request_close_matches_the_hook` (same outcome as `simulate_close`, clean
+  and dirty),
   `second_close_while_requested_does_not_duplicate`
   (`simulate_close`, as the spike's `close_is_held_while_dirty`).
 

@@ -1,6 +1,6 @@
 # U2 — Shared widgets, part 1: the controls
 
-Status: awaiting approval
+Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: U1 (landed), M3a (landed)
 
 ## Goal

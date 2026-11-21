@@ -23,7 +23,7 @@ model methods. Pin the API below; the UI task plans cite it.
 **Follow the shape of the Pipeline and Schedule Creator models**
 (`apps/filemanager/src/tools/pipeline/` and `…/schedule/`: `backend.rs`,
 `model.rs` with `ViewError`, `error_generation`, `announcement`,
-`focus_hint`, `activated()`, "only the newest request applies", `text.rs`,
+`take_focus_hint`, `activated()`, "only the newest request applies", `text.rs`,
 `fixtures.rs`, `tests.rs`). Shared helpers live in `apps/filemanager/src/app/`.
 
 What exists:
@@ -133,7 +133,7 @@ impl TarpackModel {
     pub fn dismiss_state_warning(&mut self, cx);
     pub fn changed_on_disk(&self) -> bool;
     pub fn errors_expanded(&self) -> bool;  pub fn set_errors_expanded(&mut self, on: bool, cx);
-    pub fn show_errors(&mut self, cx);                       // expand + focus_hint(Report); no-op with 0 errors
+    pub fn show_errors(&mut self, cx);                       // expand + a `Report` focus hint; no-op with 0 errors
     pub fn recent(&self) -> &[String];  pub fn open_recent(&mut self, index: usize, cx);
     pub fn open(&mut self, cx);                              // Platform::pick, filter "Manifest" (*.toml)
     pub fn reload(&mut self, cx);
@@ -145,7 +145,7 @@ impl TarpackModel {
     pub fn drop_state(&self) -> Option<&DropState>;  pub fn dismiss_drop_result(&mut self, cx);
     pub fn drop_pending_shown(&self) -> bool;
     pub fn announcement(&self) -> Option<&str>;
-    pub fn focus_hint(&self) -> Option<FocusHint>;           // Report | Reload | AfterResult, as today's focus moves
+    pub fn take_focus_hint(&mut self) -> Option<FocusHint>; // cleared on read; Report | Reload | AfterResult, as today's focus moves
 }
 ```
 
@@ -156,7 +156,7 @@ Behaviour to port (each a test case today):
   and expand the errors section when the manifest has errors; reload also
   clears the build result and the format notice (part B's fields: add them
   now as `Option`s if needed, or leave a hook part B fills) and gives
-  `focus_hint(Reload)` if a result held focus. One announcement per result:
+  a `Reload` focus hint if a result held focus. One announcement per result:
   a new state warning (not the dismissed one) followed by the manifest
   sentence.
 - Watcher: after a load, reload or create, (re)start a `FileWatcher` on
@@ -187,7 +187,7 @@ Behaviour to port (each a test case today):
   and shows the banner.
 - Dialog `PickError` → banner with the `PickError` copy from `app::text`.
 - `activated()` clears `error`, `drop_state` (unless a drop is pending),
-  `announcement`, `focus_hint`; keeps `changed_on_disk` (it is about the
+  `announcement`, the pending focus hint; keeps `changed_on_disk` (it is about the
   file) and the session; refreshes the session.
 
 **`fixtures.rs`.** `FixtureTarpack` constructors for every manifest-side

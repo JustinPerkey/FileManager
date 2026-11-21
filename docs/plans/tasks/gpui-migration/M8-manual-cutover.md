@@ -97,7 +97,8 @@ Do not touch: `apps/filemanager/src/shoot/scenarios/`, views, theme,
 
 - `every_manual_image_has_a_scenario` passes; there are no orphan images.
 - Every PNG in `docs/manual/images/` is the harness output at the scenario's
-  size (1366×800 for Tar Packager images, 1000×700 for the rest).
+  size or clip (1366×800 for Tar Packager images, 1000×700 for the rest,
+  or the bounds of the scenario's `clip` element for the cropped images).
 - No Node file remains under `docs/manual/`.
 - The manual mentions no browser, webview, reload of the page, or row
   stacking, and describes the non-Unicode name notice for drop.

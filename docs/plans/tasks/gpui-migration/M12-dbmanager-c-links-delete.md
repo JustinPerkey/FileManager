@@ -97,21 +97,29 @@ aside." with **Re-apply my change** and **Discard it**:
   ```rust
   impl DbmanagerModel {
       pub fn toggle_link(&mut self, relation: &str, other: &ObjectKey, cx);
-      pub fn edit_link_field(&mut self, relation: &str, other: &ObjectKey, field: &str, text: &str, cx);
+      pub fn edit_link_field(&mut self, relation: &str, other: &ObjectKey, field: &str, input: EditorInput, cx);
       pub fn undo_link(&mut self, relation: &str, other: &ObjectKey, cx);
       pub fn staged_rows(&self, relation: &str) -> Vec<StagedRow>;     // with on_page / off_page
       pub fn link_counts(&self, relation: &str) -> LinkCounts;
       pub fn link_conflict(&self, relation: &str) -> Option<&LinkConflict>;
       pub fn reapply_link(&mut self, relation: &str, cx);  pub fn discard_link(&mut self, relation: &str, cx);
-      pub fn request_delete(&mut self, cx);  pub fn delete_state(&self) -> Option<&DeleteState>; // Checking | Confirm(impact) | Blocked(impact) | Deleting
+      pub fn request_delete(&mut self, cx);                              // the open object
+      pub fn request_delete_of(&mut self, table: &str, key: ObjectKey, label: &str, cx); // a list item that is not the open object (Delete key)
+      pub fn delete_state(&self) -> Option<&DeleteState>; // Checking | Confirm(impact) | Blocked(impact) | Deleting
       pub fn confirm_delete(&mut self, cx);  pub fn cancel_delete(&mut self, cx);
   }
   ```
 
+- `request_delete_of` runs the same flow for an object that is not open
+  (no draft, so no "unsaved changes" line); on success the list re-reads and
+  the place stays. Impact changed and delete done raise the `DeleteNotice`
+  focus hint.
 - Copy in `text.rs` for every sentence above, the impact group lines, and
   "Will be added", "Will be removed", "Not saved yet".
 - Fixtures: staged adds/removes with link fields, a link conflict, a delete
-  confirmation, a blocked delete.
+  confirmation, and for the `dbmanager-delete-blocked` scenario a config in
+  which `publisher` is editable with `allow_delete = true` while a book still
+  references the publisher being deleted (a blocked delete).
 
 ### Rules that bind this task
 
@@ -158,7 +166,8 @@ tools, `docs/plans/`.
 `delete_previews_then_confirms`, `blocked_delete_offers_only_close`,
 `impact_changed_keeps_dialog_with_new_token`, `delete_conflict_shows_current`,
 `delete_config_changed_reruns_preview`, `delete_success_replaces_place_and_notices`,
-`delete_with_dirty_draft_warns`, `pickable_tables_never_delete`.
+`delete_with_dirty_draft_warns`, `pickable_tables_never_delete`,
+`request_delete_of_list_item_keeps_place`, `delete_notice_hint_is_raised`.
 
 ## Out of scope
 

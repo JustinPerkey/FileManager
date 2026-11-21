@@ -1,6 +1,6 @@
 # UI project plan: the Database Manager view
 
-Status: **design confirmed; implementation layer rewritten for GPUI (2026-11-21, ui-designer: §5, §8, §12 and the U tasks); the rewrite awaits approval.** Amended 2026-11-18 for the M5 review: FKs
+Status: **design confirmed; implementation layer rewritten for GPUI (2026-11-21, ui-designer: §5, §8, §12 and the U tasks); the rewrite is approved (2026-11-21).** Amended 2026-11-18 for the M5 review: FKs
 into hidden or unlisted tables arrive as plain read-only fields (no
 non-navigable link case), and config patterns are restricted to a
 Rust/JS-common subset (examples here stay inside it). Written 2026-11-16 by the `ui-designer`.
@@ -125,7 +125,7 @@ the last U task.
 5. **States and ranges.**
    - Tables: 0 to about 50 listed; display names from 1 to about 40
      characters; some read-only.
-   - Objects per table: 0 to millions; lists are paged (100 per page), never
+   - Objects per table: 0 to millions; lists are paged (25 per page; 100 in the first draft, settled at 25 on 2026-11-21 to match the backend and the U tasks), never
      loaded whole. Labels from 1 character to a few hundred, possibly with
      U+FFFD where the stored text is not valid UTF-8.
    - Fields per object: 1 to about 60. Text values up to thousands of
