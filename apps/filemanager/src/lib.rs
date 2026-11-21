@@ -1,14 +1,6 @@
 //! The `FileManager` GPUI app. The library name (`fm_app`) stays stable across
 //! the rename that follows the cutover from the Tauri app.
 
-// The domain crates the tools will use; the placeholder tools do not call
-// them yet, and the workspace lints reject an unused dependency.
-use fm_core as _;
-use fm_dbmanager as _;
-use fm_pipeline as _;
-use fm_schedule as _;
-use fm_tarpack as _;
-
 pub mod app;
 pub mod assets;
 pub mod fonts;

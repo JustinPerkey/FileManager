@@ -3,12 +3,10 @@
 //! chrome as its only child.
 
 use gpui::{
-    div, AnyView, App, AppContext as _, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render, Styled as _,
-    Window,
+    div, AnyView, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render,
+    Styled as _, Window,
 };
 
-use crate::app::dev_mode::DevMode;
 use crate::app::view;
 use crate::tools::{self, ToolId, ToolSlot};
 
@@ -16,7 +14,6 @@ pub struct Shell {
     current: ToolId,
     tools: Vec<ToolSlot>,
     chrome: Option<AnyView>,
-    focus: FocusHandle,
 }
 
 impl Shell {
@@ -32,18 +29,14 @@ impl Shell {
     /// If `tools` is empty.
     pub fn with_tools(tools: Vec<ToolSlot>, window: &mut Window, cx: &mut App) -> Entity<Self> {
         let current = tools.first().expect("at least one tool").id;
-        let shell = cx.new(|cx| Shell {
+        let shell = cx.new(|_| Shell {
             current,
             tools,
             chrome: None,
-            focus: cx.focus_handle(),
         });
         let chrome = view::chrome(shell.clone(), window, cx);
-        shell.update(cx, |shell, cx| {
+        shell.update(cx, |shell, _cx| {
             shell.chrome = Some(chrome);
-            // The window-level key chords (developer mode) need a focused
-            // path to reach the Shell's listener.
-            shell.focus.focus(window, cx);
         });
         shell
     }
@@ -85,23 +78,9 @@ impl Shell {
     }
 }
 
-impl Focusable for Shell {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
-        self.focus.clone()
-    }
-}
-
 impl Render for Shell {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let root = div()
-            .key_context("Shell")
-            .track_focus(&self.focus)
-            .size_full()
-            .on_key_down(|event: &KeyDownEvent, _window, cx| {
-                if DevMode::handle_key(event, cx) {
-                    cx.stop_propagation();
-                }
-            });
+        let root = div().size_full();
         match &self.chrome {
             Some(chrome) => root.child(chrome.clone()),
             None => root,
@@ -115,6 +94,7 @@ pub(crate) mod test_support {
     use gpui_component::Root;
 
     use super::*;
+    use crate::app::dev_mode::DevMode;
 
     /// The shell inside a `Root`, in a fresh window; nothing is focused.
     pub fn open(

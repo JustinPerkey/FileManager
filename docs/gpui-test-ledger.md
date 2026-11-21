@@ -80,8 +80,8 @@ file's table equals that count. The file counts sum to 301.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| Ctrl+Alt+Shift+D toggles developer mode and announces it | M3a | `app::dev_mode::tests::chord_toggles` (announcement strings are constants in `app/text.rs`; the aria-live announcer itself is the UI's decision) | open (reopened 2026-11-21 until M3a2: the chord fails without focus) |
-| other chords leave developer mode off | M3a | `app::dev_mode::tests::chord_toggles` (the other-chord assertions) | open (reopened 2026-11-21 until M3a2: the chord fails without focus) |
+| Ctrl+Alt+Shift+D toggles developer mode and announces it | M3a | `app::dev_mode::tests::chord_toggles` (announcement strings are constants in `app/text.rs`; the aria-live announcer itself is the UI's decision); focus independence: `chord_works_without_focus`, `chord_works_after_focus_is_lost`, `chord_works_with_focus_in_a_dialog`; held chord: `held_chord_toggles_once` | done |
+| other chords leave developer mode off | M3a | `app::dev_mode::tests::chord_toggles` (the other-chord assertions) | done |
 | without developer mode, Edit in editor and the extraction command are hidden | M7a or U |  | open |
 | the shortcuts list names Ctrl+E only in developer mode | M7a or U |  | open |
 

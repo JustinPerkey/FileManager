@@ -42,8 +42,12 @@ and renames the package and binary to `filemanager`.
 - Application:
 
 ```
-Cargo.toml                    workspace: members crates/*, devtools/*, apps/desktop/src-tauri;
-                              [workspace.dependencies] pins ts-rs (and tempfile);
+Cargo.toml                    workspace: members crates/*, devtools/*, apps/filemanager,
+                              apps/desktop/src-tauri; [workspace.dependencies] pins
+                              ts-rs, tempfile, notify-debouncer-mini, gpui (gpui-pre
+                              =0.3.12), gpui_platform (gpui-pre-platform =0.3.12, no
+                              default features), gpui-component =0.10.0,
+                              gpui-kit-assets =0.10.0, async-channel;
                               [workspace.lints.clippy] turns on pedantic, and every
                               crate opts in with [lints] workspace = true
 .cargo/config.toml            [env] TS_RS_EXPORT_DIR points stray #[ts(export)] into target/;
@@ -127,7 +131,7 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
   src/assets.rs, fonts.rs     embedded icons (icons! list); system fonts (Segoe UI, mono
                               Cascadia Mono else Consolas)
   src/app/                    shell.rs (Shell root view, window-level behaviour),
-                              dev_mode.rs (Ctrl+Alt+Shift+D global), text.rs,
+                              dev_mode.rs (Ctrl+Alt+Shift+D global, keystroke interceptor), text.rs,
                               view/ (the chrome slot: ui-implementer's, placeholder.rs
                               is the plain stand-in)
   src/tools/                  registry (ToolId, ToolSlot, ToolHooks, build) and one
@@ -164,9 +168,12 @@ apps/desktop/
     lib/pipeline.ts           typed client: one function per pipeline_* command
     lib/generated/            TS types generated from Rust (ts-rs)
     tools/registry.ts         export const tools: ToolEntry[]
-.github/workflows/ci.yml      linux and windows jobs, both run cargo test --workspace;
-                              windows also runs the dumpbin dependency check and
-                              uploads the FileManager-<version>-x64.exe artifact
+.github/workflows/ci.yml      linux job: fmt, clippy, tests, the five-crate dependency
+                              check, the gpui test-support check. windows job
+                              (windows-2025): clippy, tests, both release builds,
+                              dumpbin on both exes, the GPUI self-check; uploads
+                              FileManager-<version>-x64.exe and
+                              FileManager-gpui-<version>-x64.exe
 .env.example                  configuration keys (none yet)
 ```
 
@@ -197,16 +204,18 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
   tauri-build's default (`true`) re-links the UCRT dynamically. A `RUSTFLAGS`
   environment variable overrides the config's rustflags (dropping
   `+crt-static`), and `STATIC_VCRUNTIME` overrides `staticVCRuntime`, so set
-  neither. The Windows CI job runs `dumpbin /dependents` on the exe and fails if
+  neither. The Windows CI job runs `dumpbin /dependents` on both exes (`filemanager.exe`,
+  `filemanager-gpui.exe`) and fails if
   it lists `vcruntime*`, `msvcp*`, `api-ms-win-crt-*`, `zstd*`, `liblzma*`,
   `sqlite3*`, or `WebView2Loader.dll`, then uploads
-  `FileManager-<version>-x64.exe`.
+  `FileManager-<version>-x64.exe` and `FileManager-gpui-<version>-x64.exe`.
 - Both CI jobs run `cargo test --workspace`, so the generated-types test runs
   on both.
 - Building the shell on Linux needs the webkit2gtk dev packages:
   `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libsoup-3.0-dev`,
   `libjavascriptcoregtk-4.1-dev`. Without them, cargo can be scoped to
-  `-p fm-core -p fm-tarpack -p fm-dbmanager -p task-plan-guard`, but then the
+  `-p fm-core -p fm-tarpack -p fm-dbmanager -p filemanager-gpui -p task-plan-guard`
+  (the GPUI app builds headless on Linux, without the webkit packages), but then the
   generated-types test does not run.
 - `tauri:build` produces a portable exe (`target/release/filemanager.exe`), not
   an installer.

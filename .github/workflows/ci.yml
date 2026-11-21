@@ -45,6 +45,7 @@ jobs:
               if ! grep -q "did not match any packages" <<<"$out"; then
                 echo "::error::unexpected cargo tree failure for $c / $dep"; echo "$out"; exit 1
               fi
+              echo "$c / $dep: not a dependency"
             done
           done
 
@@ -53,6 +54,11 @@ jobs:
         run: |
           set -uo pipefail
           out=$(cargo tree --locked -p filemanager-gpui -e features,normal,build --target x86_64-pc-windows-msvc -i gpui-pre 2>&1) || { echo "$out"; exit 1; }
+          echo "$out"
+          # Positive control: a command that silently matches nothing must not pass.
+          if ! grep -q 'gpui-pre feature "default"' <<<"$out"; then
+            echo "::error::cargo tree did not report gpui-pre features; the check proves nothing"; exit 1
+          fi
           if grep -q "test-support" <<<"$out"; then
             echo "::error::gpui test-support is enabled outside dev-dependencies"; echo "$out"; exit 1
           fi
