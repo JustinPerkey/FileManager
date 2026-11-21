@@ -135,8 +135,10 @@ ui-implementer replaces or removes it.
   difference is **reported, not failed**: the human decided CI never fails
   on image differences. A scenario that fails to run **does** fail the job.
 - Upload `shots/` as artifact `screenshots` (`if: always()`).
-- The release-graph check: `cargo tree --locked -p filemanager-gpui -e features --target x86_64-pc-windows-msvc -i gpui-pre`
-  must not mention `test-support`; fail otherwise. Also assert that
+- The release-graph check already runs in the linux job (M3a, M3a2:
+  `cargo tree --locked -p filemanager-gpui -e features,normal,build --target x86_64-pc-windows-msvc -i gpui-pre`,
+  with its positive control); keep it passing with the `shoot` feature
+  added. In the windows job, assert that
   `target\release\` contains no `filemanager-shoot.exe` after the release
   build.
 

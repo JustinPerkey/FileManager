@@ -62,7 +62,9 @@ What changes:
     remove `actions/setup-node`, `npm ci`, the frontend build, typecheck,
     lint, test, and the webkit2gtk apt packages.
   - windows (`windows-2025`): clippy (with and without `--features shoot`),
-    `cargo test --workspace --locked`, `cargo build --release -p filemanager --locked`,
+    `cargo test --workspace --locked`, `cargo build --release -p filemanager --locked`
+    (the release-graph `test-support` check stays in the linux job, with
+    `-p filemanager`),
     the dumpbin check on `target\release\filemanager.exe` (forbidden list
     unchanged: `vcruntime*`, `msvcp*`, `api-ms-win-crt-*`, `zstd*`,
     `liblzma*`, `sqlite3*`, `WebView2Loader.dll`), the self-check, the

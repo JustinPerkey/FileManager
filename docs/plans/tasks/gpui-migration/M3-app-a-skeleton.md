@@ -154,7 +154,11 @@ variant.
 launch**, toggled by **Ctrl+Alt+Shift+D** (deliberately absent from any
 shortcuts list). Today's behaviour is `apps/desktop/src/app/devMode.tsx`:
 the chord toggles; a held key's auto-repeat does not toggle again; the chord
-works whatever has focus. Build: a global `DevMode(bool)` with
+works whatever has focus. *(Review, 2026-11-21: a Shell key listener cannot
+meet "whatever has focus" in GPUI, because keys travel only along the
+focused path, and `Root` renders dialogs as siblings of the Shell. The fix,
+an app-level `cx.intercept_keystrokes` with a held-chord guard, is the
+follow-up task `M3-app-a2-dev-mode-fix.md`.)* Build: a global `DevMode(bool)` with
 `DevMode::is_on(cx: &App) -> bool` and `DevMode::toggle(cx)`, which notifies
 global observers (views and models use `cx.observe_global::<DevMode>`).
 Bind the chord with `gpui::actions!` and `KeyBinding::new("ctrl-alt-shift-d", ToggleDevMode, None)`,
@@ -179,8 +183,10 @@ decision.
   non-zero exit. Upload `filemanager-gpui.exe` as an extra artifact
   `FileManager-gpui-<version>-x64.exe` (version from `tauri.conf.json` as
   today).
-- Linux: no new step; `cargo clippy --workspace` and `cargo test --workspace`
-  now include the new crate, headless.
+- Linux: `cargo clippy --workspace` and `cargo test --workspace` now include
+  the new crate, headless. The test-support check below also runs here: it
+  is cross-target (`--target x86_64-pc-windows-msvc`) and only reads
+  metadata. *(Corrected 2026-11-21: this plan first said "no new step".)*
 - Replace the "fm-* crates must not depend on tauri" step with one that
   checks **all five** crates (`fm-core`, `fm-tarpack`, `fm-schedule`,
   `fm-pipeline`, `fm-dbmanager`) against **each of** `tauri`, `gpui-pre`,
@@ -188,7 +194,7 @@ decision.
   packages" logic as today.
 
 **Test ledger (`docs/gpui-test-ledger.md`).** Every frontend test case under
-`apps/desktop/src/**/*.test.ts(x)` (about 395; include `it.each` rows as one
+`apps/desktop/src/**/*.test.ts(x)` (301 cases as built; include `it.each` rows as one
 case each, named as the `it.each` title) in a table per file:
 `Case | Owner | New test | Status`. Owner is the proposal below; Status is
 `open` except for the rows this milestone settles. Owner proposal by file:
@@ -230,8 +236,10 @@ registry-order cases, and every `lib/*.test.ts` row (dropped).
   placeholder buttons are gpui-component `Button`s with their label.
 - GPUI's `test-support` feature must not reach the release exe: it is a
   dev-dependency feature only here. Check with
-  `cargo tree --locked -p filemanager-gpui -e features --target x86_64-pc-windows-msvc -i gpui-pre`:
-  no `test-support` appears.
+  `cargo tree --locked -p filemanager-gpui -e features,normal,build --target x86_64-pc-windows-msvc -i gpui-pre`
+  (`-e features` alone also follows dev-dependencies, which legitimately
+  carry `test-support`): no `test-support` appears. It runs in the linux
+  job.
 - fmt clean; clippy `pedantic` with `-D warnings`; scoped `#[expect]` only.
   GPUI code trips `too_many_lines` in big `render` functions: split them.
 - Tests touching the filesystem use temp dirs (none needed here).
@@ -263,7 +271,10 @@ Do not touch: `crates/`, `apps/desktop/`, `docs/plans/`.
 - The `cargo tree … -i gpui-pre` features check shows no `test-support` for
   the release graph.
 - The five-crate dependency check passes for all four forbidden crates.
-- Both CI jobs run fmt, clippy pedantic and `cargo test --workspace` green,
+- The linux job runs fmt (rustfmt formats `#[cfg(windows)]` files too, so
+  one fmt run covers both platforms; the windows job has never run fmt and
+  does not need to), and both jobs run clippy pedantic and
+  `cargo test --workspace` green,
   with the new crate's tests on Linux (headless) and Windows.
 - `docs/gpui-test-ledger.md` lists every case of every frontend test file;
   a reviewer can check the count against
@@ -293,7 +304,9 @@ In `apps/filemanager` (`cargo test -p filemanager-gpui`):
   `simulate_click` on `"tool-nav-schedule"`; `current()` is `Schedule`).
 - `app::dev_mode::tests::off_at_launch`, `chord_toggles`,
   `held_chord_does_not_toggle_again`, `chord_works_without_focus` (no
-  element focused in a fresh window), `observers_are_notified`.
+  element focused in a fresh window), `observers_are_notified`. *(The focus
+  cases move to `M3-app-a2-dev-mode-fix.md`, which restores
+  `chord_works_without_focus` to an explicit blur.)*
 
 Commands: `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`,

@@ -248,7 +248,7 @@ GPUI app:
 - Model behaviour is tested with `#[gpui::test]` and a fixture or temp-dir
   backend; view tests prove wiring only.
 
-Reason: the behaviour React held is what the ~395 vitest tests check; in the
+Reason: the behaviour React held is what the 301 vitest cases check; in the
 model it is testable without rendering, the U tasks become rendering work,
 and the backend/UI split of `CLAUDE.md` survives without a TS mirror.
 
@@ -315,7 +315,7 @@ Ownership:
 - View tests use `VisualTestContext` (keystrokes, clicks on debug
   selectors) to prove wiring, not pixels. Enter/Space activation needs a
   key-down **and** a key-up event (gap 7).
-- Today's ~395 vitest cases are ported **by behaviour**. `docs/gpui-test-ledger.md`
+- Today's 301 vitest cases (counted by the ledger) are ported **by behaviour**. `docs/gpui-test-ledger.md`
   (created in M3a) lists every case with its new home (a named Rust test in
   a model milestone or a U task) or "dropped: <reason>" (axe, ARIA
   attribute, DOM structure, CSS class, IPC wrapper, orphan polling). M9
@@ -396,12 +396,16 @@ Ownership:
 
 - **windows** job on `windows-2025` (pinned in M3a): clippy (`-D warnings`)
   with and without `--features shoot`, `cargo test --workspace --locked`,
-  release build, dumpbin check (forbidden list unchanged), the "release exe
-  has no `test-support`" check, the screenshot harness and upload, and the
+  release build, dumpbin check (forbidden list unchanged), the GPUI
+  self-check, the screenshot harness and upload, and the
   `FileManager-<version>-x64.exe` artifact with the version from
   `cargo metadata` (M9).
-- **linux** job: `cargo fmt --all --check`, clippy, `cargo test --workspace
-  --locked`, all headless (D23). The webkit2gtk packages stay until M9 (the
+- **linux** job: `cargo fmt --all --check` (the only fmt run; rustfmt also
+  formats `#[cfg(windows)]` files), clippy, `cargo test --workspace
+  --locked`, all headless (D23), the five-crate dependency check, and the
+  "release graph has no `test-support`" check, run cross-target
+  (`cargo tree --locked -p filemanager-gpui -e features,normal,build --target x86_64-pc-windows-msvc -i gpui-pre`,
+  with a positive control that `gpui-pre feature "default"` appears). The webkit2gtk packages stay until M9 (the
   Tauri shell still builds there), then go.
 - Removed in M9: `actions/setup-node`, `npm ci`, the frontend build,
   typecheck, lint, vitest, the webkit2gtk packages.
@@ -491,6 +495,7 @@ recommendation was go-with-conditions; the human decided go (D10–D14).
 | M2a | [`M2-session-a-pipeline-schedule.md`](../tasks/gpui-migration/M2-session-a-pipeline-schedule.md) | Move Pipeline and Schedule Creator session logic into their crates | G | no |
 | M2b | [`M2-session-b-tarpack-watch.md`](../tasks/gpui-migration/M2-session-b-tarpack-watch.md) | Move Tar Packager session logic into `fm-tarpack`; `fm_core::watch::FileWatcher` | M2a | no |
 | M3a | [`M3-app-a-skeleton.md`](../tasks/gpui-migration/M3-app-a-skeleton.md) | `apps/filemanager` crate, pins, window, assets and fonts, Shell, tool registry, dev mode, placeholder chrome, CI, test ledger | M2b | contract for the U shell and theme tasks |
+| M3a2 | [`M3-app-a2-dev-mode-fix.md`](../tasks/gpui-migration/M3-app-a2-dev-mode-fix.md) | Review follow-up: dev-mode chord via `cx.intercept_keystrokes` (works with no focus or focus in a dialog), CI output and positive control, stale `CLAUDE.md`, `lib.rs` comment | M3a | no |
 | M3b | [`M3-app-b-plumbing.md`](../tasks/gpui-migration/M3-app-b-plumbing.md) | `Platform` (real + fake), path-loss reporting, `jobs.rs`, drop routing, close guard | M3a | contract for the U shell tasks |
 | M3c | [`M3-app-c-file-dialogs.md`](../tasks/gpui-migration/M3-app-c-file-dialogs.md) | Our own Windows common item dialog wrapper (filters, default extension, initial folder, `OsString` paths) behind `Platform` (D24) | M3b | no |
 | M4 | [`M4-screenshot-harness.md`](../tasks/gpui-migration/M4-screenshot-harness.md) | Feature `shoot`, `filemanager-shoot`, scenario API, CI upload | M3b (may run beside M3c) | contract for every U scenario task |
@@ -518,7 +523,7 @@ validation mirror (dbmanager M11) is dropped and nothing but Rust validates.
 
 1. **M11** (landed), then **M11b** next: it makes the guard actually run (§7). M11 was recommended first, because it changes the hook every
    later implementer run uses.
-2. **M2a → M2b → M3a → M3b → (M3c, M4 in either order) → M5.** The U theme and shared-widget tasks may
+2. **M2a → M2b → M3a → M3a2 → M3b → (M3c, M4 in either order) → M5.** The U theme and shared-widget tasks may
    start after **M3a** (they need the crate, assets and fonts). The U shell
    tasks (sidebar, close prompt, drop overlay, notices, dev-mode surface)
    need **M3b**. No U scenario task starts before **M4**.
@@ -635,7 +640,7 @@ in the rewritten UI plan.
    DirectWrite/Segoe UI). A developer machine at a non-100% scale gives
    different pixel sizes; the harness refuses it.
 8. **Build time and exe size** grow (D8): CI builds two release exes until M9.
-9. **Test rewrite cost.** ~395 vitest cases ported by behaviour; the ledger
+9. **Test rewrite cost.** 301 vitest cases ported by behaviour; the ledger
    keeps the drop list honest.
 10. **Two apps during the migration** (M3a–M8): tool behaviour changes in
     that window go into the session layer (M2) so both apps get them.
