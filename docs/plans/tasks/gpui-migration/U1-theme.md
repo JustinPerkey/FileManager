@@ -23,8 +23,9 @@ A throwaway spike proved this theme on branch `spike/gpui-migration`. Port
 its files by name: `git show origin/spike/gpui-migration:spike/gpui/src/tokens.rs`
 and `…/src/theme.rs` (its colour check passed 32 of 32 samples). What
 M3a built: `apps/filemanager/src/lib.rs` (`run`: `gpui_component::init`,
-fonts, window, `Root`), `src/fonts.rs` (`MONO_FAMILY = "Cascadia Mono"`,
-embedded and registered), `src/app/view/mod.rs` (`pub fn chrome(shell:
+mono font, window, `Root`), `src/fonts.rs` (`UI_FAMILY = "Segoe UI"`,
+`MONO_FAMILIES = ["Cascadia Mono", "Consolas"]`, `mono_family(cx)`: the
+first of those installed on the machine; no font is embedded), `src/app/view/mod.rs` (`pub fn chrome(shell:
 Entity<Shell>, window: &mut Window, cx: &mut App) -> AnyView`, the chrome
 slot, a placeholder you may call into but whose body U4 replaces).
 
@@ -51,8 +52,8 @@ slot, a placeholder you may call into but whose body U4 replaces).
 Scales: `SPACE_1..6` = 4, 8, 12, 16, 24, 32 px; `RADIUS` 6 px;
 `FONT_SIZE_SM/MD/LG/XL` = 0.8125, 0.875, 1, 1.25 rem; `REM` 16 px;
 `LINE_HEIGHT` 1.4; `FONT_UI = "Segoe UI"`; `FONT_MONO` =
-`crate::fonts::MONO_FAMILY` (embedded; no fallback list, no
-`pick_font`). Keep `shadow_overlay_alpha` as a field, documented as **not
+`crate::fonts::mono_family(cx)` (system fonts: Cascadia Mono, else
+Consolas; do not add another picker). Keep `shadow_overlay_alpha` as a field, documented as **not
 applied**: gpui-component's dialog and popover shadow is fixed and the human
 accepted it.
 
@@ -61,7 +62,7 @@ accepted it.
 `Theme::change(mode, None, cx)` **then** `Theme::update(cx, |th| …)` (a mode
 change reloads colours). `th.font_size` **stays 16 px**: gpui-component's
 `Root` makes it the window rem, and 14 px would shrink every control. Set
-`font_family` = Segoe UI, `mono_font_family` = `MONO_FAMILY`,
+`font_family` = Segoe UI, `mono_font_family` = `crate::fonts::mono_family(cx)`,
 `mono_font_size` 14 px, `radius`/`radius_lg` 6 px, `shadow = false`. Slots:
 
 | Slots | Token |

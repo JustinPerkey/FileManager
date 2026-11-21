@@ -25,7 +25,7 @@ What exists: `crate::theme` (U1: `palette(cx)` with every token as `Hsla`
 plus `primary_hover`, `danger_hover`; `tokens::{SPACE_1..6, RADIUS,
 FONT_SIZE_SM/MD/LG/XL, REM, LINE_HEIGHT}`; `INTRO_MAX_WIDTH` 546 px;
 `DISABLED_OPACITY` 0.55, `QUIET_DISABLED_OPACITY` 0.45,
-`INPUT_DISABLED_OPACITY` 0.6; gpui-component slots mapped), `crate::fonts::MONO_FAMILY`,
+`INPUT_DISABLED_OPACITY` 0.6; gpui-component slots mapped), `crate::fonts::mono_family(cx)` (Cascadia Mono, else Consolas, from the system),
 `crate::assets::{icon_path, ICON_NAMES}` (icons `check-circle`,
 `alert-triangle`, `circle`, `x-circle`, `info`, `chevron-down`, `folder`,
 `copy`, `x`, `keyboard`; 16 px grid, 1.5 px stroke, `currentColor`).
@@ -52,7 +52,7 @@ colour `text`.
 
 - **`text.rs`**: `h1(text)` (xl = 20 px, weight 700), `h2(text)` (lg 16 px,
   600), `body`, `muted` (text_muted), `small` (sm 13 px), `small_muted`,
-  `mono` (MONO_FAMILY, 14 px), `mono_small_muted`, `intro(text)` (muted,
+  `mono` (`mono_family(cx)`, 14 px), `mono_small_muted`, `intro(text)` (muted,
   max width `INTRO_MAX_WIDTH`), `tabular(el)` (applies the `tnum` font
   feature if the pinned GPUI exposes font features on text; else a no-op
   with a doc comment saying so).

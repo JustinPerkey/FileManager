@@ -24,8 +24,10 @@ What exists in `apps/filemanager` (package `filemanager-gpui`, lib `fm_app`):
 `drag_over`, `notice`, `close_request`, …), the chrome slot
 `src/app/view/mod.rs::chrome`, the tool registry `src/tools/mod.rs`
 (`ToolId`, `ToolSlot`, `ToolHooks`, `build`), `Platform` with
-`FakePlatform` (`src/platform/`), `jobs.rs`, assets and the embedded
-Cascadia Mono (`src/fonts.rs`).
+`FakePlatform` (`src/platform/`), `jobs.rs`, assets, and the mono font
+choice (`src/fonts.rs`: Cascadia Mono, else Consolas, from the system; no
+font is embedded, so screenshots depend on the machine's fonts: the CI
+runner has Segoe UI, Cascadia Mono and Consolas installed).
 
 The spike proved the method (branch `spike/gpui-migration`; read with
 `git show origin/spike/gpui-migration:spike/gpui/<path>`):

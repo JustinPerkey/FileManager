@@ -1,14 +1,14 @@
 # M3a — The GPUI app skeleton: crate, window, assets, fonts, Shell, tool registry, dev mode, CI
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21); fonts section revised the same day (D28: no embedded font)
 Project: gpui-migration   Depends on: M2b (landed)
 
 ## Goal
 
 Create `apps/filemanager`, the GPUI app (package and binary
 `filemanager-gpui`), beside the shipping Tauri app: pinned GPUI and
-gpui-component, a window that opens and renders, embedded icons and the
-Cascadia Mono font, the `Shell` root view with a chrome slot for the
+gpui-component, a window that opens and renders, embedded icons, the system
+mono font choice (Cascadia Mono, else Consolas), the `Shell` root view with a chrome slot for the
 ui-implementer, the tool registry with placeholder tools, the app-wide
 developer mode, a CI build and dumpbin check of the new exe, and the test
 ledger that tracks how today's frontend tests are ported.
@@ -68,7 +68,7 @@ after 500 ms with exit code 0; exit non-zero if the window cannot open), and
 calls `fm_app::run`.
 
 **`src/lib.rs`, `run()`.** `gpui_platform::application().with_assets(Assets).run(|cx| …)`:
-`gpui_component::init(cx)` first, register the fonts, initialise dev mode,
+`gpui_component::init(cx)` first, resolve the mono font family, initialise dev mode,
 build the tools from the registry, open the main window with
 `WindowOptions { window_bounds: centred 1000×700, window_min_size: 800×560,
 titlebar title "FileManager", .. }`, root view
@@ -84,19 +84,28 @@ dialog close load from there). The icons are the ten of
 `keyboard`); port `spike/gpui/assets/icons/*.svg` into
 `apps/filemanager/assets/icons/`. Keep `icon_path(name)` and `ICON_NAMES`.
 
-**Fonts (`src/fonts.rs`, `assets/fonts/`).** The human decided to embed
-**Cascadia Mono** (SIL Open Font License 1.1) so text renders the same on
-every machine. Download the latest release of `microsoft/cascadia-code` from
-GitHub and take the static `CascadiaMono-Regular.ttf` and
-`CascadiaMono-Bold.ttf` and the release's `OFL.txt`. Commit them under
-`apps/filemanager/assets/fonts/` with a `README.md` stating the release tag,
-the download URL and each file's SHA-256. Embed both fonts with
-`include_bytes!` and register them at startup with GPUI's text system
-(`cx.text_system().add_fonts(..)`; confirm the exact name in the pinned
-`gpui-pre` source). Embed `OFL.txt` too (`pub const CASCADIA_LICENSE: &str =
-include_str!(..)`) so the licence travels with the exe. Expose
-`pub const MONO_FAMILY: &str = "Cascadia Mono";`. Segoe UI is a Windows 11
-system font and is not embedded.
+**Fonts (`src/fonts.rs`) — system fonts, nothing embedded.** *(Revised
+2026-11-21, decision D28: the human reversed the earlier "embed Cascadia
+Mono" decision for now; no font file goes in the repository.)* The UI font
+is Segoe UI and the mono font is **Cascadia Mono, falling back to
+Consolas**, both resolved from the fonts installed on the machine (Windows 11
+ships both). gpui-component's theme takes one mono family name, so pick it
+at startup:
+
+```rust
+pub const UI_FAMILY: &str = "Segoe UI";
+/// Mono families in order of preference; the first installed one is used.
+pub const MONO_FAMILIES: [&str; 2] = ["Cascadia Mono", "Consolas"];
+/// Pure: the first of MONO_FAMILIES present in `installed`, else the last
+/// entry (GPUI's own fallback then applies).
+pub fn pick_mono<S: AsRef<str>>(installed: &[S]) -> &'static str;
+/// `pick_mono(&cx.text_system().all_font_names())`, computed once and kept
+/// in a global; what the theme and every mono text element use.
+pub fn mono_family(cx: &App) -> SharedString;
+```
+
+No `include_bytes!`, no `add_fonts`, no licence file, no `assets/fonts/`.
+Embedding may return later as its own small task.
 
 **Shell (`src/app/shell.rs`).** The window's root view, an entity, owned by
 you (the backend implementer): window-level behaviour only. It holds the
@@ -231,7 +240,7 @@ registry-order cases, and every `lib/*.test.ts` row (dropped).
 ## Files
 
 Create: `apps/filemanager/{Cargo.toml,build.rs}`,
-`apps/filemanager/assets/{icon.ico,icons/*.svg,fonts/CascadiaMono-Regular.ttf,fonts/CascadiaMono-Bold.ttf,fonts/OFL.txt,fonts/README.md}`,
+`apps/filemanager/assets/{icon.ico,icons/*.svg}`,
 `apps/filemanager/src/{main.rs,lib.rs,assets.rs,fonts.rs}`,
 `apps/filemanager/src/app/{mod.rs,shell.rs,dev_mode.rs,text.rs}`,
 `apps/filemanager/src/app/view/{mod.rs,placeholder.rs}`,
@@ -269,10 +278,12 @@ In `apps/filemanager` (`cargo test -p filemanager-gpui`):
 
 - `assets::tests::every_icon_loads_and_is_svg` (ported from the spike),
   plus `gpui_kit_assets_are_the_fallback` (`icons/check.svg` loads).
-- `fonts::tests::cascadia_mono_is_registered` (`#[gpui::test]`: after
-  registration, `cx.text_system().all_font_names()` contains
-  `MONO_FAMILY`) and `license_is_embedded` (`CASCADIA_LICENSE` contains
-  "SIL OPEN FONT LICENSE").
+- `fonts::tests::prefers_cascadia_mono` (plain test: `pick_mono(&["Arial", "Consolas", "Cascadia Mono"])` is `"Cascadia Mono"`),
+  `falls_back_to_consolas` (`["Consolas", "Arial"]` → `"Consolas"`),
+  `falls_back_when_neither_is_installed` (`[]` → `"Consolas"`), and
+  `mono_family_uses_the_text_system` (`#[gpui::test]`: whatever the test
+  platform lists, the result is one of `MONO_FAMILIES`). No test reads a
+  font file.
 - `tools::tests::registry_order_and_labels` (Pipeline, Tar Packager,
   Schedule Creator; ids `pipeline`, `tarpack`, `schedule`; unique ids).
 - `app::shell::tests::select_changes_current_and_activates` (a counting

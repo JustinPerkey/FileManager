@@ -61,7 +61,7 @@ the TypeScript frontend, ts-rs and npm/Node from the application entirely.
 | D15 | 11-21 | **Q1: the accessibility invariant replacement is approved:** every interactive element is keyboard reachable and labelled; no screen-reader or axe checks (§10.3). |
 | D16 | 11-21 | **Q2: `impeccable` stays for `shape` and `critique` on screenshots only.** `audit` and `polish` are dropped from the UI roles. |
 | D17 | 11-21 | **Q3: `.claude/hooks/task-plan-only.mjs` is ported to a small Rust binary in the workspace**, called from the project's `.claude/settings.json` `PreToolUse` hook (D27; first wired as an agent-frontmatter hook, which never fired here), with identical path rules. |
-| D18 | 11-21 | **Q7: Cascadia Mono (OFL) is embedded in the exe.** |
+| D18 | 11-21 | ~~**Q7: Cascadia Mono (OFL) is embedded in the exe.**~~ Reversed by D28. |
 | D19 | 11-21 | **Q8: CI uploads the screenshots and never fails on image differences.** |
 | D20 | 11-21 | **Q9: the dbmanager screen-reader and 200% text work is dropped from U12;** keyboard operation and the shortcuts help stay. |
 | D21 | 11-21 | **Q10: M5's regex shorthand-class ban is lifted once only Rust validates** (widened by D25 to every old restriction). |
@@ -72,6 +72,7 @@ the TypeScript frontend, ts-rs and npm/Node from the application entirely.
 | D26 | 11-21 | **Q16: accept** the drop path-loss detection by GPUI's log message, guarded by the pin test. |
 | — | 11-21 | **The plan and its post-spike task plans are approved.** |
 | — | 11-21 | **The UI plan (`gpui-migration-ui.md`) and every U task are approved as written**, including V1–V8 and 25 objects per page. |
+| D28 | 11-21 | **Q7 reversed: do not embed Cascadia Mono, for now.** The mono family resolves from the system: Cascadia Mono (shipped with Windows 11), falling back to Consolas. No font files go in the repository. Reason: this cloud session cannot download from github.com, and the human declined the only reachable copy (Ubuntu's 2021 variable font). Embedding can return later as its own small task. |
 | D27 | 11-21 | **The task-plan guard moves to a `.claude/settings.json` `PreToolUse` hook** that applies only when the hook input's `agent_type` is `implementer` or `ui-implementer` (the human's condition: the input must identify the calling subagent; Claude Code's hook reference says it does, §7). The agent-frontmatter hook is removed once the live check passes (M11b). |
 
 ### 1.2 What does not change
@@ -176,7 +177,7 @@ devtools/task-plan-guard/       the PreToolUse guard for implementer subagents (
 apps/filemanager/               package filemanager-gpui until M9, then filemanager
   Cargo.toml, build.rs          build.rs embeds the icon (winresource); GPUI embeds the
                                 manifest
-  assets/icon.ico, assets/icons/*.svg, assets/fonts/ (Cascadia Mono + OFL.txt)
+  assets/icon.ico, assets/icons/*.svg (no fonts: D28)
   src/main.rs                   #![windows_subsystem = "windows"]; calls run()
   src/lib.rs                    app init, assets, fonts, logger, window (1000×700, min 800×560)
   src/assets.rs                 AssetSource: our icons, then gpui-kit-assets
@@ -360,9 +361,9 @@ Ownership:
 - `Theme::font_size` stays 16 px (the window rem); body text size is set on
   elements (gap 8).
 - The theme follows the system appearance live, with no toggle.
-- Fonts: Segoe UI (system, always present on Windows 11) and **Cascadia Mono
-  embedded** (D18). M3a embeds the font files and registers them with GPUI's
-  text system; the theme U task names the family.
+- Fonts: system fonts only (D28): Segoe UI (always present on Windows 11)
+  and Cascadia Mono, falling back to Consolas. M3a's `fm_app::fonts::mono_family(cx)`
+  picks the first installed; the theme U task uses it. Nothing is embedded.
 - The token contrast test of `tokens.test.ts` is kept as a cheap guard (not
   an accessibility gate).
 
@@ -629,7 +630,8 @@ in the rewritten UI plan.
    border, selectable read-only text, `tabular-nums`, focus return after a
    mouse-opened dialog (gap 7), no row reflow (D13).
 7. **Screenshot determinism.** Byte-identical on CI with Segoe UI and the
-   embedded Cascadia Mono; every image changes once (Chromium/Inter →
+   system Cascadia Mono (installed on the runner; nothing is embedded, D28);
+   every image changes once (Chromium/Inter →
    DirectWrite/Segoe UI). A developer machine at a non-100% scale gives
    different pixel sizes; the harness refuses it.
 8. **Build time and exe size** grow (D8): CI builds two release exes until M9.
@@ -675,8 +677,7 @@ Must produce
   1. Theme mapping: every token in tokens.css (light and dark) to a field of
      apps/filemanager/src/theme/tokens.rs, and each gpui-kit theme slot to a
      token or "unused"; the gap-9 slots set on elements; scrim; rem 16 px;
-     fonts (Segoe UI; Cascadia Mono embedded, family name as M3a registers
-     it); live system light/dark. Keep the tokens test and the contrast-pair
+     fonts (Segoe UI; Cascadia Mono else Consolas, from the system, D28); live system light/dark. Keep the tokens test and the contrast-pair
      test.
   2. Component inventory: every shared and tool-local React component mapped
      to a gpui-kit component, a wrapper in src/widgets/, or a custom widget,
@@ -755,7 +756,7 @@ the approved UI plan use 25).
 - **Q4 →** D6, **Q5 →** D7, **Q6 →** D8, **Q12 →** D9 (2026-11-20).
 - **Go/no-go →** D10; report conditions 1, 2, 3, 5 → D11, D12, D13, D14;
   condition 4 (the checklist) → D10 (2026-11-21).
-- **Q1 →** D15, **Q2 →** D16, **Q3 →** D17, **Q7 →** D18, **Q8 →** D19,
+- **Q1 →** D15, **Q2 →** D16, **Q3 →** D17, **Q7 →** D18, reversed by D28, **Q8 →** D19,
   **Q9 →** D20, **Q10 →** D21, **Q11 →** D22, **Q13 →** D23 (2026-11-21).
 - **Q14 →** D24, **Q15 →** D25, **Q16 →** D26; plan approved (2026-11-21).
 

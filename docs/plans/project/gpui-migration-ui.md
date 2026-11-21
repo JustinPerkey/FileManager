@@ -95,7 +95,7 @@ property by the same name in `snake_case`, and the scales as constants.
 | `--radius` | `RADIUS` | 6 px | same |
 | `--font-size-sm/md/lg/xl` | `FONT_SIZE_SM/MD/LG/XL` (rem) | 0.8125, 0.875, 1, 1.25 | same |
 | `--font-ui` | `FONT_UI` | `"Segoe UI"` | same |
-| `--font-mono` | `FONT_MONO` | `fm_app::fonts::MONO_FAMILY` (`"Cascadia Mono"`, embedded, D18) | same |
+| `--font-mono` | `FONT_MONO` | `fm_app::fonts::mono_family(cx)`: Cascadia Mono, else Consolas, from the system (D28; nothing embedded) | same |
 | body line height | `LINE_HEIGHT` | 1.4 | same |
 | rem | `REM` | 16 px | same |
 
@@ -115,7 +115,7 @@ second call). The spike's mapping, kept slot for slot:
 
 | Slots | Token |
 |---|---|
-| `font_family` / `mono_font_family` | `FONT_UI` / `MONO_FAMILY` |
+| `font_family` / `mono_font_family` | `FONT_UI` / `fonts::mono_family(cx)` |
 | `font_size` | **16 px** (the window rem; gap 8: body size is set on elements) |
 | `mono_font_size` | 14 px |
 | `radius`, `radius_lg` | 6 px |
@@ -151,8 +151,11 @@ border; `65ch`; tabular numerals (§4.6).
 
 ### 2.4 Fonts, rem, live appearance
 
-- Segoe UI is the system font (always present on Windows 11). Cascadia Mono
-  is embedded by M3a (`fm_app::fonts::MONO_FAMILY`); no fallback list.
+- Segoe UI is the system font (always present on Windows 11). The mono font
+  is Cascadia Mono, falling back to Consolas, resolved from the installed
+  fonts by M3a's `fm_app::fonts::mono_family(cx)` (D28, 2026-11-21: the
+  earlier decision to embed Cascadia Mono was reversed; nothing is
+  embedded).
 - `Theme::font_size` stays 16 px; every text element sets its size from the
   four `FONT_SIZE_*` tokens (body = MD = 14 px, line height 1.4).
 - `theme::init(window, cx)`, called from the chrome slot: applies the theme
@@ -563,7 +566,7 @@ they describe the shipping Tauri app.
   the GPUI facts.
 - Elevation: the overlay shadow is gpui-kit's fixed one (D12); the scrim
   keeps `--scrim`.
-- Typography: Segoe UI (system) and Cascadia Mono (embedded); sizes as
+- Typography: Segoe UI and Cascadia Mono (else Consolas), all system fonts; sizes as
   tokens; the rem Rule becomes "sizes come from the four type tokens; no
   other size".
 - Layout: the Tar Packager table scrolls sideways under 1024 px and never
