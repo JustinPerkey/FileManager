@@ -153,6 +153,12 @@ jobs:
           workspaces: spike/gpui
       - name: Release build
         run: cargo build --release --locked
+      - name: Widget tests, with their measurements (B3 timing, B8 tab stops)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force shots | Out-Null
+          cargo test --locked widgets -- --nocapture --test-threads=1 2>&1 | Tee-Object -FilePath shots\widget-tests.txt | Select-String 'TABLE-TIMING|TAB-STOPS|test result|^test ' | Out-Host
+          if ($LASTEXITCODE -ne 0) { Write-Error "widget tests failed"; exit 1 }
       - name: Machine
         shell: pwsh
         run: |
