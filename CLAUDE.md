@@ -14,6 +14,11 @@ Schedule Creator (`schedule`, UI and plumbing only: its parse and merge hooks
 are stubs). The Database Manager (`dbmanager`) is in progress: crate only
 (`fm-dbmanager`), UI to come.
 
+A GPUI app is being built beside the Tauri shell in `apps/filemanager` (package
+`filemanager-gpui`); the Tauri exe still ships. It moves the UI to GPUI with
+the gpui-component widgets; a later cutover milestone deletes `apps/desktop`
+and renames the package and binary to `filemanager`.
+
 ## Layout
 
 - `.codex/agents`, `.claude/agents` — planner / ui-designer / implementer /
@@ -112,6 +117,23 @@ docs/schedule.md              the Schedule Creator's flow and where its hooks go
 docs/pipeline.md              the Pipeline's flow and where its step hooks go
 docs/manual/user-manual.md    end-user manual; images/ are its screenshots, regenerated
                               by screenshots/shoot.js (real frontend, mocked backend)
+apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, lib `fm_app`
+                              (the lib name survives the later rename). Linux builds a
+                              headless backend and runs tests only; the window needs Windows.
+  build.rs                    embeds assets/icon.ico as resource id 1 (Windows)
+  assets/                     icon.ico, icons/*.svg, fonts/ (Cascadia Mono, OFL; README
+                              records the release and SHA-256s)
+  src/main.rs                 parses `--self-check`, calls fm_app::run
+  src/lib.rs                  run(): gpui_component::init, fonts, dev mode, main window
+  src/assets.rs, fonts.rs     embedded icons (icons! list), Cascadia Mono registration
+  src/app/                    shell.rs (Shell root view, window-level behaviour),
+                              dev_mode.rs (Ctrl+Alt+Shift+D global), text.rs,
+                              view/ (the chrome slot: ui-implementer's, placeholder.rs
+                              is the plain stand-in)
+  src/tools/                  registry (ToolId, ToolSlot, ToolHooks, build) and one
+                              module per tool, each with model and view/ placeholders;
+                              tools never import each other
+docs/gpui-test-ledger.md      every frontend test case and where it goes in the GPUI app
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, .oxlintrc.json, index.html
   src-tauri/                  package and binary name: filemanager
@@ -154,6 +176,7 @@ apps/desktop/
 npm install                                        # once, at repo root
 npm run tauri:dev                                  # run the app
 npm run tauri:build                                # portable Windows exe (tauri build --no-bundle)
+cargo run -p filemanager-gpui                      # run the GPUI app (Windows; `-- --self-check` quits after one frame)
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings   # includes clippy::pedantic (workspace lints)
 cargo test --workspace

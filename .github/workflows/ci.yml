@@ -30,24 +30,37 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test
-      - name: fm-* crates must not depend on tauri
+      - name: fm-* crates must not depend on tauri or the GPUI stack
         shell: bash
         run: |
           set -uo pipefail
-          for c in fm-core fm-tarpack fm-dbmanager; do
+          for c in fm-core fm-tarpack fm-schedule fm-pipeline fm-dbmanager; do
             if ! cargo pkgid --locked -p "$c" >/dev/null; then
               echo "::error::no workspace package named $c"; exit 1
             fi
-            if out=$(cargo tree --locked -p "$c" -i tauri -e normal,build,dev 2>&1); then
-              echo "::error::$c depends on tauri"; echo "$out"; exit 1
-            fi
-            if ! grep -q "did not match any packages" <<<"$out"; then
-              echo "::error::unexpected cargo tree failure for $c"; echo "$out"; exit 1
-            fi
+            for dep in tauri gpui-pre gpui-pre-platform gpui-component; do
+              if out=$(cargo tree --locked -p "$c" -i "$dep" -e normal,build,dev 2>&1); then
+                echo "::error::$c depends on $dep"; echo "$out"; exit 1
+              fi
+              if ! grep -q "did not match any packages" <<<"$out"; then
+                echo "::error::unexpected cargo tree failure for $c / $dep"; echo "$out"; exit 1
+              fi
+            done
           done
 
+      - name: GPUI test-support must not reach the release graph
+        shell: bash
+        run: |
+          set -uo pipefail
+          out=$(cargo tree --locked -p filemanager-gpui -e features,normal,build --target x86_64-pc-windows-msvc -i gpui-pre 2>&1) || { echo "$out"; exit 1; }
+          if grep -q "test-support" <<<"$out"; then
+            echo "::error::gpui test-support is enabled outside dev-dependencies"; echo "$out"; exit 1
+          fi
+
   windows:
-    runs-on: windows-latest
+    # Pinned, never the moving windows-latest: Windows Server 2025 shares the
+    # Windows 11 24H2 code base.
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -65,7 +78,9 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: npm run tauri:build
-      - name: Exe must import no C runtime, zstd, liblzma, sqlite3, or WebView2Loader DLL
+      - name: Build the GPUI app (release)
+        run: cargo build --release -p filemanager-gpui --locked
+      - name: Exes must import no C runtime, zstd, liblzma, sqlite3, or WebView2Loader DLL
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -73,15 +88,28 @@ jobs:
             -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
             -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
           if (-not $dumpbin) { Write-Error "dumpbin.exe not found"; exit 1 }
-          $out = (& $dumpbin /dependents target\release\filemanager.exe | Out-String)
-          Write-Host $out
-          if ($LASTEXITCODE -ne 0) { Write-Error "dumpbin failed"; exit 1 }
-          if ($out -notmatch '(?i)KERNEL32\.dll') { Write-Error "dumpbin output looks wrong"; exit 1 }
-          $bad = [regex]::Matches($out, '(?im)^\s*(vcruntime\S*\.dll|msvcp\S*\.dll|api-ms-win-crt-\S*|zstd\S*\.dll|liblzma\S*\.dll|sqlite3\S*\.dll|WebView2Loader\.dll)\s*$')
-          if ($bad.Count -gt 0) {
-            Write-Error ("Forbidden dependencies: " + (($bad | ForEach-Object { $_.Value.Trim() }) -join ', '))
-            exit 1
+          foreach ($exe in 'target\release\filemanager.exe', 'target\release\filemanager-gpui.exe') {
+            Write-Host "== $exe"
+            $out = (& $dumpbin /dependents $exe | Out-String)
+            Write-Host $out
+            if ($LASTEXITCODE -ne 0) { Write-Error "dumpbin failed on $exe"; exit 1 }
+            if ($out -notmatch '(?i)KERNEL32\.dll') { Write-Error "dumpbin output looks wrong for $exe"; exit 1 }
+            $bad = [regex]::Matches($out, '(?im)^\s*(vcruntime\S*\.dll|msvcp\S*\.dll|api-ms-win-crt-\S*|zstd\S*\.dll|liblzma\S*\.dll|sqlite3\S*\.dll|WebView2Loader\.dll)\s*$')
+            if ($bad.Count -gt 0) {
+              Write-Error ("Forbidden dependencies in ${exe}: " + (($bad | ForEach-Object { $_.Value.Trim() }) -join ', '))
+              exit 1
+            }
           }
+      - name: GPUI exe runs alone (self-check from an empty folder)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'only-the-exe'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item target\release\filemanager-gpui.exe $dir
+          $p = Start-Process -FilePath "$dir\filemanager-gpui.exe" -ArgumentList '--self-check' -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); Write-Host "self-check TIMED OUT"; $code = 124 } else { $code = $p.ExitCode }
+          Write-Host "self-check exit code: $code"
+          if ($code -ne 0) { exit $code }
       - name: Stage artifact (exe only, no .pdb)
         shell: pwsh
         run: |
@@ -89,8 +117,15 @@ jobs:
           New-Item -ItemType Directory -Force dist-artifact | Out-Null
           Copy-Item target\release\filemanager.exe "dist-artifact\FileManager-$v-x64.exe"
           "ARTIFACT_NAME=FileManager-$v-x64.exe" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Copy-Item target\release\filemanager-gpui.exe "dist-artifact\FileManager-gpui-$v-x64.exe"
+          "GPUI_ARTIFACT_NAME=FileManager-gpui-$v-x64.exe" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: dist-artifact/${{ env.ARTIFACT_NAME }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.GPUI_ARTIFACT_NAME }}
+          path: dist-artifact/${{ env.GPUI_ARTIFACT_NAME }}
           if-no-files-found: error
