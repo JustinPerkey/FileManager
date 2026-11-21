@@ -1,8 +1,5 @@
-//! Table-driven cases for the guard. Nothing here touches the disk.
-//!
-//! Setting `PARITY_DUMP` (any value) makes `dump_parity_cases` write the
-//! non-Windows rows as JSON lines to `parity-cases.jsonl` in
-//! `CARGO_TARGET_TMPDIR`, for comparison with the former Node script.
+//! Table-driven cases for the guard. Only the trace tests touch the disk, and
+//! only inside a temporary directory.
 
 use std::path::Path;
 
@@ -542,9 +539,9 @@ fn unreadable_input_fails_open() {
 #[test]
 fn empty_object_and_missing_fields_allow() {
     for input in [
-        "{}",
-        r#"{"tool_name":"Read"}"#,
-        r#"{"tool_name":"Bash","tool_input":null}"#,
+        r#"{"agent_type":"implementer"}"#,
+        r#"{"agent_type":"implementer","tool_name":"Read"}"#,
+        r#"{"agent_type":"implementer","tool_name":"Bash","tool_input":null}"#,
     ] {
         assert_eq!(
             decide_with(input, Some("/repo"), Path::new("/repo"), false),
@@ -574,25 +571,6 @@ fn glob_extension_parsing() {
     assert!(excludes_markdown(&json!({"type": "rust"})));
     assert!(!excludes_markdown(&json!({"type": "MD"})));
     assert!(!excludes_markdown(&json!({})));
-}
-
-#[test]
-fn dump_parity_cases() {
-    if std::env::var_os("PARITY_DUMP").is_none() {
-        return;
-    }
-    let mut out = String::new();
-    for case in cases().iter().filter(|c| !c.win) {
-        let line = serde_json::json!({
-            "name": case.name,
-            "stdin": stdin_for(case),
-            "project_dir": case.project_dir,
-        });
-        out.push_str(&line.to_string());
-        out.push('\n');
-    }
-    let file = Path::new(env!("CARGO_TARGET_TMPDIR")).join("parity-cases.jsonl");
-    std::fs::write(file, out).unwrap();
 }
 
 fn read_project_plan(agent: &str) -> String {
@@ -637,16 +615,10 @@ fn other_callers_are_allowed() {
     }
 }
 
-fn temp_dir(tag: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("tpg-{tag}-{}", std::process::id()));
-    std::fs::create_dir_all(&d).unwrap();
-    d
-}
-
 #[test]
 fn trace_line_format() {
-    let dir = temp_dir("fmt");
-    let file = dir.join("trace.log");
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("trace.log");
     let blocked = r#"{"agent_type":"implementer","agent_id":"a1","tool_name":"Read","tool_input":{"file_path":"docs/plans/project/x.md"},"cwd":"/repo"}"#;
     let main_conv = r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#;
     for input in [blocked, main_conv, "not json"] {
@@ -658,14 +630,12 @@ fn trace_line_format() {
         text,
         "implementer\ta1\tRead\tblock\n-\t-\tBash\tallow\n-\t-\t-\tallow\n"
     );
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn trace_write_failure_is_ignored() {
-    let dir = temp_dir("fail");
+    let dir = tempfile::tempdir().unwrap();
     // A directory cannot be opened for append as a file: the write fails.
-    append_trace(&dir, "x");
-    append_trace(&dir.join("missing").join("t.log"), "x");
-    std::fs::remove_dir_all(&dir).unwrap();
+    append_trace(dir.path(), "x");
+    append_trace(&dir.path().join("missing").join("t.log"), "x");
 }
