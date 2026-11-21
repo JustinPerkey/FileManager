@@ -5,11 +5,11 @@
 //! [`Core::begin`] checks the request and marks the step running,
 //! [`Job::run`] lists the subdirectories, calls the step's hook and checks the
 //! directory again (on a worker thread), and [`Core::finish`] records the
-//! result. The hooks default to `fm_pipeline::Step::hook`; tests swap in fakes.
+//! result. The hooks default to `crate::Step::hook`; tests swap in fakes.
 
 use std::path::{Path, PathBuf};
 
-use fm_pipeline::{Issue, Step, StepFn, StepInput, StepOutcome};
+use crate::{Issue, Step, StepFn, StepInput, StepOutcome};
 
 use super::types::{
     DirectorySlot, PipelineError, PipelineErrorKind as K, PipelineSession, StepIssue, StepReport,
@@ -17,10 +17,10 @@ use super::types::{
 };
 
 /// Picks the hook for a step.
-pub(super) type HookFor = fn(Step) -> StepFn;
+pub type HookFor = fn(Step) -> StepFn;
 
 /// The chosen directory and, if it cannot be used, why.
-pub(super) struct Dir {
+pub struct Dir {
     path: PathBuf,
     error: Option<PipelineError>,
     subdirectories: u32,
@@ -29,6 +29,7 @@ pub(super) struct Dir {
 impl Dir {
     /// Checks `path` is a full path to a listable directory and counts its
     /// subdirectories. A problem is kept, not returned. Touches the disk.
+    #[must_use]
     pub fn check(path: &Path) -> Dir {
         let (error, subdirectories) = match count_subdirectories(path) {
             Ok(n) => (None, n),
@@ -42,17 +43,17 @@ impl Dir {
     }
 }
 
-pub(super) type StepResult = Result<StepReport, PipelineError>;
+pub type StepResult = Result<StepReport, PipelineError>;
 
 /// What a finished [`Job`] hands back to [`Core::finish`].
-pub(super) struct Finished {
+pub struct Finished {
     pub result: StepResult,
     /// The directory checked again after the step, or `None` when the step
     /// did not finish normally (the worker panicked).
     pub directory: Option<Dir>,
 }
 
-pub(super) struct Core {
+pub struct Core {
     hook_for: HookFor,
     directory: Option<Dir>,
     /// The last result of each step, indexed like `Step::ALL`.
@@ -72,7 +73,7 @@ impl Default for Core {
 }
 
 /// A step ready to run, holding everything it needs and no lock.
-pub(super) struct Job {
+pub struct Job {
     root: PathBuf,
     hook: StepFn,
 }
@@ -111,7 +112,7 @@ fn count(subdirectories: &[PathBuf]) -> u32 {
 }
 
 fn list(path: &Path) -> Result<Vec<PathBuf>, PipelineError> {
-    fm_pipeline::subdirectories(path).map_err(|e| {
+    crate::subdirectories(path).map_err(|e| {
         PipelineError::new(
             K::DirectoryUnreadable,
             format!("listing {}: {e}", path.display()),
@@ -140,6 +141,7 @@ fn report(outcome: StepOutcome) -> StepReport {
 impl Job {
     /// Lists the subdirectories and runs the step, then checks the directory
     /// again: the step may have added or removed folders, or the folder may
+    #[must_use]
     /// have gone. May block for a long time.
     pub fn run(self) -> Finished {
         let result = self.step();
@@ -162,7 +164,7 @@ impl Job {
 }
 
 impl Core {
-    #[cfg(test)]
+    #[must_use]
     pub fn with_hooks(hook_for: HookFor) -> Core {
         Core {
             hook_for,
@@ -179,6 +181,7 @@ impl Core {
         (0..Step::ALL.len()).find(|&i| !self.passed(i))
     }
 
+    #[must_use]
     pub fn snapshot(&self) -> PipelineSession {
         let usable = self.directory.as_ref().is_some_and(|d| d.error.is_none());
         let next = self.next_step();
@@ -218,6 +221,9 @@ impl Core {
     /// Sets or clears (`None`) the directory, already checked with
     /// [`Dir::check`], and forgets every step's result. Refused while a step
     /// runs.
+    ///
+    /// # Errors
+    /// `StepInProgress` while a step runs.
     pub fn set_directory(&mut self, directory: Option<Dir>) -> Result<(), PipelineError> {
         self.not_running()?;
         self.directory = directory;
@@ -232,6 +238,10 @@ impl Core {
     /// Steps run in order: a step can start only once every step before it
     /// has passed. Starting a step forgets its result and those of every later
     /// step, since they were produced from what this step is about to redo.
+    ///
+    /// # Errors
+    /// A step is running, no usable directory is chosen, the directory
+    /// changed, or an earlier step has not passed.
     pub fn begin(&mut self, step: Step, expected: &str) -> Result<Job, PipelineError> {
         self.not_running()?;
         let dir = match &self.directory {

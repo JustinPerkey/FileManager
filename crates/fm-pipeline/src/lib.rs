@@ -17,6 +17,7 @@
 
 pub mod batch;
 pub mod schedule;
+pub mod session;
 pub mod tarpack;
 pub mod verify;
 

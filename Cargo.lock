@@ -1121,12 +1121,20 @@ dependencies = [
 name = "fm-pipeline"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "tempfile",
+ "ts-rs",
 ]
 
 [[package]]
 name = "fm-schedule"
 version = "0.1.0"
+dependencies = [
+ "fm-core",
+ "serde",
+ "tempfile",
+ "ts-rs",
+]
 
 [[package]]
 name = "fm-tarpack"

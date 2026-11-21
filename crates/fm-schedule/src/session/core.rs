@@ -1,24 +1,24 @@
 //! The Schedule Creator's session logic as plain functions, with no Tauri
 //! types. The parse and merge steps go through [`Hooks`], which default to
-//! `fm_schedule::parse` and `fm_schedule::merge`; tests swap in fakes. Both
+//! `crate::parse` and `crate::merge`; tests swap in fakes. Both
 //! run only in [`Core::apply`].
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use fm_schedule::{MergeError, MergeOutcome, ParseError, Schedule};
+use crate::{MergeError, MergeOutcome, ParseError, Schedule};
 
 use super::types::{
     ApplySummary, FileSlot, ScheduleError, ScheduleErrorKind as K, ScheduleSession,
 };
 
-pub(super) type ParseFn = fn(&str) -> Result<Schedule, ParseError>;
-pub(super) type MergeFn = fn(&Schedule, &str) -> Result<MergeOutcome, MergeError>;
+pub type ParseFn = fn(&str) -> Result<Schedule, ParseError>;
+pub type MergeFn = fn(&Schedule, &str) -> Result<MergeOutcome, MergeError>;
 
 /// The two domain steps the session calls.
 #[derive(Clone, Copy)]
-pub(super) struct Hooks {
+pub struct Hooks {
     pub parse: ParseFn,
     pub merge: MergeFn,
 }
@@ -26,8 +26,8 @@ pub(super) struct Hooks {
 impl Default for Hooks {
     fn default() -> Self {
         Hooks {
-            parse: fm_schedule::parse,
-            merge: fm_schedule::merge,
+            parse: crate::parse,
+            merge: crate::merge,
         }
     }
 }
@@ -72,7 +72,7 @@ impl Slot {
 }
 
 #[derive(Default)]
-pub(super) struct Core {
+pub struct Core {
     hooks: Hooks,
     text: Option<Slot>,
     xml: Option<Slot>,
@@ -157,7 +157,7 @@ fn backup(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
 }
 
 impl Core {
-    #[cfg(test)]
+    #[must_use]
     pub fn with_hooks(hooks: Hooks) -> Core {
         Core {
             hooks,
@@ -189,6 +189,9 @@ impl Core {
     /// Sets the slots from dropped paths: a `.xml` file is the XML file,
     /// anything else the schedule file. A slot with nothing dropped for it
     /// is kept. More than one path for a slot changes nothing.
+    ///
+    /// # Errors
+    /// `DropAmbiguous` when more than one path is dropped for a slot.
     pub fn set_dropped(&mut self, paths: &[PathBuf]) -> Result<(), ScheduleError> {
         let (xml, text): (Vec<&PathBuf>, Vec<&PathBuf>) = paths.iter().partition(|p| is_xml(p));
         if xml.len() > 1 || text.len() > 1 {
@@ -216,6 +219,10 @@ impl Core {
     ///
     /// `expected_text` and `expected_xml` are the display paths the user
     /// confirmed; if the session holds other files, nothing is written.
+    ///
+    /// # Errors
+    /// A file is missing or unusable, the files changed, parsing or merging
+    /// failed, or the backup or write failed.
     pub fn apply(
         &self,
         expected_text: &str,

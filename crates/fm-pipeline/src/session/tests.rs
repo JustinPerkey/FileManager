@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use fm_pipeline::{Issue, Step, StepError, StepFn, StepInput, StepOutcome};
+use crate::{Issue, Step, StepError, StepFn, StepInput, StepOutcome};
 use tempfile::TempDir;
 
 use super::core::{Core, Dir};
@@ -17,7 +17,7 @@ fn dir_with(subdirs: &[&str]) -> TempDir {
 }
 
 /// Passes, with one line per subdirectory seen.
-#[expect(clippy::unnecessary_wraps, reason = "must match fm_pipeline::StepFn")]
+#[expect(clippy::unnecessary_wraps, reason = "must match crate::StepFn")]
 fn pass(input: StepInput<'_>) -> Result<StepOutcome, StepError> {
     Ok(StepOutcome {
         summary: format!("{} folders checked", input.subdirectories.len()),
@@ -26,7 +26,7 @@ fn pass(input: StepInput<'_>) -> Result<StepOutcome, StepError> {
 }
 
 /// Reports an issue for every subdirectory.
-#[expect(clippy::unnecessary_wraps, reason = "must match fm_pipeline::StepFn")]
+#[expect(clippy::unnecessary_wraps, reason = "must match crate::StepFn")]
 fn flag_all(input: StepInput<'_>) -> Result<StepOutcome, StepError> {
     Ok(StepOutcome {
         summary: "checked".into(),
@@ -50,7 +50,7 @@ fn fakes(step: Step) -> StepFn {
         Step::Verify => pass,
         Step::RunBatch => flag_all,
         Step::Schedule => broken,
-        Step::Tarpack => fm_pipeline::tarpack::tarpack,
+        Step::Tarpack => crate::tarpack::tarpack,
     }
 }
 

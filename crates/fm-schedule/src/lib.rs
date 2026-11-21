@@ -15,6 +15,7 @@
 pub mod merge;
 pub mod model;
 pub mod parse;
+pub mod session;
 
 pub use merge::{merge, MergeError, MergeOutcome};
 pub use model::Schedule;

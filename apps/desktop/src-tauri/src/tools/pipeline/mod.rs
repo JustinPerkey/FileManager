@@ -1,25 +1,18 @@
 //! The Pipeline's Tauri surface: `pipeline_*` commands and the managed state.
-//! Commands are thin glue over [`core::Core`]. This module never touches the
+//! Commands are thin glue over [`Core`]. This module never touches the
 //! `Builder`; `tools::register` wires it in.
 //!
 //! The steps' work is done by hooks in the `fm-pipeline` crate, one per step.
 //! A step runs on a blocking worker thread, so the session stays responsive
 //! (`pipeline_session` reports which step is running) while it works.
 
-mod core;
-pub(crate) mod types;
-
-#[cfg(test)]
-mod tests;
-
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use fm_pipeline::session::{
+    Core, Dir, Finished, PipelineError, PipelineErrorKind, PipelineSession, StepId,
+};
 use tauri::State;
-
-use types::{PipelineError, PipelineErrorKind, PipelineSession, StepId};
-
-use self::core::{Core, Dir, Finished};
 
 /// Tauri-managed state: the session.
 pub struct PipelineState {

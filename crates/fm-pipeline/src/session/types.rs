@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use fm_pipeline::{Step, StepError};
+use crate::{Step, StepError};
 use serde::{Deserialize, Serialize};
 
 /// One step of the pipeline, in run order.

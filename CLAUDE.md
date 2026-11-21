@@ -83,11 +83,15 @@ crates/
   fm-schedule/                Schedule Creator domain library. No tauri dependency.
                               parse (text -> Schedule) and merge (Schedule + XML -> XML)
                               are the hooks, run only on apply; both are stubs
-                              returning NotImplemented
+                              returning NotImplemented. `src/session/` is the
+                              session logic (Core, Hooks, backup, atomic write),
+                              its types and tests, with no UI types
   fm-pipeline/                Pipeline domain library. No tauri dependency.
                               subdirectories() lists the units of work; one hook
                               per step (verify, batch, schedule, tarpack), all
-                              stubs returning StepError::NotImplemented
+                              stubs returning StepError::NotImplemented.
+                              `src/session/` is the session logic (Core, Dir, Job,
+                              Finished), its types and tests, with no UI types
 examples/tarpack/             example manifests, valid, used by tests through include_str!
 examples/dbmanager/           schema.sql (example database), example.toml (its config),
                               starter.toml (the inert commented starter file), and
@@ -118,15 +122,11 @@ apps/desktop/
                               watch.rs (manifest watcher, notify-debouncer-mini),
                               types.rs (boundary types exported through ts-rs),
                               tests.rs
-    src/tools/schedule/       mod.rs (the schedule_* commands), core.rs (the two
-                              chosen files, drop sorting, backup, atomic write;
-                              calls the fm-schedule hooks),
-                              types.rs, tests.rs
-    src/tools/pipeline/       mod.rs (the pipeline_* commands; a step runs on a
-                              blocking worker), core.rs (directory check,
-                              begin/Job::run/finish with no disk I/O under the
-                              lock, per-step results; calls the fm-pipeline
-                              hooks), types.rs, tests.rs
+    src/tools/schedule/       mod.rs only (the schedule_* commands over
+                              fm_schedule::session)
+    src/tools/pipeline/       mod.rs only (the pipeline_* commands over
+                              fm_pipeline::session; a step runs on a blocking
+                              worker)
     src/generated_types.rs    #[cfg(test)] ts-rs export and currency test
   src/
     main.tsx, App.tsx

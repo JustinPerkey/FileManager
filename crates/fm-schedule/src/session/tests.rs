@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use fm_schedule::{MergeError, MergeOutcome, ParseError, Schedule};
+use crate::{MergeError, MergeOutcome, ParseError, Schedule};
 use tempfile::TempDir;
 
 use super::core::{Core, Hooks};

@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use fm_schedule::{MergeError, ParseError};
+use crate::{MergeError, ParseError};
 use serde::Serialize;
 
 /// One chosen file. `error` says why it cannot be used as it is; the path is
