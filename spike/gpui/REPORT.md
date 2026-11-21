@@ -205,6 +205,10 @@ Conditions, to settle before the migration plans are written:
 4. **Run `CHECKLIST.md` on Windows 11** (the NEEDS-HUMAN items: live theme
    switch, drop and dialogs, close, local `--shoot` including a display scale
    other than 100%, how 10,000 rows feel). Any FAIL there reopens the call.
+5. **Keep screenshot capture out of the shipping exe** (gap 11):
+   `render_to_image` needs GPUI's `test-support`, which the spike's default
+   `shoot` feature puts in the exe. The real app builds screenshots from a
+   separate feature or binary used only in CI.
 
 # Part A details
 
@@ -606,11 +610,13 @@ cannot put a point on glyphs. Text colours take the pixel of the text region
 closest to the token colour (antialiasing and the subpixel colour fringes
 never reach it; full-coverage pixels do). 1 px lines (input border,
 secondary-button border, row rule) take the best of the three pixel rows
-around the expected one, because the lower boxes sit one pixel lower than in
-the reference (box deltas of +1, within the 2 px tolerance; the input's own top
-edge has delta 0): a sample at the reference's exact row would test position,
-which the geometry check already does. The strict per-row result was not
-recorded in the final run. Boxes: x, y, w, h within 2 px of the reference image's, measured by
+around the expected one. This is not needed: the samples are already relative
+to the recorded boxes, and the reviewer checked the CI PNGs strictly. In both
+themes all three lines hit the border token exactly on the expected row (light
+rows 134, 210, 323 = (217,220,225); dark = (51,54,61)), with ground or fill
+colours on the neighbouring rows. The closest-pixel text rule was also checked:
+each region has 48 or more pixels exactly on its token, and the nearest wrong
+token is 28 or more channel steps away, so a wrong colour would fail. Boxes: the GPUI boxes are the layout bounds the app records at paint time (`measure.rs`), not pixel measurements of the PNG; the colour points hanging off them cross-check them. x, y, w, h within 2 px of the reference image's, measured by
 pixel inspection of `docs/manual/images/pipeline-chosen.png`; a miss on a
 value that follows the text width is printed as `TEXT` and not counted
 (the human's rule: text widths may differ). The checker itself is tested
