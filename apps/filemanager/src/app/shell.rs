@@ -51,6 +51,8 @@ pub struct Shell {
     chrome: Option<AnyView>,
     drag_over: Option<DropTarget>,
     file_drag: bool,
+    /// The paths of the file drag in progress, kept for the drop.
+    drag_paths: Vec<PathBuf>,
     coalescer: Coalescer,
     notice: Option<ShellNotice>,
     close_request: Option<CloseRequest>,
@@ -79,6 +81,7 @@ impl Shell {
             chrome: None,
             drag_over: None,
             file_drag: false,
+            drag_paths: Vec::new(),
             coalescer: Coalescer::default(),
             notice: None,
             close_request: None,
@@ -242,9 +245,10 @@ impl Shell {
         }
     }
 
-    fn drag_entered(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn drag_entered(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
         if !self.file_drag {
             self.file_drag = true;
+            self.drag_paths = paths.paths().to_vec();
             self.coalescer.drag_started();
         }
         self.refresh_drag_over(window, cx);
@@ -256,10 +260,14 @@ impl Shell {
             self.file_drag = false;
             self.coalescer.drag_ended(Instant::now());
         }
+        self.drag_paths.clear();
         self.refresh_drag_over(window, cx);
     }
 
-    fn drop_paths(&mut self, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+    /// The drop: delivers the drag's paths to the current tool if it accepts
+    /// them. Called once per drag, from the window-level mouse-up.
+    fn drop_paths(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = std::mem::take(&mut self.drag_paths);
         let target = self.current_target(window, cx);
         self.drag_left(window, cx);
         if paths.is_empty() || !matches!(target, DropTarget::Enabled { .. }) {
@@ -283,7 +291,8 @@ impl Render for Shell {
         // The end of a drag is tracked by window-level capture listeners, not
         // element listeners: an element only hears events while its hitbox is
         // hovered, and a dialog, sheet or popover above the Shell takes that
-        // away. The element listeners below only deliver the drop itself.
+        // away. The drag-move listener only starts the tracking; the drop is delivered from the
+        // capture-phase mouse-up, exactly once, wherever the pointer is.
         let weak = cx.entity().downgrade();
         let tracker = canvas(
             |_, _, _| (),
@@ -304,7 +313,7 @@ impl Render for Shell {
                         on_up
                             .update(cx, |shell, cx| {
                                 if shell.file_drag {
-                                    shell.drag_left(window, cx);
+                                    shell.drop_paths(window, cx);
                                 }
                             })
                             .ok();
@@ -319,13 +328,11 @@ impl Render for Shell {
             .size_full()
             .child(tracker)
             .on_drag_move(
-                cx.listener(|this, _: &DragMoveEvent<ExternalPaths>, window, cx| {
-                    this.drag_entered(window, cx);
+                cx.listener(|this, event: &DragMoveEvent<ExternalPaths>, window, cx| {
+                    let paths = event.drag(cx).clone();
+                    this.drag_entered(&paths, window, cx);
                 }),
-            )
-            .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
-                this.drop_paths(paths.paths().to_vec(), window, cx);
-            }));
+            );
         match &self.chrome {
             Some(chrome) => root.child(chrome.clone()),
             None => root,
@@ -702,5 +709,54 @@ mod tests {
         tx.try_send(()).expect("open channel");
         cx.run_until_parked();
         assert!(shell.read_with(cx, |s, _| s.notice()).is_some());
+    }
+
+    fn drop_at(cx: &mut gpui::VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+        cx.simulate_event(FileDropEvent::Entered {
+            position: at,
+            paths: external(&["C:\\drop\\a.txt"]),
+        });
+        cx.simulate_event(FileDropEvent::Pending { position: at });
+        cx.simulate_event(FileDropEvent::Submit { position: at });
+    }
+
+    #[gpui::test]
+    fn an_unoccluded_drop_is_delivered_exactly_once(cx: &mut TestAppContext) {
+        let (states, build) = test_support::probes();
+        let (_shell, cx) = open(cx, build);
+        states[0].borrow_mut().target = enabled();
+        drop_at(cx, inside());
+        assert_eq!(states[0].borrow().dropped.len(), 1);
+        drop_at(cx, inside());
+        assert_eq!(states[0].borrow().dropped.len(), 2);
+    }
+
+    /// A notification occludes the Shell where it sits; a drop there is
+    /// still delivered, once. The grid covers the window, toast included.
+    #[gpui::test]
+    fn a_drop_over_a_notification_is_delivered_exactly_once(cx: &mut TestAppContext) {
+        use gpui_component::notification::Notification;
+        let (states, build) = test_support::probes();
+        let (_shell, cx) = open(cx, build);
+        states[0].borrow_mut().target = enabled();
+        cx.update(|window, cx| {
+            window.push_notification(Notification::new().message("A toast"), cx);
+        });
+        cx.run_until_parked();
+        let mut expected = 0;
+        for y in (10_u16..400).step_by(40) {
+            for x in (10_u16..1000).step_by(45) {
+                drop_at(
+                    cx,
+                    gpui::point(gpui::px(f32::from(x)), gpui::px(f32::from(y))),
+                );
+                expected += 1;
+                assert_eq!(
+                    states[0].borrow().dropped.len(),
+                    expected,
+                    "drop at ({x}, {y})"
+                );
+            }
+        }
     }
 }
