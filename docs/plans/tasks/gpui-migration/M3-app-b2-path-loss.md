@@ -7,7 +7,8 @@ Project: gpui-migration   Depends on: M3b (landed)
 
 Make the "dropped items could not be read" notice appear for drops and
 never for pastes, report the second way GPUI silently skips a dropped item,
-and refuse file drops while a modal dialog is open.
+and verify that file drops are refused while a modal dialog is open (built
+by M3b's fix).
 
 ## Context
 
@@ -61,12 +62,16 @@ Disabled state, and the drag ends cleanly.
    Drop them again, or use Browse." If both kinds arrive in one drag, show
    the non-Unicode one (it tells the user what to fix). The pin test checks
    both literals against the `gpui-pre-windows` source.
-3. **Drops during a modal.** While `window.has_active_dialog(cx)` is true
-   (check the name in the pinned gpui-component), `Shell::drag_over()`
-   returns `Disabled { reason }` with the Shell's reason, `src/app/text.rs`
-   `DROP_BLOCKED_BY_DIALOG = "Close the open dialog first."`, whatever the
+3. **Drops during a modal: verify, add only if missing.** M3b's fix already
+   builds the modal refusal (overlay Disabled, drop refused, drag ends
+   cleanly, coalescer reset, with tests that open a dialog). Verify that it
+   matches the decision: while `window.has_active_dialog(cx)` is true,
+   `Shell::drag_over()` returns `Disabled { reason }` with the Shell's reason
+   `"Close the open dialog first."` from `src/app/text.rs`, whatever the
    current tool reports; a drop calls nothing; `Submit`/`Exited` clear the
-   drag state so the overlay goes away.
+   drag state so the overlay goes away. Fix any difference (the reason copy
+   included), and add the behaviour and its test only if they are missing.
+   Say in the PR which it was.
 
 ### Rules that bind this task
 
@@ -107,10 +112,11 @@ Do not touch: tools, `crates/`, `apps/desktop/`, `docs/plans/`.
   `path_loss_after_1s_is_ignored`,
   `unreadable_name_shows_its_own_notice`,
   `non_unicode_notice_wins_when_both_arrive`.
-- `app::shell::tests::drop_refused_while_dialog_open`
-  (`window.open_dialog`, then `Entered`: `drag_over()` is Disabled with the
-  dialog reason; `Submit`: the tool's `dropped` is not called and
-  `drag_over()` is `None`).
+- The modal refusal's test from M3b's fix, or, if missing,
+  `app::shell::tests::drop_refused_while_dialog_open` (`window.open_dialog`,
+  then `Entered`: `drag_over()` is Disabled with the dialog reason;
+  `Submit`: the tool's `dropped` is not called and `drag_over()` is `None`).
+  Either way it asserts the reason text exactly.
 
 ## Out of scope
 

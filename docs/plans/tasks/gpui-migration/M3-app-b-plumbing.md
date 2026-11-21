@@ -198,7 +198,7 @@ ignored; an empty drop is ignored.
   from `src/app/text.rs` ("Close the open dialog first."), a drop does
   nothing, and the drag state ends cleanly on `Submit`/`Exited` (the overlay
   goes away). *(The human's decision, 2026-11-21; built in
-  `M3-app-b2-path-loss.md`.)*
+  M3b's review fix, verified by `M3-app-b2-path-loss.md`.)*
 
 **`src/app/guard.rs` and the Shell: close guard.** Only the tools know about
 unsaved work (the Database Manager's drafts, later).
