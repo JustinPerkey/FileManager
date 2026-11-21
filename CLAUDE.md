@@ -81,7 +81,8 @@ crates/
                               in fm-core's Store)
     src/archive/              plan, header, eol, encode, write, verify:
                               atomic archive writer and post-write verification
-  fm-schedule/                Schedule Creator domain library. No tauri dependency.
+  fm-schedule/                Schedule Creator domain library. Depends on fm-core only.
+                              No tauri dependency.
                               parse (text -> Schedule) and merge (Schedule + XML -> XML)
                               are the hooks, run only on apply; both are stubs
                               returning NotImplemented. `src/session/` is the

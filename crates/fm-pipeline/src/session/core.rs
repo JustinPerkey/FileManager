@@ -141,8 +141,8 @@ fn report(outcome: StepOutcome) -> StepReport {
 impl Job {
     /// Lists the subdirectories and runs the step, then checks the directory
     /// again: the step may have added or removed folders, or the folder may
-    #[must_use]
     /// have gone. May block for a long time.
+    #[must_use]
     pub fn run(self) -> Finished {
         let result = self.step();
         Finished {
