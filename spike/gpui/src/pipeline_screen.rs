@@ -7,7 +7,7 @@
 //! cannot express are listed in `REPORT.md`.
 
 use gpui::{
-    div, px, relative, AnyElement, AppContext as _, Context, Entity, FontWeight,
+    div, px, relative, AnyElement, App, AppContext as _, Context, Entity, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString, Styled as _,
     Window,
 };
@@ -195,14 +195,14 @@ impl PipelineScreen {
                     .child(
                         div()
                             .relative()
-                            .child(button("browse", "Browse…", false, false))
+                            .child(button("browse", "Browse…", false, false, cx))
                             .child(self.boxes.probe("browse", NONE)),
                     ),
             )
             .child(div().text_color(th.muted_foreground).child("12 subfolders"))
     }
 
-    fn run_bar(&self) -> impl IntoElement {
+    fn run_bar(&self, cx: &Context<Self>) -> impl IntoElement {
         h_flex()
             .items_center()
             .gap(px(SPACE_3))
@@ -214,13 +214,14 @@ impl PipelineScreen {
                         "Run next: Check required files",
                         true,
                         false,
+                        cx,
                     ))
                     .child(self.boxes.probe("primary", NONE)),
             )
             .child(
                 div()
                     .relative()
-                    .child(button("all", "Run all…", false, false))
+                    .child(button("all", "Run all…", false, false, cx))
                     .child(self.boxes.probe("secondary", NONE)),
             )
     }
@@ -286,12 +287,18 @@ impl PipelineScreen {
                     .child(number)
                     .child(text)
                     .child(status)
-                    .child(button(
-                        ("run", i),
-                        if s.confirm { "Run…" } else { "Run" },
-                        false,
-                        !s.unlocked,
-                    )),
+                    .child(
+                        div()
+                            .relative()
+                            .child(button(
+                                ("run", i),
+                                if s.confirm { "Run…" } else { "Run" },
+                                false,
+                                !s.unlocked,
+                                cx,
+                            ))
+                            .child(self.boxes.probe(["run1", "run2", "run3", "run4"][i], NONE)),
+                    ),
             )
             .child(self.boxes.probe(names[i], [0.0, 0.0, 0.0, 1.0]))
             .into_any_element()
@@ -305,13 +312,21 @@ fn button(
     label: &'static str,
     primary: bool,
     disabled: bool,
+    cx: &App,
 ) -> impl IntoElement {
+    let th = cx.theme();
     let b = Button::new(id)
         .label(label)
         .h(px(FONT_SIZE_MD * REM * LINE_HEIGHT + 2.0 * SPACE_1 + 2.0))
         .px(px(SPACE_3))
         .disabled(disabled);
-    if primary {
+    if disabled {
+        // `.btn:disabled`: muted text on the sunken fill, whole button at 55%.
+        b.bg(th.muted)
+            .text_color(th.muted_foreground)
+            .border_color(th.border)
+            .opacity(0.55)
+    } else if primary {
         b.primary()
     } else {
         b
@@ -346,7 +361,7 @@ impl Render for PipelineScreen {
                     .gap(px(SPACE_4))
                     .child(self.header(cx))
                     .child(self.folder(&mono, cx))
-                    .child(self.run_bar())
+                    .child(self.run_bar(cx))
                     .child(
                         v_flex()
                             .border_t_1()

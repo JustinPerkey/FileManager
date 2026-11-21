@@ -75,7 +75,9 @@ pub fn apply(dark: bool, cx: &mut App) {
     Theme::update(cx, |th| {
         th.font_family = ui;
         th.mono_font_family = mono;
-        th.font_size = px(tokens::FONT_SIZE_MD * tokens::REM);
+        // gpui-component's `Root` makes this the window's rem size, so it stays
+        // 16 px (1rem as in tokens.css); body text is set to 0.875rem per screen.
+        th.font_size = px(tokens::REM);
         th.mono_font_size = px(tokens::FONT_SIZE_MD * tokens::REM);
         th.radius = px(tokens::RADIUS);
         th.radius_lg = px(tokens::RADIUS);

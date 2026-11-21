@@ -140,3 +140,87 @@ Result lines: write `PASS`, `FAIL`, or a note.
     resizing the window.
     Result: ______
 30. Attach `fm-spike-results.txt` (beside the exe) with this file.
+
+# Spike B manual checklist (Windows 11)
+
+Same exe artifact family: the `fm-spike` artifact of the latest green
+`spike-gpui` run, and the `fm-spike-shots` artifact (CI's PNGs and check
+result). Fill in the machine block of part A first. Three entry points beyond
+part A's check screen:
+
+- `fm-spike.exe --pipeline`: the B6 screen in a window.
+- `fm-spike.exe --widgets`: the B1-B5 widgets (10,000-row table included).
+- `fm-spike.exe --shoot <dir> [--dark]`, `--verify <dir> <reference.png>`,
+  `--diff <a.png> <b.png> <out.txt>`: B7. These write files, not a console
+  (the exe is a GUI program): read `<dir>\*.shoot-result.txt`,
+  `<dir>\check-result.txt` and the diff output file.
+
+## B6. Themed screen, live theme switch
+
+31. Start `fm-spike.exe --pipeline` with Windows in light mode (Settings >
+    Personalization > Colors > Choose your mode). Expected: sidebar, folder
+    row, buttons and four steps as in `docs/manual/images/pipeline-chosen.png`
+    (text shapes may differ).
+    Result: ______
+32. Leave the window open and switch Windows to dark mode. Expected: the
+    window recolours to the dark tokens within about a second, without a
+    restart; no element stays light. Switch back to light: same.
+    Result: ______ (delay, any element that did not change)
+33. Resize the window down to 800 x 560 and up. Expected: sidebar keeps its
+    12rem width, the layout stays usable, no clipped focus rings.
+    Result: ______
+
+## B7. Screenshot, on your machine
+
+34. Note the display scale (Settings > System > Display) and run
+    `fm-spike.exe --shoot C:\spike\shots` then again with `--dark`. Expected:
+    `pipeline-chosen.png` and `pipeline-chosen-dark.png` appear, no window is
+    left open. Open `pipeline-chosen.shoot-result.txt`: copy its `scale factor`
+    and `image ... device px` lines here. Expected at 100%: 1000x700.
+    Result: ______
+35. Repeat step 34 at a display scale other than 100% (125% or 150%). Expected
+    per the source: a larger PNG (device pixels), not 1000x700. Write the
+    size you get.
+    Result: ______
+36. Run `--shoot C:\spike\shots2` and compare:
+    `Get-FileHash C:\spike\shots\pipeline-chosen.png, C:\spike\shots2\pipeline-chosen.png`.
+    Expected: identical hashes. If not, run `--diff` and write its output.
+    Result: ______
+37. The result file lists `font Segoe UI`, `font Cascadia Mono`, `font
+    Consolas` as installed or not. Write the three lines. Open the PNG: is the
+    folder path (monospace) in Cascadia Mono, Consolas or something else?
+    Result: ______
+38. Run `fm-spike.exe --verify C:\spike\shots C:\...\docs\manual\images\pipeline-chosen.png`
+    (any checkout of the repo has the reference image). Read
+    `C:\spike\shots\check-result.txt` and write the count on its last line and
+    any FAIL lines.
+    Result: ______
+
+## B1-B5, B8. Widgets by hand (`--widgets`)
+
+39. Text inputs: click the first field, type, select with the mouse and with
+    Shift+Arrows, Ctrl+A, Ctrl+C, Ctrl+V a path from Explorer. The second field
+    is read-only: its text can be selected but not changed. The third has the
+    red (danger) border. Placeholder text of an empty field is muted. Enter
+    shows `submitted: [...]` at the bottom.
+    Result: ______
+40. Checkbox: click it and press Space: unchecked, checked, "Not set" (dash and
+    the words "Not set"), unchecked. Tab reaches it from the fields.
+    Result: ______
+41. Table: scroll with the wheel and by dragging the scrollbar through 10,000
+    rows. Expected: no visible stalls; header stays. Click a row, then Up/Down.
+    Hover a row. Write how it feels and any stall.
+    Result: ______
+42. Dialog: Tab to "Run all...", press Enter. Expected: scrim over the window,
+    focus ring on Cancel, Escape closes and focus is back on "Run all...".
+    Open again and click Run: the button shows busy and the dialog stays; Escape
+    and Cancel do nothing (this demo never finishes the work: close the window
+    to leave). Note the dialog's shadow.
+    Result: ______
+43. Menu: Tab to "Recent" and press Enter: two items with a muted second line.
+    Down/Up move, Escape closes and "Recent" has focus again. Click "Shortcuts":
+    a small popover under it, Escape closes it.
+    Result: ______
+44. Press Ctrl+Alt+Shift+D anywhere in the window: the bottom line flips
+    `dev mode: false` / `true`.
+    Result: ______

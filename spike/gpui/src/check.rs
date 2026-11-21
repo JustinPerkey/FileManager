@@ -24,137 +24,119 @@ pub const HEIGHT: u32 = 700;
 pub const WIDTH_PX: f32 = 1000.0;
 pub const HEIGHT_PX: f32 = 700.0;
 
+/// Where a sample is taken, from the measured boxes (so a different text
+/// width, which moves a button's right edge, cannot put a point on glyphs).
 enum Probe {
     /// The pixel at (x, y).
-    At(u32, u32),
-    /// The pixel in the region farthest from `background` (text and icon ink).
-    Ink {
-        region: (u32, u32, u32, u32),
-        background: fn(&Colors) -> Rgb,
-    },
+    At(f32, f32),
+    /// A 1 px line at a fractional position: the best of the rows (or
+    /// columns) next to it; a one-pixel position error is the geometry
+    /// check's business, not a colour error.
+    Line(f32, f32),
+    /// Text ink: the pixel of the region closest to the token colour. Glyph
+    /// antialiasing and subpixel colour fringes never reach the exact token
+    /// colour; a pixel at full coverage does.
+    Ink(f32, f32, f32, f32),
 }
 
 struct Sample {
     name: &'static str,
     probe: Probe,
     expected: fn(&Colors) -> Rgb,
-    /// A 1 px line at a fractional position is shared between two pixel rows;
-    /// also report the best of the neighbouring rows.
-    line: bool,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one flat table of named sample points"
-)]
-fn samples() -> Vec<Sample> {
-    vec![
-        Sample {
-            name: "window ground",
-            probe: Probe::At(600, 650),
-            expected: |c| c.bg,
-            line: false,
-        },
-        Sample {
-            name: "sidebar fill",
-            probe: Probe::At(100, 650),
-            expected: |c| c.surface_sunken,
-            line: false,
-        },
-        Sample {
-            name: "sidebar border",
-            probe: Probe::At(191, 650),
-            expected: |c| c.border,
-            line: false,
-        },
-        Sample {
-            name: "current nav fill",
-            probe: Probe::At(160, 30),
-            expected: |c| c.surface,
-            line: false,
-        },
-        Sample {
-            name: "accent dot",
-            probe: Probe::At(24, 31),
-            expected: |c| c.accent,
-            line: false,
-        },
-        Sample {
-            name: "input fill",
-            probe: Probe::At(600, 150),
-            expected: |c| c.surface,
-            line: false,
-        },
-        Sample {
-            name: "input border",
-            probe: Probe::At(500, 134),
-            expected: |c| c.border,
-            line: true,
-        },
-        Sample {
-            name: "primary button fill",
-            probe: Probe::At(222, 224),
-            expected: |c| c.accent,
-            line: false,
-        },
-        Sample {
-            name: "primary label",
-            probe: Probe::Ink {
-                region: (222, 215, 436, 233),
-                background: |c| c.accent,
-            },
-            expected: |c| c.accent_text,
-            line: false,
-        },
-        Sample {
-            name: "secondary button fill",
-            probe: Probe::At(458, 224),
-            expected: |c| c.surface,
-            line: false,
-        },
-        Sample {
-            name: "secondary button border",
-            probe: Probe::At(480, 209),
-            expected: |c| c.border,
-            line: true,
-        },
-        Sample {
-            name: "disabled button (55%)",
-            probe: Probe::At(916, 367),
-            expected: Rgb::disabled_button,
-            line: false,
-        },
-        Sample {
-            name: "row rule",
-            probe: Probe::At(500, 322),
-            expected: |c| c.border,
-            line: true,
-        },
-        Sample {
-            name: "step number fill",
-            probe: Probe::At(219, 289),
-            expected: |c| c.surface_sunken,
-            line: false,
-        },
-        Sample {
-            name: "muted text",
-            probe: Probe::Ink {
-                region: (216, 176, 330, 194),
-                background: |c| c.bg,
-            },
-            expected: |c| c.text_muted,
-            line: false,
-        },
-        Sample {
-            name: "text",
-            probe: Probe::Ink {
-                region: (216, 16, 300, 44),
-                background: |c| c.bg,
-            },
-            expected: |c| c.text,
-            line: false,
-        },
-    ]
+fn flat(name: &'static str, at: (f32, f32), expected: fn(&Colors) -> Rgb) -> Sample {
+    Sample {
+        name,
+        probe: Probe::At(at.0, at.1),
+        expected,
+    }
+}
+
+fn line(name: &'static str, at: (f32, f32), expected: fn(&Colors) -> Rgb) -> Sample {
+    Sample {
+        name,
+        probe: Probe::Line(at.0, at.1),
+        expected,
+    }
+}
+
+fn ink(name: &'static str, r: Rect, expected: fn(&Colors) -> Rgb) -> Sample {
+    Sample {
+        name,
+        probe: Probe::Ink(r.x, r.y, r.x + r.w, r.y + r.h),
+        expected,
+    }
+}
+
+fn centre(r: Rect) -> (f32, f32) {
+    (r.x + r.w / 2.0, r.y + r.h / 2.0)
+}
+
+/// The 15 sample points. `None` when a box they hang off was not recorded.
+fn samples(boxes: &BTreeMap<String, Rect>) -> Option<Vec<Sample>> {
+    let b = |n: &str| boxes.get(n).copied();
+    let (side, title, input, primary, secondary) = (
+        b("sidebar")?,
+        b("title")?,
+        b("input")?,
+        b("primary")?,
+        b("secondary")?,
+    );
+    let (step1, run2) = (b("step1")?, b("run2")?);
+    let inset = |r: Rect| Rect::new(r.x + 8.0, r.y + 4.0, r.w - 16.0, r.h - 8.0);
+    Some(vec![
+        flat("window ground", (600.0, 650.0), |c| c.bg),
+        flat("sidebar fill", (side.x + 100.0, 650.0), |c| {
+            c.surface_sunken
+        }),
+        flat("sidebar border", (side.x + side.w - 0.5, 650.0), |c| {
+            c.border
+        }),
+        flat("current nav fill", (160.0, 30.0), |c| c.surface),
+        flat("accent dot", (24.0, 31.0), |c| c.accent),
+        flat(
+            "input fill",
+            (input.x + input.w - 40.0, centre(input).1),
+            |c| c.surface,
+        ),
+        line("input border", (centre(input).0, input.y + 0.5), |c| {
+            c.border
+        }),
+        flat(
+            "primary button fill",
+            (primary.x + 5.0, centre(primary).1),
+            |c| c.accent,
+        ),
+        ink("primary label", inset(primary), |c| c.accent_text),
+        flat(
+            "secondary button fill",
+            (secondary.x + 5.0, centre(secondary).1),
+            |c| c.surface,
+        ),
+        line(
+            "secondary button border",
+            (centre(secondary).0, secondary.y + 0.5),
+            |c| c.border,
+        ),
+        flat(
+            "disabled button (55%)",
+            (run2.x + 5.0, centre(run2).1),
+            Rgb::disabled_button,
+        ),
+        line("row rule", (500.0, step1.y + step1.h - 0.5), |c| c.border),
+        flat("step number fill", (219.0, step1.y + 33.0), |c| {
+            c.surface_sunken
+        }),
+        ink(
+            "muted text",
+            Rect::new(input.x, input.y + input.h + 8.0, 114.0, 22.0),
+            |c| c.text_muted,
+        ),
+        ink("text", Rect::new(title.x, title.y, 84.0, title.h), |c| {
+            c.text
+        }),
+    ])
 }
 
 impl Rgb {
@@ -165,7 +147,7 @@ impl Rgb {
 }
 
 fn px(img: &RgbaImage, x: u32, y: u32) -> Rgb {
-    let Rgba(ch) = *img.get_pixel(x, y);
+    let Rgba(ch) = *img.get_pixel(x.min(img.width() - 1), y.min(img.height() - 1));
     Rgb(ch[0], ch[1], ch[2])
 }
 
@@ -178,6 +160,17 @@ fn dist(a: Rgb, b: Rgb) -> i32 {
 
 fn hex(c: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2)
+}
+
+/// Pixel index containing the coordinate, never negative.
+fn at(v: f32) -> u32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped to the image"
+    )]
+    let n = v.max(0.0).floor() as u32;
+    n
 }
 
 /// Outcome of one named check.
@@ -207,9 +200,9 @@ impl Report {
     }
 }
 
-/// Colour samples of `img` against `colors`.
+/// Colour samples of `img` against `colors`, at points taken from `boxes`.
 #[must_use]
-pub fn check_colours(img: &RgbaImage, colors: &Colors) -> Report {
+pub fn check_colours(img: &RgbaImage, colors: &Colors, boxes: &BTreeMap<String, Rect>) -> Report {
     let mut lines = Vec::new();
     if img.width() != WIDTH || img.height() != HEIGHT {
         lines.push(Line {
@@ -222,52 +215,60 @@ pub fn check_colours(img: &RgbaImage, colors: &Colors) -> Report {
         });
         return Report { lines };
     }
-    for s in samples() {
+    let Some(all) = samples(boxes) else {
+        lines.push(Line {
+            ok: false,
+            text: "FAIL a box the sample points hang off was not recorded".into(),
+        });
+        return Report { lines };
+    };
+    for s in all {
         let want = (s.expected)(colors);
-        let (got, at) = match s.probe {
-            Probe::At(x, y) => (px(img, x, y), format!("({x},{y})")),
-            Probe::Ink {
-                region: (x0, y0, x1, y1),
-                background,
-            } => {
-                let bg = background(colors);
-                let mut best = (px(img, x0, y0), x0, y0, -1);
-                for y in y0..y1 {
-                    for x in x0..x1 {
+        let (got, place) = match s.probe {
+            Probe::At(x, y) => (px(img, at(x), at(y)), format!("({},{})", at(x), at(y))),
+            Probe::Line(x, y) => {
+                let (px_x, row) = (at(x), at(y));
+                let best = [row.saturating_sub(1), row, row + 1]
+                    .into_iter()
+                    .map(|r| px(img, px_x, r))
+                    .min_by_key(|p| dist(*p, want))
+                    .unwrap_or(want);
+                (
+                    best,
+                    format!(
+                        "({px_x},{}..{}) line, best of 3 rows",
+                        row.saturating_sub(1),
+                        row + 1
+                    ),
+                )
+            }
+            Probe::Ink(x0, y0, x1, y1) => {
+                let mut best = (px(img, at(x0), at(y0)), at(x0), at(y0));
+                for y in at(y0)..at(y1) {
+                    for x in at(x0)..at(x1) {
                         let p = px(img, x, y);
-                        let d = dist(p, bg);
-                        if d > best.3 {
-                            best = (p, x, y, d);
+                        if dist(p, want) < dist(best.0, want) {
+                            best = (p, x, y);
                         }
                     }
                 }
-                (best.0, format!("({},{}) of region", best.1, best.2))
+                (
+                    best.0,
+                    format!("({},{}) closest ink pixel of region", best.1, best.2),
+                )
             }
         };
         let ok = dist(got, want) <= COLOUR_TOLERANCE;
-        let mut text = format!(
-            "{} colour {:<24} at {at}: want {} got {}",
-            if ok { "PASS" } else { "FAIL" },
-            s.name,
-            hex(want),
-            hex(got)
-        );
-        if s.line && !ok {
-            if let Probe::At(x, y) = s.probe {
-                let best = [y.saturating_sub(1), y, y + 1]
-                    .into_iter()
-                    .map(|yy| px(img, x, yy))
-                    .min_by_key(|p| dist(*p, want))
-                    .unwrap_or(got);
-                let _ = write!(
-                    text,
-                    " (1 px line; best of rows y-1..y+1: {}, delta {})",
-                    hex(best),
-                    dist(best, want)
-                );
-            }
-        }
-        lines.push(Line { ok, text });
+        lines.push(Line {
+            ok,
+            text: format!(
+                "{} colour {:<24} at {place}: want {} got {}",
+                if ok { "PASS" } else { "FAIL" },
+                s.name,
+                hex(want),
+                hex(got)
+            ),
+        });
     }
     Report { lines }
 }
@@ -298,6 +299,14 @@ pub const REFERENCE_BOXES: &[(&str, [(f32, bool); 4])] = &[
     (
         "secondary",
         [(453.0, true), (209.0, false), (82.0, true), (30.0, false)],
+    ),
+    (
+        "run1",
+        [(924.0, true), (274.0, false), (52.0, true), (30.0, false)],
+    ),
+    (
+        "run2",
+        [(912.0, true), (352.0, true), (64.0, true), (30.0, false)],
     ),
     (
         "step1",
@@ -345,19 +354,19 @@ pub fn check_boxes(boxes: &BTreeMap<String, Rect>) -> Report {
         let g = [got.x, got.y, got.w, got.h];
         for (i, what) in ["x", "y", "w", "h"].into_iter().enumerate() {
             let (r, text_dependent) = want[i];
-            let ok = (g[i] - r).abs() <= BOX_TOLERANCE;
-            let cause = if ok {
-                String::new()
-            } else if text_dependent {
-                " (depends on text width or wrapping)".to_string()
-            } else {
-                String::new()
+            let within = (g[i] - r).abs() <= BOX_TOLERANCE;
+            // A miss on a value that follows the text's width (or wrapping) is
+            // the font's, which the human's similarity rule exempts: listed as
+            // TEXT, not counted as a failure.
+            let (ok, tag) = match (within, text_dependent) {
+                (true, _) => (true, "PASS"),
+                (false, true) => (true, "TEXT"),
+                (false, false) => (false, "FAIL"),
             };
             lines.push(Line {
                 ok,
                 text: format!(
-                    "{} box {name}.{what}: reference {r:.1} got {:.1} delta {:+.1}{cause}",
-                    if ok { "PASS" } else { "FAIL" },
+                    "{tag} box {name}.{what}: reference {r:.1} got {:.1} delta {:+.1}",
                     g[i],
                     g[i] - r
                 ),
@@ -449,13 +458,14 @@ pub fn run(dir: &Path, reference: &Path) -> i32 {
         match image::open(dir.join(file)) {
             Ok(img) => {
                 let img = img.to_rgba8();
-                let rep = check_colours(&img, colors);
-                failures += rep.failures();
-                out.push_str(&rep.text());
                 let boxes_file = dir.join(file.replace(".png", ".boxes.txt"));
                 match std::fs::read_to_string(&boxes_file) {
                     Ok(t) => {
-                        let rep = check_boxes(&parse_boxes(&t));
+                        let boxes = parse_boxes(&t);
+                        let rep = check_colours(&img, colors, &boxes);
+                        failures += rep.failures();
+                        out.push_str(&rep.text());
+                        let rep = check_boxes(&boxes);
                         failures += rep.failures();
                         out.push_str(&rep.text());
                     }
@@ -488,6 +498,13 @@ pub fn run(dir: &Path, reference: &Path) -> i32 {
 mod tests {
     use super::*;
 
+    fn reference_boxes() -> BTreeMap<String, Rect> {
+        REFERENCE_BOXES
+            .iter()
+            .map(|(n, v)| ((*n).to_string(), Rect::new(v[0].0, v[1].0, v[2].0, v[3].0)))
+            .collect()
+    }
+
     fn reference() -> RgbaImage {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../docs/manual/images/pipeline-chosen.png");
@@ -499,7 +516,7 @@ mod tests {
     /// render's, not the checker's.
     #[test]
     fn colour_check_passes_on_the_reference_image() {
-        let rep = check_colours(&reference(), &LIGHT);
+        let rep = check_colours(&reference(), &LIGHT, &reference_boxes());
         assert_eq!(rep.failures(), 0, "{}", rep.text());
         assert!(rep.lines.len() >= 12);
     }
@@ -508,13 +525,13 @@ mod tests {
     fn colour_check_fails_on_a_wrong_colour() {
         let mut img = reference();
         img.put_pixel(100, 650, Rgba([0xee, 0xf0, 0xf5, 255]));
-        let rep = check_colours(&img, &LIGHT);
+        let rep = check_colours(&img, &LIGHT, &reference_boxes());
         assert_eq!(rep.failures(), 1, "{}", rep.text());
     }
 
     #[test]
     fn dark_tokens_are_not_the_light_image() {
-        assert!(check_colours(&reference(), &DARK).failures() > 8);
+        assert!(check_colours(&reference(), &DARK, &reference_boxes()).failures() > 8);
     }
 
     /// The hard-coded reference boxes are what the reference image shows.
@@ -546,15 +563,18 @@ mod tests {
 
     #[test]
     fn boxes_within_tolerance_pass_and_others_fail() {
-        let mut boxes: BTreeMap<String, Rect> = REFERENCE_BOXES
-            .iter()
-            .map(|(n, v)| ((*n).to_string(), Rect::new(v[0].0, v[1].0, v[2].0, v[3].0)))
-            .collect();
+        let mut boxes = reference_boxes();
         assert_eq!(check_boxes(&boxes).failures(), 0);
-        boxes.get_mut("primary").expect("primary").w += 1.5;
+        boxes.get_mut("title").expect("title").w += 1.5;
         assert_eq!(check_boxes(&boxes).failures(), 0);
-        boxes.get_mut("primary").expect("primary").w += 1.0;
+        boxes.get_mut("title").expect("title").w += 1.0;
         assert_eq!(check_boxes(&boxes).failures(), 1);
+        // A text-width miss is listed but is not a failure.
+        boxes.get_mut("title").expect("title").w = 760.0;
+        boxes.get_mut("primary").expect("primary").w -= 40.0;
+        let rep = check_boxes(&boxes);
+        assert_eq!(rep.failures(), 0);
+        assert!(rep.text().contains("TEXT box primary.w"));
     }
 
     #[test]

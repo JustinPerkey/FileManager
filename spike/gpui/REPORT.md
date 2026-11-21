@@ -44,7 +44,10 @@ written to confirm it.
   userenv, shell32, combase, **icuuc**, ntdll, uiautomationcore, dwrite, gdi32,
   comctl32, dwmapi, dxgi, d3d11, winmm, imm32, api-ms-win-shcore-scaling-l1-1-1,
   dcomp, api-ms-win-core-winrt-l1-1-0, api-ms-win-core-winrt-error-l1-1-0,
-  bcryptprimitives, gdiplus. All are Windows system DLLs / API sets. Notes:
+  bcryptprimitives, gdiplus. All are Windows system DLLs / API sets. The workflow's "every imported DLL is
+  a system DLL" step only prints a warning for a non-System32 name and never
+  fails; the PASS rests on the log showing no such warning, not on the step
+  going red. Notes:
   `icuuc.dll` is the OS-provided ICU (Windows 10 1703+; no bundled copy);
   `uiautomationcore`, `dcomp`, `gdiplus` come from GPUI's accessibility and
   DirectComposition use. No delay-loaded imports.
@@ -72,10 +75,11 @@ written to confirm it.
 - Start from a folder holding only the exe: `--self-check` (opens the window,
   renders the first frame during `open_window`, quits after 500 ms) exited
   **0** (copied alone to `only-the-exe`); results file: "self-check: window opened and rendered one
-  frame". So GPUI's DirectX 11 renderer starts on the runner's software
-  adapter (WARP via Hyper-V Video, no GPU), and a GUI process gets a usable
-  desktop session on GitHub's Windows runner. That answers both risks in the
-  plan; it is a good sign that part B's screenshots can run in CI.
+  frame". What that proves: the D3D11 device was created (WARP, the software
+  adapter behind "Microsoft Hyper-V Video", no GPU) and the first `draw()` ran
+  inside `open_window`, so the window drew its first frame; it does not prove
+  the frame was presented to a visible desktop. A GUI process did get a window
+  on GitHub's Windows runner. Part B's PNG capture (B7) settles the rest.
 - Fail would have meant: no-go. Not triggered.
 
 ## A2 - Native file dialogs: PARTIAL (API fine; two gaps, one decisive for non-Unicode names)
@@ -112,6 +116,13 @@ blocking the event loop.
   routing and the view unchanged, and Open/Reveal take `&Path` and convert with
   `HSTRING::from(&OsStr)` (lossless). So the loss is only at the two OS
   boundaries GPUI converts through `String`.
+- GPUI's save dialog has two more lossy `String` boundaries: the initial
+  directory goes through `full_path.display().to_string()` (gpui-pre-windows
+  `platform.rs` ~1643-1644, lossy: a non-Unicode directory name is altered
+  with U+FFFD before it reaches the dialog), and the chosen path through
+  `pwstr.to_string()?` (`platform.rs` ~1679, an error on invalid UTF-16, like
+  the open dialog). So every path crossing GPUI's dialogs (open, save,
+  initial directory) is converted through `String`.
 - A true fix needs a small `windows`-crate dialog using `OsString::from_wide`
   (about 80 lines of COM) instead of GPUI's and rfd's: not built, over the
   one-fallback allowance, estimated half a day plus Windows testing.
@@ -182,8 +193,9 @@ blocking the event loop.
 
 - `cargo test --locked` (feature `test-support` as a dev-dependency) passed
   three runs in a row on `windows-2025` with no GPU: run 1 252.7 s (includes
-  the test-profile compile), runs 2 and 3 2.1 s and 1.7 s. 12 tests, identical
-  results on `ubuntu-latest` (0.62 s of test time).
+  the test-profile compile), runs 2 and 3 2.1 s and 1.7 s. 13 tests on Windows
+  (including the Windows-only `dropped_lone_surrogate_name_survives_routing`)
+  and 12 on `ubuntu-latest` (0.62 s of test time), same results otherwise.
 - Tests: `job_finishes_on_main_thread` (model test: `#[gpui::test]`,
   `TestAppContext`; an entity method starts `cx.background_spawn`, state
   changes on the main thread after `run_until_parked`),
@@ -251,19 +263,28 @@ clippy 2 m 04 s, debug build 2 m 11 s, test compile 60 s.
   exactly three entries, all **dual-licensed with a permissive alternative**
   (choice is ours): `r-efi` (`MIT OR Apache-2.0 OR LGPL-2.1-or-later`, listed
   twice for two versions) and `self_cell` (`Apache-2.0 OR GPL-2.0-only`). No
-  crate is GPL/AGPL/LGPL only. MPL-2.0 is file-level copyleft: list for the
-  human. Zero unknown licenses.
+  crate is GPL/AGPL/LGPL only. MPL-2.0 is file-level copyleft; the three
+  MPL-2.0 crates are `cbindgen`, `dwrote` and `option-ext`. None ships in the
+  Windows exe: `cbindgen` is a build-dependency of `gpui-pre-apple` and
+  `dwrote` comes from `zed-font-kit` under `gpui-pre-apple`, both macOS/iOS
+  only (`cargo tree --target x86_64-pc-windows-msvc -i dwrote` is empty);
+  `option-ext` comes through `dirs` -> `shellexpand` -> `rust-embed-impl`, a
+  proc-macro that runs on the build machine only. Zero unknown licenses.
 - Toolchain: GPUI crates declare no `rust-version`, all are edition 2024
   (Rust 1.85+); builds with the repo's `rust-version = "1.90"` floor
   and with 1.100. The spike's own `rust-version` is 1.90.
 
-## A9 - Linux build: PASS
+## A9 - Linux build: PASS (build and headless tests; no X11/Wayland backend compiled)
 
 `ubuntu-latest` (a non-blocking job): `cargo fmt --check`, clippy,
 `cargo build` and `cargo test` all pass **with no apt packages installed**
 (the runner's default image only). The Linux `gpui-pre-linux` backend compiles
 without webkit/gtk dev packages. The 12 tests run on
-the headless test platform. Not tested: running a Linux window.
+the headless test platform. `gpui-pre-platform` pulls `gpui_linux` with
+`default-features = false` and the spike enables neither `x11` nor `wayland`,
+so the Linux build is headless-only and cannot open a window. A real Linux
+window needs those two features and probably the xkbcommon, wayland and X11
+development packages on the build machine. Not tested: running a Linux window.
 
 ## A10 - clippy pedantic: PASS with 3 scoped `#[expect]`s
 
