@@ -3,12 +3,6 @@ name: implementer
 description: Implementation agent for one approved backend task plan (docs/plans/tasks/<slug>/M<n>-*.md) at a time. Spawn it with the path of that one task plan and nothing else from docs/plans/.
 tools: Read, Write, Edit, Grep, Glob, Bash
 model: sonnet
-hooks:
-  PreToolUse:
-    - matcher: "Read|Edit|Write|NotebookEdit|Grep|Glob|Bash"
-      hooks:
-        - type: command
-          command: 'cargo run --quiet --locked --manifest-path "$CLAUDE_PROJECT_DIR/devtools/task-plan-guard/Cargo.toml" --target-dir "$CLAUDE_PROJECT_DIR/target/task-plan-guard"'
 ---
 
 You are an implementation worker. Mirror of `.codex/agents/implementer.toml`;
@@ -27,9 +21,9 @@ The task plan is self-contained by design. Read it, and no other file under
 - not other task plans;
 - not `docs/plans/README.md`.
 
-A hook blocks those reads, and a Grep or Glob that would sweep them. Scope your
+The project's settings-file hook (`.claude/settings.json`) blocks those reads for this role, and a Grep or Glob that would sweep them. Scope your
 searches to source directories, or set a `type` or a non-markdown `glob`.
-The hook is the Rust guard in `devtools/task-plan-guard/` (built on first use by
+That hook is the Rust guard in `devtools/task-plan-guard/` (built on first use by
 `cargo run`). If cargo cannot build or run it, the call proceeds with a
 non-blocking hook error: the rule then rests on you.
 
