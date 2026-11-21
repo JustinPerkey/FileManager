@@ -6,3 +6,10 @@ pub const DEV_MODE_ON: &str = "Developer mode on.";
 
 /// What developer mode announces when it turns off.
 pub const DEV_MODE_OFF: &str = "Developer mode off.";
+
+/// Shown when a file dialog could not be shown or returned an error. Models
+/// show it with the error's `detail` as technical detail.
+pub const PICK_FAILED: &str = "The file dialog could not be shown. See Details.";
+
+/// Shown when a dropped name could not be delivered by the OS drop.
+pub const DROPPED_NAMES_UNREADABLE: &str = "Some dropped items could not be read: their names are not valid Unicode. Rename them and drop them again.";

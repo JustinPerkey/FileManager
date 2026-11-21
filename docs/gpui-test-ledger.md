@@ -60,12 +60,12 @@ file's table equals that count. The file counts sum to 301.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| idle: renders nothing | M3b or U |  | open |
-| hover shows the label on a plate; leave hides it | M3b or U |  | open |
-| drop hides the overlay and passes exactly the dropped paths | M3b or U |  | open |
-| disabled: overlay shows the reason and a drop is ignored | M3b or U |  | open |
-| does not steal focus, and unsubscribes on unmount | M3b or U |  | open |
-| after a rerender, drops follow the latest enabled and onDrop | M3b or U |  | open |
+| idle: renders nothing | M3b | `app::shell::tests::drag_over_tracks_enter_and_exit` (`drag_over()` is `None`; the chrome renders nothing from it) | done |
+| hover shows the label on a plate; leave hides it | M3b, U | `app::shell::tests::drag_over_tracks_enter_and_exit` (state); the plate's look is U | done (state), open (look: U) |
+| drop hides the overlay and passes exactly the dropped paths | M3b | `app::shell::tests::drop_reaches_current_tool_when_enabled`, `dropped_non_unicode_path_survives_routing` (Windows) | done |
+| disabled: overlay shows the reason and a drop is ignored | M3b, U | `app::shell::tests::drop_ignored_when_disabled`, `empty_drop_ignored`; the reason's look is U | done (state), open (look: U) |
+| does not steal focus, and unsubscribes on unmount | U |  | open (the shell's drop handlers are element listeners on the root div: no focus handling, nothing to unsubscribe) |
+| after a rerender, drops follow the latest enabled and onDrop | M3b | `app::shell::tests::drop_goes_to_the_current_tool_only` (the target is read from the tool at drop time) | done |
 
 ## `app/ToolNav.test.tsx` (4)
 

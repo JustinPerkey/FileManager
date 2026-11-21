@@ -13,6 +13,8 @@ use fm_tarpack as _;
 pub mod app;
 pub mod assets;
 pub mod fonts;
+pub mod jobs;
+pub mod platform;
 pub mod tools;
 
 use std::cell::Cell;
@@ -23,7 +25,7 @@ use gpui::{px, size, App, AppContext as _, Bounds, TitlebarOptions, WindowBounds
 use gpui_component::Root;
 
 use crate::app::dev_mode::DevMode;
-use crate::app::shell::Shell;
+use crate::app::shell::{PathLossFeed, Shell};
 
 /// How long `--self-check` lets the window live after opening it.
 const SELF_CHECK_MS: u64 = 500;
@@ -41,6 +43,8 @@ pub fn run(self_check: bool) -> i32 {
             gpui_component::init(cx);
             fonts::init(cx);
             DevMode::init(cx);
+            platform::set_platform(cx, platform::gpui::GpuiPlatform);
+            cx.set_global(PathLossFeed(platform::path_loss::install()));
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

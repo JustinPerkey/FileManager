@@ -5,7 +5,11 @@ pub mod pipeline;
 pub mod schedule;
 pub mod tarpack;
 
-use gpui::{AnyView, App, Window};
+use std::path::PathBuf;
+
+use gpui::{AnyView, App, SharedString, Window};
+
+use crate::app::drop::DropTarget;
 
 /// Which tool. The order of the variants is not the display order; [`build`]
 /// is.
@@ -29,10 +33,25 @@ impl ToolId {
 }
 
 /// What the shell asks of a tool. Every method has a default so placeholder
-/// tools stay small; later milestones add more (drop target, unsaved work).
+/// tools stay small.
 pub trait ToolHooks {
     /// The tool became the current one.
     fn activated(&self, _window: &mut Window, _cx: &mut App) {}
+
+    /// Whether the tool takes an Explorer drop now. The default is no target.
+    fn drop_target(&self, _cx: &App) -> DropTarget {
+        DropTarget::None
+    }
+
+    /// Files dropped on the window while this tool is current and its target
+    /// is enabled. Never called with an empty list.
+    fn dropped(&self, _paths: Vec<PathBuf>, _window: &mut Window, _cx: &mut App) {}
+
+    /// One short description per piece of unsaved work. The window does not
+    /// close without confirmation while any tool returns some.
+    fn unsaved_work(&self, _cx: &App) -> Vec<SharedString> {
+        Vec::new()
+    }
 }
 
 /// A tool as the shell holds it.

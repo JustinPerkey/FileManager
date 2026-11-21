@@ -2077,6 +2077,7 @@ dependencies = [
  "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-platform",
+ "log",
  "tempfile",
  "winresource",
 ]

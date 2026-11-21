@@ -25,6 +25,7 @@ gpui_platform = { workspace = true }
 gpui-component = { workspace = true }
 gpui-kit-assets = { workspace = true }
 async-channel = { workspace = true }
+log = "0.4"
 
 [dev-dependencies]
 # test-support must stay a dev-dependency feature: it must not reach the exe.

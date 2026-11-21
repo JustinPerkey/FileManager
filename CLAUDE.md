@@ -130,7 +130,15 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
   src/lib.rs                  run(): gpui_component::init, mono font, dev mode, main window
   src/assets.rs, fonts.rs     embedded icons (icons! list); system fonts (Segoe UI, mono
                               Cascadia Mono else Consolas)
-  src/app/                    shell.rs (Shell root view, window-level behaviour),
+  src/platform/               Platform trait (pick, pick_save, open, reveal, copy_text;
+                              global PlatformHandle), gpui.rs (real; dialogs temporary
+                              until M3c), fake.rs (scripted, for tests and screenshots),
+                              path_loss.rs (log::Log that reports dropped names GPUI skips)
+  src/jobs.rs                 Worker (backend off the UI thread) and spawn_thread (long
+                              jobs with progress); models never block the UI thread
+  src/app/                    shell.rs (Shell root view: current tool, drop routing,
+                              notice, close request), drop.rs (DropTarget), guard.rs
+                              (CloseRequest, unsaved work from the tools),
                               dev_mode.rs (Ctrl+Alt+Shift+D global, keystroke interceptor), text.rs,
                               view/ (the chrome slot: ui-implementer's, placeholder.rs
                               is the plain stand-in)
