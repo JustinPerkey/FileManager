@@ -26,8 +26,9 @@ are stubs). The Database Manager (`dbmanager`) is in progress: crate only
 - `.claude/settings.json` — enables the `impeccable` plugin (marketplace
   `pbakaus/impeccable`): one skill, `impeccable:impeccable`, whose
   sub-commands (`shape`, `critique`, `audit`, `polish`, …) the UI roles use.
-- `.claude/hooks/task-plan-only.mjs` — keeps the implementer subagents out of
-  every plan except task plans.
+- `devtools/task-plan-guard/` — Rust binary (workspace member) run as the
+  implementer subagents' `PreToolUse` hook; keeps them out of every plan except
+  task plans.
 - `PRODUCT.md`, `DESIGN.md` — the `impeccable` skill's context: durable product
   truth, and the visual system (normative source: `styles/tokens.css`). Read
   by the UI agents; `DESIGN.md` changes when the tokens or shared components
@@ -35,7 +36,7 @@ are stubs). The Database Manager (`dbmanager`) is in progress: crate only
 - Application:
 
 ```
-Cargo.toml                    workspace: members crates/*, apps/desktop/src-tauri;
+Cargo.toml                    workspace: members crates/*, devtools/*, apps/desktop/src-tauri;
                               [workspace.dependencies] pins ts-rs (and tempfile);
                               [workspace.lints.clippy] turns on pedantic, and every
                               crate opts in with [lints] workspace = true
@@ -45,6 +46,9 @@ Cargo.toml                    workspace: members crates/*, apps/desktop/src-taur
 rust-toolchain.toml           stable channel (latest stable, not pinned)
 rustfmt.toml
 package.json                  root scripts, npm workspaces: apps/desktop
+devtools/
+  task-plan-guard/            the PreToolUse hook binary (serde_json only); `decide` in
+                              src/lib.rs, table-driven tests in tests/cases.rs
 crates/
   fm-core/                    shared, tool-agnostic library. No tauri dependency.
   fm-dbmanager/               Database Manager domain library. Depends on fm-core only.
