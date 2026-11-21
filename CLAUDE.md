@@ -121,11 +121,11 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               (the lib name survives the later rename). Linux builds a
                               headless backend and runs tests only; the window needs Windows.
   build.rs                    embeds assets/icon.ico as resource id 1 (Windows)
-  assets/                     icon.ico, icons/*.svg, fonts/ (Cascadia Mono, OFL; README
-                              records the release and SHA-256s)
+  assets/                     icon.ico, icons/*.svg (no font files: fonts are system fonts)
   src/main.rs                 parses `--self-check`, calls fm_app::run
-  src/lib.rs                  run(): gpui_component::init, fonts, dev mode, main window
-  src/assets.rs, fonts.rs     embedded icons (icons! list), Cascadia Mono registration
+  src/lib.rs                  run(): gpui_component::init, mono font, dev mode, main window
+  src/assets.rs, fonts.rs     embedded icons (icons! list); system fonts (Segoe UI, mono
+                              Cascadia Mono else Consolas)
   src/app/                    shell.rs (Shell root view, window-level behaviour),
                               dev_mode.rs (Ctrl+Alt+Shift+D global), text.rs,
                               view/ (the chrome slot: ui-implementer's, placeholder.rs

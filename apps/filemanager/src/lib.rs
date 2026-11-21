@@ -38,7 +38,7 @@ pub fn run(self_check: bool) -> i32 {
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
-            fonts::register(cx);
+            fonts::init(cx);
             DevMode::init(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
