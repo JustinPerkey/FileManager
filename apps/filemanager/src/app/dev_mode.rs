@@ -39,7 +39,13 @@ impl Global for DevMode {}
 struct ChordLatch {
     held: bool,
     seen_down: bool,
+    /// Frames polled while `seen_down` is false; bounded by `UNSEEN_FRAMES`.
+    unseen_frames: u32,
 }
+
+/// How many frames (about one second at 60 Hz) the poll waits to see the chord
+/// modifiers down before giving up and clearing the latch.
+const UNSEEN_FRAMES: u32 = 60;
 
 impl Global for ChordLatch {}
 
@@ -48,6 +54,7 @@ impl ChordLatch {
         Self {
             held: false,
             seen_down: false,
+            unseen_frames: 0,
         }
     }
 }
@@ -83,6 +90,13 @@ impl DevMode {
     /// repeat of a held chord; returns false for every other keystroke.
     pub fn handle_keystroke(keystroke: &Keystroke, window: &mut Window, cx: &mut App) -> bool {
         if !is_chord(keystroke) {
+            // A latch whose modifiers were never seen down is stale.
+            if cx
+                .try_global::<ChordLatch>()
+                .is_some_and(|l| l.held && !l.seen_down)
+            {
+                cx.set_global(ChordLatch::default());
+            }
             return false;
         }
         let latched = cx.try_global::<ChordLatch>().is_some_and(|l| l.held);
@@ -90,6 +104,7 @@ impl DevMode {
             cx.set_global(ChordLatch {
                 held: true,
                 seen_down: chord_modifiers_down(window.modifiers()),
+                unseen_frames: 0,
             });
             Self::toggle(cx);
             watch_release(window);
@@ -104,22 +119,35 @@ fn chord_modifiers_down(m: Modifiers) -> bool {
 
 /// Clears the latch on the first frame where the chord modifiers are not all
 /// down, but only after a frame has seen them down (a key-down can arrive
-/// before its modifiers-changed event); checks again every frame until then.
+/// before its modifiers-changed event). Until then it checks every frame, for
+/// at most `UNSEEN_FRAMES` frames. It stops when the latch is no longer held.
 fn watch_release(window: &Window) {
     window.on_next_frame(|window, cx| {
-        let down = chord_modifiers_down(window.modifiers());
-        let seen_down = cx.try_global::<ChordLatch>().is_some_and(|l| l.seen_down);
-        if down || !seen_down {
-            if down && !seen_down {
-                cx.set_global(ChordLatch {
-                    held: true,
-                    seen_down: true,
-                });
-            }
-            watch_release(window);
-        } else {
-            cx.set_global(ChordLatch::default());
+        let Some(mut latch) = cx.try_global::<ChordLatch>().map(|l| ChordLatch {
+            held: l.held,
+            seen_down: l.seen_down,
+            unseen_frames: l.unseen_frames,
+        }) else {
+            return;
+        };
+        if !latch.held {
+            return;
         }
+        let down = chord_modifiers_down(window.modifiers());
+        if down {
+            latch.seen_down = true;
+        } else if latch.seen_down {
+            cx.set_global(ChordLatch::default());
+            return;
+        } else {
+            latch.unseen_frames += 1;
+            if latch.unseen_frames >= UNSEEN_FRAMES {
+                cx.set_global(ChordLatch::default());
+                return;
+            }
+        }
+        cx.set_global(latch);
+        watch_release(window);
     });
 }
 
@@ -259,6 +287,43 @@ mod tests {
         release(cx);
         key_down(cx, false);
         assert!(!on(cx));
+    }
+
+    fn frame(cx: &mut VisualTestContext) {
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+    }
+
+    #[gpui::test]
+    fn stale_latch_is_reset_by_a_non_chord_key(cx: &mut TestAppContext) {
+        let cx = open_shell(cx);
+        // Key-down with the modifiers never seen down, then a frame.
+        key_down(cx, false);
+        assert!(on(cx));
+        frame(cx);
+        modifiers_changed(cx, Modifiers::default());
+        cx.simulate_keystrokes("x");
+        key_down(cx, false);
+        assert!(!on(cx), "the next chord toggles");
+    }
+
+    #[gpui::test]
+    fn unseen_latch_clears_after_the_frame_bound(cx: &mut TestAppContext) {
+        let cx = open_shell(cx);
+        key_down(cx, false);
+        assert!(on(cx));
+        for _ in 0..UNSEEN_FRAMES - 1 {
+            frame(cx);
+        }
+        key_down(cx, true);
+        assert!(on(cx), "still latched just inside the bound");
+        frame(cx);
+        // The poll has stopped: no callbacks remain.
+        let ran = cx.update(gpui::Window::simulate_next_frame);
+        assert_eq!(ran, 0);
+        key_down(cx, false);
+        assert!(!on(cx), "latch cleared at the bound");
     }
 
     #[gpui::test]
