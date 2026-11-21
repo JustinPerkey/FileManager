@@ -1,19 +1,19 @@
 //! The Tar Packager's session logic as plain functions over `AppDirs`, with no
-//! Tauri types, so it is tested without an app. The command handlers in
-//! `mod.rs` are thin glue over [`Core`].
+//! UI types, so it is tested without an app. The Tauri command handlers are
+//! thin glue over [`Core`].
 
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-use fm_core::{AppDirs, Store};
-use fm_tarpack::archive::{ArchivePlan, BuildSummary, Progress};
-use fm_tarpack::format::ArchiveFormat;
-use fm_tarpack::manifest::{load, LoadedManifest, Manifest, ManifestView};
-use fm_tarpack::sources::{
+use crate::archive::{ArchivePlan, BuildSummary, Progress};
+use crate::format::ArchiveFormat;
+use crate::manifest::{load, LoadedManifest, Manifest, ManifestView};
+use crate::sources::{
     apply, match_dropped, Assignments, DropOutcome, EntryStatus, RememberedState,
 };
+use fm_core::{AppDirs, Store};
 
 use super::types::{
     ArchiveFormatOption, BuildBlockedReason, SessionEntry, SessionManifest, TarpackError,
@@ -21,7 +21,7 @@ use super::types::{
 };
 
 /// The bundled example manifest written by `create_from_example`.
-const EXAMPLE_MANIFEST: &str = include_str!("../../../../../../examples/tarpack/example.toml");
+const EXAMPLE_MANIFEST: &str = include_str!("../../../../examples/tarpack/example.toml");
 
 struct Loaded {
     manifest: LoadedManifest,
@@ -31,7 +31,7 @@ struct Loaded {
 }
 
 /// Session state: the loaded manifest, its assignments, the output and format,
-/// and what is remembered between runs. Lives in Tauri-managed state.
+/// and what is remembered between runs. Held by the UI layer.
 pub struct Core {
     store: Option<Store<RememberedState>>,
     remembered: RememberedState,
@@ -55,6 +55,7 @@ pub struct DropJob {
 
 impl DropJob {
     /// Walks and matches. Touches no session state.
+    #[must_use]
     pub fn run(&self, paths: &[PathBuf]) -> DropOutcome {
         match_dropped(&self.manifest, &self.assignments, paths)
     }
@@ -69,12 +70,16 @@ pub struct BuildJob {
 
 impl BuildJob {
     /// Writes the archive. `progress` gets M4's raw events.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn run(
         &self,
         overwrite: bool,
         progress: impl FnMut(Progress),
     ) -> Result<BuildSummary, TarpackError> {
-        fm_tarpack::write_archive(&self.plan, &self.out, self.format, overwrite, progress)
+        crate::write_archive(&self.plan, &self.out, self.format, overwrite, progress)
             .map_err(Into::into)
     }
 }
@@ -130,6 +135,7 @@ pub(super) fn write_new_file(
 }
 
 impl Core {
+    #[must_use]
     pub fn new(dirs: &AppDirs) -> Core {
         match Store::<RememberedState>::load(dirs, "tarpack", "state") {
             Ok((store, warning)) => {
@@ -151,6 +157,7 @@ impl Core {
     }
 
     /// A session that remembers nothing between runs, with `warning` shown.
+    #[must_use]
     pub fn unpersisted(warning: String) -> Core {
         Core::with(None, RememberedState::default(), Some(warning))
     }
@@ -209,6 +216,7 @@ impl Core {
     }
 
     /// The loaded manifest's path, for the watcher and the editor.
+    #[must_use]
     pub fn manifest_path(&self) -> Option<&Path> {
         self.loaded.as_ref().map(|l| l.manifest.path.as_path())
     }
@@ -232,6 +240,7 @@ impl Core {
         self.snapshot()
     }
 
+    #[must_use]
     pub fn recent_manifests(&self) -> Vec<String> {
         self.remembered
             .recent_manifests
@@ -269,12 +278,20 @@ impl Core {
 
     /// Loads `path`, restores what is remembered for it, and makes it recent.
     /// Succeeds for any readable file, whatever its errors.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn open(&mut self, path: &Path) -> Result<(), TarpackError> {
         self.restored = true;
         self.load_manifest(path)
     }
 
     /// Re-reads the loaded manifest, keeping assignments by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn reload(&mut self) -> Result<(), TarpackError> {
         let path = self.loaded()?.manifest.path.clone();
         let manifest =
@@ -327,6 +344,11 @@ impl Core {
         }
     }
 
+    /// Assigns `source` to the entry `id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn assign(&mut self, id: &str, source: &Path) -> Result<(), TarpackError> {
         self.require_entry(id)?;
         if !source.is_file() {
@@ -342,6 +364,11 @@ impl Core {
         Ok(())
     }
 
+    /// Clears the assignment of the entry `id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn clear(&mut self, id: &str) -> Result<(), TarpackError> {
         self.require_entry(id)?;
         self.loaded_mut()?.assignments.remove(id);
@@ -351,6 +378,10 @@ impl Core {
     }
 
     /// Clones out what a drop needs. Pair with [`Core::finish_drop`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn begin_drop(&self) -> Result<DropJob, TarpackError> {
         let l = self.loaded()?;
         Ok(DropJob {
@@ -362,6 +393,10 @@ impl Core {
 
     /// Applies a drop matched off-lock. `Ok(None)` when the session changed
     /// meanwhile: nothing is applied or persisted.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn finish_drop(
         &mut self,
         job: &DropJob,
@@ -378,6 +413,11 @@ impl Core {
         Ok(Some(outcome))
     }
 
+    /// Sets the archive format for the next build.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn set_format(&mut self, format: ArchiveFormat) -> Result<(), TarpackError> {
         let l = self.loaded_mut()?;
         l.format = format;
@@ -390,6 +430,10 @@ impl Core {
     /// the format to it (the user typed that name); otherwise the current
     /// extension is appended. Either way the path ends with the extension of
     /// the resulting format.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn set_output(&mut self, path: &Path) -> Result<(), TarpackError> {
         let l = self.loaded_mut()?;
         let Some(name) = path.file_name() else {
@@ -407,6 +451,10 @@ impl Core {
     }
 
     /// Writes the bundled example manifest to a new file and opens it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn create_from_example(&mut self, path: &Path) -> Result<(), TarpackError> {
         write_new_file(path, |f| f.write_all(EXAMPLE_MANIFEST.as_bytes()))?;
         self.open(path)
@@ -414,6 +462,10 @@ impl Core {
 
     /// Checks everything a build needs and marks it running. Pair with
     /// [`Core::finish_build`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn begin_build(&mut self) -> Result<BuildJob, TarpackError> {
         let l = self.loaded()?;
         if l.manifest.report.manifest.entries().is_empty() {
@@ -470,11 +522,19 @@ impl Core {
     }
 
     /// The manifest path for opening in an editor.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn manifest_path_for_open(&self) -> Result<PathBuf, TarpackError> {
         Ok(self.loaded()?.manifest.path.clone())
     }
 
     /// The path the last successful build wrote, never a string from the UI.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TarpackError`] describing what went wrong.
     pub fn reveal_target(&self) -> Result<PathBuf, TarpackError> {
         self.last_built.clone().ok_or_else(|| {
             TarpackError::new(K::NoOutput, "no archive has been built in this session")

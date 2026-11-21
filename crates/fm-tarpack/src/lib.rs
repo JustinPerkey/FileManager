@@ -3,6 +3,7 @@
 pub mod archive;
 pub mod format;
 pub mod manifest;
+pub mod session;
 pub mod sources;
 
 pub use archive::{

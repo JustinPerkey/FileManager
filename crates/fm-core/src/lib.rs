@@ -5,6 +5,7 @@ pub mod dirs;
 pub mod error;
 pub mod hex;
 pub mod store;
+pub mod watch;
 
 pub use atomic::atomic_write;
 pub use dirs::{system_config_dir, AppDirs};

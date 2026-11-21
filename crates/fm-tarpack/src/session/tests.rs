@@ -1,14 +1,13 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use crate::archive::{BuildPhase, BuildSummary, Progress};
+use crate::format::ArchiveFormat;
+use crate::sources::{Assignments, DropOutcome, RememberedState};
+use crate::{BuildError, PlanError};
 use fm_core::{AppDirs, Store};
-use fm_tarpack::archive::{BuildPhase, BuildSummary, Progress};
-use fm_tarpack::format::ArchiveFormat;
-use fm_tarpack::sources::{Assignments, DropOutcome, RememberedState};
-use fm_tarpack::{BuildError, PlanError};
 use tempfile::TempDir;
 
 use super::core::{Core, DropJob};
@@ -17,7 +16,6 @@ use super::types::{
     ArchiveFormatOption, BuildBlockedReason as Blocked, TarpackError, TarpackErrorKind as K,
     TarpackSession,
 };
-use super::watch::{is_manifest_change, ManifestWatcher};
 
 /// A temporary app-data dir plus a work dir for manifests, sources and outputs.
 struct Env {
@@ -1028,48 +1026,6 @@ fn build_uses_session_format() {
     assert_eq!(summary.format, ArchiveFormat::TarZst);
     assert!(summary.extract_command.contains("--zstd"));
     assert!(summary.extract_command.contains("o.tar.zst"));
-}
-
-#[test]
-fn watcher_emits_once_per_edit() {
-    let env = Env::new();
-    let m = env.write("m.toml", TWO_FILES);
-    let (tx, rx) = mpsc::channel();
-    let _watcher = ManifestWatcher::start(&m, move || {
-        let _ = tx.send(());
-    })
-    .expect("watch");
-    // Let the watch settle, then edit once.
-    std::thread::sleep(Duration::from_millis(200));
-    fs::write(&m, format!("{TWO_FILES}# edit\n")).unwrap();
-    rx.recv_timeout(Duration::from_secs(5)).expect("one event");
-    assert!(
-        rx.recv_timeout(Duration::from_millis(900)).is_err(),
-        "exactly one event"
-    );
-
-    // Another file in the same directory is not this manifest.
-    fs::write(env.work("other.toml"), "x").unwrap();
-    assert!(rx.recv_timeout(Duration::from_millis(900)).is_err());
-}
-
-#[test]
-fn only_a_settled_change_to_the_manifest_counts() {
-    use notify_debouncer_mini::{DebouncedEvent, DebouncedEventKind as Kind};
-    use std::ffi::OsStr;
-
-    let ev = |p: &str, k| DebouncedEvent::new(PathBuf::from(p), k);
-    let name = OsStr::new("m.toml");
-    assert!(is_manifest_change(&[ev("/w/m.toml", Kind::Any)], name));
-    assert!(!is_manifest_change(
-        &[ev("/w/m.toml", Kind::AnyContinuous)],
-        name
-    ));
-    assert!(!is_manifest_change(&[ev("/w/other.toml", Kind::Any)], name));
-    assert!(is_manifest_change(
-        &[ev("/w/other.toml", Kind::Any), ev("/w/m.toml", Kind::Any)],
-        name
-    ));
 }
 
 #[test]

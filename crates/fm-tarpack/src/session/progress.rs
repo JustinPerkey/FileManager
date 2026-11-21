@@ -1,12 +1,12 @@
-//! Throttles the build's progress events for the webview.
+//! Throttles the build's progress events for the UI.
 //!
 //! `fm-tarpack` reports every chunk it reads (about 146,000 events for a 1 GB
-//! entry). The shell forwards a subsequence of them, unchanged and in order,
+//! entry). The UI layer forwards a subsequence of them, unchanged and in order,
 //! so every guarantee of the library still holds for what the UI receives.
 
 use std::time::{Duration, Instant};
 
-use fm_tarpack::archive::{BuildPhase, Progress};
+use crate::archive::{BuildPhase, Progress};
 
 /// Minimum time between forwarded chunk events.
 pub const PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
@@ -23,6 +23,7 @@ pub struct ProgressCoalescer {
 }
 
 impl ProgressCoalescer {
+    #[must_use]
     pub fn new(interval: Duration) -> Self {
         ProgressCoalescer {
             interval,

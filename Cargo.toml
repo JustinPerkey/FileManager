@@ -17,6 +17,7 @@ codegen-units = 1
 [workspace.dependencies]
 ts-rs = "12"
 tempfile = "3"
+notify-debouncer-mini = "0.7.0"
 
 # Every crate opts in with `[lints] workspace = true`. CI runs clippy with
 # `-D warnings`, so a pedantic finding fails the build.

@@ -4,9 +4,9 @@
 
 use std::fmt;
 
-use fm_tarpack::format::ArchiveFormat;
-use fm_tarpack::manifest::{Diagnostic, EntryFailure, EntryView};
-use fm_tarpack::sources::EntryStatus;
+use crate::format::ArchiveFormat;
+use crate::manifest::{Diagnostic, EntryFailure, EntryView};
+use crate::sources::EntryStatus;
 use serde::Serialize;
 
 /// One entry that passed validation, with where its bytes come from.
@@ -57,6 +57,7 @@ pub struct ArchiveFormatOption {
 }
 
 impl ArchiveFormatOption {
+    #[must_use]
     pub fn all() -> Vec<ArchiveFormatOption> {
         ArchiveFormat::ALL
             .iter()
@@ -108,7 +109,7 @@ pub struct TarpackSession {
 #[serde(rename_all = "camelCase")]
 pub struct DroppedAssignment {
     pub session: TarpackSession,
-    pub outcome: fm_tarpack::sources::DropOutcome,
+    pub outcome: crate::sources::DropOutcome,
 }
 
 /// Payload of `tarpack://manifest-changed`.
@@ -185,9 +186,9 @@ impl fmt::Display for TarpackError {
 impl std::error::Error for TarpackError {}
 
 /// The one place `BuildError`, `PlanError` and `FmError` become error kinds.
-impl From<fm_tarpack::BuildError> for TarpackError {
-    fn from(e: fm_tarpack::BuildError) -> Self {
-        use fm_tarpack::BuildError as B;
+impl From<crate::BuildError> for TarpackError {
+    fn from(e: crate::BuildError) -> Self {
+        use crate::BuildError as B;
         use TarpackErrorKind as K;
         let message = e.to_string();
         match e {
@@ -204,9 +205,9 @@ impl From<fm_tarpack::BuildError> for TarpackError {
     }
 }
 
-impl From<fm_tarpack::PlanError> for TarpackError {
-    fn from(e: fm_tarpack::PlanError) -> Self {
-        use fm_tarpack::PlanError as P;
+impl From<crate::PlanError> for TarpackError {
+    fn from(e: crate::PlanError) -> Self {
+        use crate::PlanError as P;
         let message = e.to_string();
         match e {
             P::NoEntries => TarpackError::new(TarpackErrorKind::NoEntries, message),

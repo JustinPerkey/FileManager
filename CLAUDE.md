@@ -52,6 +52,8 @@ devtools/
                               src/lib.rs, table-driven tests in tests/cases.rs
 crates/
   fm-core/                    shared, tool-agnostic library. No tauri dependency.
+                              `watch.rs` is FileWatcher (debounced watch of one file's
+                              parent directory, notify-debouncer-mini)
   fm-dbmanager/               Database Manager domain library. Depends on fm-core only.
                               No tauri dependency. `db.rs` opens a SQLite file;
                               `state.rs` is the recent list, persisted as dbmanager/state;
@@ -81,6 +83,9 @@ crates/
                               in fm-core's Store)
     src/archive/              plan, header, eol, encode, write, verify:
                               atomic archive writer and post-write verification
+    src/session/              Core (session logic with no UI types), DropJob, BuildJob,
+                              the boundary types exported through ts-rs, and the
+                              progress ProgressCoalescer
   fm-schedule/                Schedule Creator domain library. Depends on fm-core only.
                               No tauri dependency.
                               parse (text -> Schedule) and merge (Schedule + XML -> XML)
@@ -118,12 +123,8 @@ apps/desktop/
     src/lib.rs                builder, plugins, tools::register
     src/tools/mod.rs          tool registry: the only place that calls
                               invoke_handler / setup
-    src/tools/tarpack/        mod.rs (the tarpack_* commands and managed state),
-                              core.rs (session logic as plain functions, no
-                              Tauri types), progress.rs (ProgressCoalescer),
-                              watch.rs (manifest watcher, notify-debouncer-mini),
-                              types.rs (boundary types exported through ts-rs),
-                              tests.rs
+    src/tools/tarpack/        mod.rs only (the tarpack_* commands, managed state and
+                              manifest watcher arming over fm_tarpack::session)
     src/tools/schedule/       mod.rs only (the schedule_* commands over
                               fm_schedule::session)
     src/tools/pipeline/       mod.rs only (the pipeline_* commands over

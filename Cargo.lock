@@ -1051,7 +1051,6 @@ dependencies = [
  "fm-pipeline",
  "fm-schedule",
  "fm-tarpack",
- "notify-debouncer-mini",
  "serde",
  "serde_json",
  "tar",
@@ -1095,6 +1094,7 @@ name = "fm-core"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "notify-debouncer-mini",
  "serde",
  "serde_json",
  "tempfile",
