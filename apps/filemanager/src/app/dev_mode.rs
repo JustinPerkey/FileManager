@@ -19,6 +19,11 @@
 //! Limit: releasing only `d` while still holding the modifiers does not clear
 //! the latch, so re-pressing `d` then needs the modifiers released first; and a
 //! window that stops producing frames while latched clears it on its next frame.
+//! The latch only clears after a frame has seen the modifiers down, so a
+//! key-down that arrives before its modifiers-changed event does not clear it.
+//! The latch is global but polled on one window, which is fine while the app
+//! has a single window. An `AltGr` layout that turns the chord into a character
+//! sends `WM_CHAR` to a focused input regardless of the interceptor.
 
 use gpui::{App, Global, Keystroke, Modifiers, Window};
 
@@ -28,17 +33,31 @@ pub struct DevMode(bool);
 
 impl Global for DevMode {}
 
-/// Set while a toggled chord is still held; see the module doc.
-struct ChordLatch(bool);
+/// `held` is set while a toggled chord is still held; `seen_down` records that
+/// the per-frame poll has seen the chord modifiers down since then. See the
+/// module doc.
+struct ChordLatch {
+    held: bool,
+    seen_down: bool,
+}
 
 impl Global for ChordLatch {}
+
+impl ChordLatch {
+    const fn default() -> Self {
+        Self {
+            held: false,
+            seen_down: false,
+        }
+    }
+}
 
 impl DevMode {
     /// Installs the global, off, and the keystroke interceptor. Call once at
     /// startup.
     pub fn init(cx: &mut App) {
         cx.set_global(DevMode(false));
-        cx.set_global(ChordLatch(false));
+        cx.set_global(ChordLatch::default());
         cx.intercept_keystrokes(|event, window, cx| {
             if Self::handle_keystroke(&event.keystroke, window, cx) {
                 cx.stop_propagation();
@@ -66,9 +85,12 @@ impl DevMode {
         if !is_chord(keystroke) {
             return false;
         }
-        let latched = cx.try_global::<ChordLatch>().is_some_and(|l| l.0);
+        let latched = cx.try_global::<ChordLatch>().is_some_and(|l| l.held);
         if !latched {
-            cx.set_global(ChordLatch(true));
+            cx.set_global(ChordLatch {
+                held: true,
+                seen_down: chord_modifiers_down(window.modifiers()),
+            });
             Self::toggle(cx);
             watch_release(window);
         }
@@ -81,13 +103,22 @@ fn chord_modifiers_down(m: Modifiers) -> bool {
 }
 
 /// Clears the latch on the first frame where the chord modifiers are not all
-/// down; until then checks again every frame.
+/// down, but only after a frame has seen them down (a key-down can arrive
+/// before its modifiers-changed event); checks again every frame until then.
 fn watch_release(window: &Window) {
     window.on_next_frame(|window, cx| {
-        if chord_modifiers_down(window.modifiers()) {
+        let down = chord_modifiers_down(window.modifiers());
+        let seen_down = cx.try_global::<ChordLatch>().is_some_and(|l| l.seen_down);
+        if down || !seen_down {
+            if down && !seen_down {
+                cx.set_global(ChordLatch {
+                    held: true,
+                    seen_down: true,
+                });
+            }
             watch_release(window);
         } else {
-            cx.set_global(ChordLatch(false));
+            cx.set_global(ChordLatch::default());
         }
     });
 }
@@ -204,6 +235,30 @@ mod tests {
         release(cx);
         press(cx);
         assert!(!on(cx), "after the release a new chord toggles again");
+    }
+
+    #[gpui::test]
+    fn latch_survives_a_key_down_before_its_modifiers(cx: &mut TestAppContext) {
+        let cx = open_shell(cx);
+        // The key-down arrives before any modifiers-changed event.
+        key_down(cx, false);
+        assert!(on(cx));
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+        key_down(cx, true);
+        assert!(
+            on(cx),
+            "the latch was not cleared by a frame with no modifiers seen"
+        );
+        // The modifiers arrive, a frame sees them, then they are released.
+        modifiers_changed(cx, all_down());
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+        release(cx);
+        key_down(cx, false);
+        assert!(!on(cx));
     }
 
     #[gpui::test]

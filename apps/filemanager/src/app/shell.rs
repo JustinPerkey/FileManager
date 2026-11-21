@@ -3,8 +3,8 @@
 //! chrome as its only child.
 
 use gpui::{
-    div, AnyView, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render,
-    Styled as _, Window,
+    div, AnyView, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, Styled as _, Window,
 };
 
 use crate::app::view;
@@ -80,7 +80,7 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let root = div().size_full();
+        let root = div().key_context("Shell").size_full();
         match &self.chrome {
             Some(chrome) => root.child(chrome.clone()),
             None => root,
