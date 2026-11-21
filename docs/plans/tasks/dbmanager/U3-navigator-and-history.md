@@ -1,458 +1,159 @@
-# U3 — Panes, table and object navigation, and history
+# U3 — Database Manager: panes, table nav, object list, Back/Forward, sheet shell
 
-Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: pickable tables, recent
-databases, the config reloads by itself)
-Project: dbmanager   Depends on: U2 (landed), M10 (landed)
+Status: awaiting approval (rewritten 2026-11-21 for GPUI; the React version is in git history)
+Project: dbmanager (GPUI: gpui-migration)   Depends on: U2 (landed), gpui-migration M12a (landed)
 
 ## Goal
 
-Fill the Database Manager's workspace with the responsive panes:
-
-- a table list;
-- a paged, searchable object list;
-- an object sheet shell that loads the chosen object;
-- a history of places with Back and Forward.
+Fill the Database Manager's workspace: the width-based one/two/three-pane
+layout, the table nav (pickable tables left out), the paged searchable
+object list with keyboard movement, the location bar with Back/Forward and
+the breadcrumb, and the sheet's shell (empty, loading, gone).
 
 ## Context
 
-**The product.** FileManager is a portable Windows desktop app (Tauri v2;
-React + TypeScript + Vite in `apps/desktop/src/`). The **Database Manager**
-(`dbmanager`) edits a SQLite file as an **object editor, not a grid**: pick a
-table → its objects, listed by label → open one as a form. References between
-objects are links you follow, and **Back** brings you back. U2 built the view
-frame, its module-level store (`tools/dbmanager/store.ts`, read with
-`useDbmanager()`, reset by `resetDbmanagerStore()`), the session header and
-banners, and `errorMessages.ts` (`errorMessage(e, "read" | "write")`,
-`toDbmanagerError`). U2 left a placeholder `div.dbmanager__workspace`; this
-task replaces it.
+FileManager (Windows 11, GPUI + gpui-component). The Database Manager edits
+a SQLite file as objects; **navigation is history-first**: every place (a
+table, an object, a new-object form) is a history entry, and following a
+reference and coming back with Back is the primary way to move. Pickable
+(lookup) tables are not listed; their objects open read-only.
 
-You own `apps/desktop/src/` **except `lib/`**: never edit `lib/` or
-`lib/generated/`. Tools never import each other.
+Rules: views render `DbmanagerModel` and call its methods; history, list
+states and paging are the model's. A missing model need is a gap to report.
+Every interactive element is keyboard reachable and labelled. No
+filesystem access in views.
 
-**Contract rules.**
+### Model (`tools/dbmanager/model.rs`, M12a)
 
-- Labels, display names and descriptions come from the backend; the UI
-  computes none.
-- `ObjectKey` is opaque. Echo it back, and never read inside it.
-- To key objects in UI state, use the local helper `objectId(table, key) =
-  table + "\u0000" + JSON.stringify(key)` in `tools/dbmanager/keys.ts`. It is
-  the same technique as `lib`'s `linkKey`, and it treats the key as an opaque
-  string.
-
-### The client (`lib/dbmanager.ts`)
-
-| Function | Returns |
-| --- | --- |
-| `list(table: string, query: ListQuery)` | `ObjectPage` |
-| `object(table: string, key: ObjectKey)` | `ObjectView` |
-
-Both reject with a `DbmanagerError`:
-
-- `UnknownTable` and `UnknownObject`;
-- `SchemaChanged`: set the store's `schemaChanged` flag, so U2's banner with
-  Reload appears;
-- `Busy` and `Io`.
-
-If M10 named these differently, use the landed names for
-`dbmanager_list` / `dbmanager_object`, and say so.
-
-### Types (generated)
-
-```ts
-type TableView = { name: string; displayName: string; description: string | null;
-  mode: "editable" | "read-only" | "pickable"; objectName: string | null; canCreate: boolean; canDelete: boolean; searchable: boolean;
-  hasTriggers: boolean; fields: FieldView[]; referencedBy: ReverseRelationView[];
-  manyToMany: M2mView[] };
-type ListQuery = { search: string | null; offset: number; limit: number;
-  referencing: ReferencingFilter | null };      // limit clamped to 1..=500 by the backend
-type ObjectPage = { items: ObjectSummary[]; total: number; offset: number };
-type ObjectSummary = { key: ObjectKey; label: string };
-type ObjectKey = { type: "rowid"; value: string } | { type: "primary"; values: DbValue[] };  // opaque
-type ObjectView = { table: string; key: ObjectKey; label: string; version: string;
-  fields: FieldValue[]; referencedBy: RelationCount[]; manyToMany: RelationCount[] };
+```rust
+pub enum Place { Tables, Table { table: String }, Object { table: String, key: ObjectKey, label: String }, New { table: String } }
+impl DbmanagerModel {
+    pub fn listed_tables(&self) -> Vec<&TableView>;      // not hidden, not pickable
+    pub fn place(&self) -> &Place;  pub fn can_back(&self) -> bool;  pub fn can_forward(&self) -> bool;
+    pub fn back(&mut self, cx);  pub fn forward(&mut self, cx);
+    pub fn choose_table(&mut self, table: &str, cx);
+    pub fn open_object(&mut self, table: &str, key: ObjectKey, cx);
+    pub fn list_state(&self, table: &str) -> Option<&ListState>;   // search text, offset, page (items, total), loading, error
+    pub fn set_search(&mut self, table: &str, text: &str, cx);  pub fn set_offset(&mut self, table: &str, offset: u64, cx);
+    pub fn object(&self) -> Option<&ObjectLoad>;                   // Loading | Loaded(ObjectView) | Gone
+    pub fn snapshot(&self) -> Option<&DbmanagerSnapshot>;          // tables: Vec<TableView> incl. pickable
+}
 ```
 
-`DbmanagerSession.tables: TableView[]` (listed tables, schema order) and
-`open` come from U2's store.
+`TableView`: `name`, `display_name`, `mode` (editable, read-only, hidden,
+pickable), `object_name`, `can_create`, `can_delete`, searchable flag. Lists
+are 25 per page; each table keeps its search and offset for the app run;
+only the newest list request applies. Copy from `text.rs`: "This database
+has no tables to show. The config may hide them.", "<Table> has no objects
+yet.", "No objects match “<text>”." + "Clear search", list error + "Try
+again", "Choose an object from the list" (+ "or create one with New"),
+"This object no longer exists…" + Back, the pager "26–50 of 312", "Table:
+<name>" and "(lookup)", "Lookup table", "Search <table>". If a string is
+missing from `text.rs`, report it; do not write copy in the view.
 
-### The design (brief excerpt)
+Focus hints: `take_focus_hint()` if present (R5), else a changed
+`focus_hint()`; this task handles `ListHeading` and `SheetHeading`.
 
-**Visual system** (`DESIGN.md`, `styles/tokens.css`; no new tokens):
+### Widgets and tokens
 
-- quiet, dense, flat;
-- one accent (`--accent`) for the primary action, the current place
-  (a 6 px dot before the current item's label, as in the app's tool
-  navigation) and focus;
-- panes on `--surface`, separated by 1 px `--border` rules: no cards, no pane
-  radius, no shadows;
-- current item: `--surface-sunken` fill + the accent dot + `aria-current`;
-  hover: `--surface-sunken`;
-- muted text `--text-muted`; type sizes `--font-size-sm/md/lg/xl`; the
-  spacing scale;
-- light and dark from tokens.
+`button` (quiet, `.icon_only`, `.icon(ArrowLeft|ArrowRight|ChevronLeft|ChevronRight)`),
+`text_input` (search, with the `search` icon), `tag`, `skeleton_bar`,
+`text::*`, `Disclosure`. Tokens: `surface`, `surface_sunken`, `border`,
+`text`, `text_muted`, `accent`.
 
-Shared components: `Button` (`quiet`, `icon`), `Icon` (`arrow-left`,
-`arrow-right`, `search`, `chevron-left`, `chevron-right`, `lock`),
-`.input`, `.visually-hidden`, `.num`.
+### Layout
 
-**Panes and breakpoints.** `.dbmanager__workspace` is an inline-size
-container (`container-type: inline-size`, named `workspace`), filling the
-rest of the view (`flex: 1; min-height: 0`). Breakpoints are in rem, so 200%
-text narrows the layout by itself:
+Workspace width W = window width − sidebar (192 px, at most 40%) − 48 px:
 
-| Workspace width | Layout |
-| --- | --- |
-| ≥ 68rem | three panes: **Tables** (12rem) · **Objects** (18rem) · **Sheet** (rest) |
-| 46–68rem | two panes: **Navigator** (18rem: the table picker as a disclosure above the object list) · **Sheet** |
-| < 46rem | one pane, chosen by the current place: `tables` → the table list; `table` → the object list (with the table disclosure on top); `object` / `new` → the sheet |
+| W | Panes |
+|---|---|
+| ≥ 1088 px | **Tables** (192 px) · **Objects** (288 px) · **Sheet** (rest) — 1366×800 |
+| 736–1088 px | **Navigator** (288 px: the table picker as a `Disclosure` "Table: Books" above the object list) · **Sheet** — 1000×700 |
+| < 736 px | one pane: the table list, the object list or the sheet, whichever the place needs; Back moves between them — 800×560 |
 
-- Each pane scrolls on its own (`overflow: auto`). Under `@media (max-height:
-  34rem)` the panes do not scroll separately and the whole view scrolls.
-- Nothing scrolls horizontally at 800×560 or at 200% text.
-- Both renderings of the table list exist in the DOM; container-query CSS
-  shows one with `display: none` on the other, which also removes it from the
-  accessibility tree. The disclosure's list is rendered only while expanded,
-  so no ids are duplicated.
+Panes on `surface`, separated by 1 px `border` rules; a 1 px rule above
+the workspace; no radius, no shadow; each pane scrolls vertically on its
+own; the workspace fills the remaining height.
 
-**Pickable tables** (lookup tables, `mode: "pickable"`) arrive in
-`session.tables` but are **not listed**: filter them out of `TableNav`.
+- **Table nav**: items stacked 4 px apart, padding 8/12, radius 6, full
+  width, wrapping; hover `surface_sunken`; current: `surface_sunken`, 600,
+  6 px accent dot 8 px before the label; a **Read-only** tag on read-only
+  tables. When the place is in a pickable table, no item is current and the
+  two-pane disclosure reads "Table: <name> (lookup)". Empty: the no-tables
+  sentence.
+- **Object list**: heading h2 (16 px 600) = table display name (+ **Lookup
+  table** tag), focusable for focus hints; toolbar: the search input (shown
+  only when the table is searchable; placeholder "Search <table>";
+  `set_search` as the user types); rows 32 px, padding 0/12, the label with
+  end ellipsis and its full text as tooltip; current object's row
+  `surface_sunken` + accent dot; hover `surface_sunken`; pager under the
+  rows: the range text (13 px muted, tabular) and icon-only Previous/Next
+  page buttons (tooltips "Previous page", "Next page"). First load: 6
+  skeleton rows; later loads keep the old rows and show "Loading…" muted;
+  empty, no-match (+ **Clear search**), error (+ **Try again**).
+- **Location bar** (top of the sheet pane, 8 px gaps): quiet **Back** and
+  **Forward** with arrow icons and visible labels, tooltips "Back to <place>
+  (Alt+Left)" / "Forward to <place> (Alt+Right)", disabled per
+  `can_back`/`can_forward`; the breadcrumb "<Table> / <Object>" (13 px),
+  the table part a quiet button → `choose_table`.
+- **Sheet shell**: under the location bar: no object → the "Choose an
+  object…" sentence (muted); `Loading` → four skeleton field rows; `Gone`
+  → the gone sentence + **Back**; `Loaded` → a slot U4 fills.
 
-Their objects are still reached:
+### Keyboard
 
-- by following a reference (U4);
-- from a picker (U7);
-- from a checklist (U9).
+- Object list and table nav are each one Tab stop with a focused row: Up,
+  Down, Home, End move; **Enter** opens (`open_object` / `choose_table`);
+  PageUp/PageDown change page (`set_offset`). In two or three panes focus
+  stays on the row after Enter; in one pane it goes to the sheet heading.
+- Alt+Left / Alt+Right and the mouse back/forward buttons
+  (`MouseButton::Navigate`) → `back`/`forward` when allowed, from anywhere
+  in the view.
+- Ctrl+F focuses the search input (searchable tables).
+- F6 / Shift+F6 move focus between the table nav, the object list and the
+  sheet's first control (one pane: no-op).
 
-Such a place is an ordinary `object` place in a pickable table:
-
-- the objects pane shows that table's object list, headed by its display name
-  with a **Lookup table** tag (a word, U4's tag style);
-- the list is searchable and paged like any other;
-- the table list has **no current item**;
-- the two-pane disclosure reads "Table: {displayName} (lookup)";
-- the sheet shows the **Read-only** tag. U4 renders it read-only.
-
-**Table list** (`TableNav`):
-
-- **Rail** (three panes): `h2` "Tables" (visually hidden, labelling the
-  `nav`), then `<nav aria-label="Tables"><ul>` of buttons.
-  - Each button is the table's `displayName`, with `title` = `description`
-    when set.
-  - Read-only tables add a **Read-only** tag: the lock icon + the word, at
-    `--font-size-sm`, in `--text-muted`, with a 1 px `--border` and
-    `--radius`.
-  - The current table has `aria-current="true"`, the fill and the dot.
-  - **Roving tabindex:** one tab stop (the current table, else the first);
-    Up/Down wrap, Home/End jump; Enter or click chooses.
-- **Disclosure** (two panes and one pane): a full-width button "Table: Books"
-  (`aria-expanded`, `aria-controls`) at the top of the navigator.
-  - Expanded, it shows the same list inline (not a popover). Choosing a table
-    collapses it.
-  - In one pane, the `tables` place shows the list expanded and without the
-    toggle.
-- **No tables:** "This database has no tables to show. The config may hide
-  them." in `--text-muted`.
-
-**Object list** (`ObjectList`), for the current table:
-
-- `h2` (`tabIndex={-1}`, it takes focus on arrival): the table's
-  `displayName`, plus `description` under it in `--text-muted`.
-- **Toolbar:**
-  - a search input (`.input`, `type="search"`, a visible label "Search" with
-    accessible name "Search {displayName}", a leading search icon), only when
-    `searchable`;
-  - Ctrl+F focuses it;
-  - Enter searches now; typing searches after 250 ms; Escape clears a
-    non-empty search.
-  - (U8 adds **New** to this toolbar. Leave a place for it after the search.)
-- **List:** `<nav aria-label="Objects in {displayName}"><ul>` of buttons, one
-  per `ObjectSummary`, showing `label`.
-  - Labels wrap (`overflow-wrap: anywhere`) and clamp at two lines
-    (`line-clamp: 2`), with the full label in `title`. The accessible name is
-    always the full label. Text with U+FFFD is shown as is.
-  - The open object has `aria-current="true"`, the fill and the dot.
-  - **Roving tabindex:** the tab stop is the open object if it is on the page,
-    else the first item. Up/Down move focus (they do **not** open); Home/End
-    jump; **PageUp/PageDown** load the previous/next page and focus its first
-    item; **Enter**, Space or click opens.
-- **Paging:** 100 per page.
-  - `limit: 100`, `offset` from the per-table list state, `search` trimmed
-    (null when empty), `referencing: null`.
-  - Under the list, the pager: "1–100 of 12345" (`.num`), with **Previous
-    page** and **Next page** quiet buttons (chevron icons, visible labels).
-  - The buttons are disabled at the ends. The pager is hidden when `total`
-    ≤ 100.
-- **States:**
-  - **First load:** 6 skeleton rows (`--surface-sunken` bars, no animation)
-    and `aria-busy`.
-  - **Reloading** (search, page): the old items stay, `aria-busy`, and a
-    muted "Loading…" line.
-  - **Empty table:** "{displayName} has no objects yet." (U8 adds "Create one
-    with New.").
-  - **No match:** "No objects match “{search}”." with a **Clear search**
-    button.
-  - **Error:** an inline line with the `x-circle` icon in `--danger`,
-    `errorMessage(e, "read")` and **Try again**.
-- **Latest wins:** only the newest list request's response is applied.
-
-**Places and history** (in the store):
-
-```ts
-type Place =
-  | { kind: "tables" }
-  | { kind: "table"; table: string }
-  | { kind: "object"; table: string; key: ObjectKey; label: string }
-  | { kind: "new"; table: string };          // U8 renders it; U3 only routes it
-```
-
-- History is `{ entries: Place[]; index }`, capped at 50 entries (the oldest
-  is dropped).
-- **Push:** choosing a table pushes `table`; opening an object pushes
-  `object`.
-- **Replace:** the store exposes `replacePlace(place)` for later tasks (after
-  create and after delete).
-- Pushing truncates the forward entries.
-- Each table keeps a **list state** `{ search, offset }` for the session.
-  Returning to a table, by any route, restores it.
-- **Opening a database** (a new `database.path`) resets history and clears
-  the list states. History becomes `[{ kind: "table", table: <the first
-  non-pickable table>.name }]`, or `[{ kind: "tables" }]` when there is none.
-- **A session update keeps history.** That covers Reload, U2's automatic
-  config reload, and window-focus refreshes.
-  - If the current place's table is no longer in `session.tables`, the store
-    pushes `tables` and adds a notice: "{display name} is no longer
-    available.".
-  - A table that became pickable stays reachable as a lookup place.
-  - A table that became hidden is gone.
-- **Back / Forward:**
-  - the `LocationBar` buttons at the top of the sheet pane: quiet, with the
-    `arrow-left` / `arrow-right` icons and the visible labels "Back" /
-    "Forward";
-  - `title`: "Back to {place name} (Alt+Left)", where the place name is the
-    object's label, the table's display name, or "Tables";
-  - `aria-keyshortcuts="Alt+ArrowLeft"` / `"Alt+ArrowRight"`;
-  - also **Alt+Left / Alt+Right** anywhere in the view, and the mouse
-    back/forward buttons (`mouseup` with `event.button` 3 / 4 on the view
-    root, `preventDefault`);
-  - each is disabled at its end of the history.
-- **Breadcrumb** beside them: `<nav aria-label="Location">`: the table's
-  display name as a quiet button (going to the table's place), "/", then the
-  object's label as plain text with `aria-current="page"`.
-- **Later tasks guard navigation:** U6 asks before leaving a dirty draft. Put
-  every navigation through one store action, `navigate(intent)`, with intents
-  `push(place)`, `back`, `forward` and `replace(place)`, so U6 can guard it in
-  one place.
-
-**The sheet shell** (`ObjectSheet`, in the sheet pane). U4 renders the fields;
-this task renders the frame and the loading states.
-
-- `table` or `tables` place: an empty state, "Choose an object from the
-  list." (or "Choose a table." for `tables`).
-- `object` place:
-  1. `object(table, key)` loads it, on entry and whenever the place changes.
-     **Latest wins.**
-  2. While loading: the location bar, the eyebrow, the `h2` from the place's
-     `label`, and 5 skeleton field rows.
-  3. Loaded:
-     - the **eyebrow** (the table's display name, `--font-size-sm`,
-       `--text-muted`);
-     - the **`h2`** = `ObjectView.label` (`--font-size-xl`, weight 600,
-       `tabIndex={-1}`, wrapping);
-     - if `ObjectView.label` differs from the place's, the history entry's
-       label is updated;
-     - a **Read-only** tag when the table's `mode` is `read-only` or
-       `pickable`.
-  4. `UnknownObject`: "This object no longer exists. Another program may have
-     deleted it." with **Back**. The history entry is kept.
-  5. Other errors: an inline error with **Try again**.
-- The store keeps the loaded `ObjectView` as `current` (U4–U11 read it).
-
-**Focus rules.**
-
-| Event | Focus goes to |
-| --- | --- |
-| Enter on a list item, with two or three panes | stays on the item; the sheet loads beside it; announce "Opened {label}." |
-| Enter on a list item, one pane | the sheet's `h2` |
-| Back, Forward, the breadcrumb | the destination's heading: the sheet's `h2`, or the object list's `h2` for a table place, or the table list for `tables` |
-| Choosing a table | the object list's `h2` |
-
-**F6 / Shift+F6** move focus between the visible regions in order: Tables
-(rail) → Objects → Sheet. Each region's target is its roving tab stop, or the
-sheet's `h2`. In the two-pane layout the Navigator is one region; in one pane,
-F6 does nothing.
-
-**Shortcut rows added** to `shortcuts.ts`:
-
-| Keys | Action | Active when |
-| --- | --- | --- |
-| Alt+Left, Alt+Right | Back, Forward (also the mouse back and forward buttons) | There is somewhere to go |
-| F6, Shift+F6 | Move between tables, objects and the object | A database is open |
-| Ctrl+F | Search objects | The table is searchable |
-| Up, Down, Home, End | Move in the table and object lists | Focus is in a list |
-| PageUp, PageDown | Previous or next page of objects | Focus is in the object list |
-| Enter | Open the focused table or object | Focus is on a list item |
+Debug selectors: `db-table-<name>`, `db-list`, `db-list-row-<n>`,
+`db-search`, `db-page-prev`, `db-page-next`, `db-back`, `db-forward`,
+`db-crumb-table`, `db-sheet`.
 
 ## Files
 
-Create in `apps/desktop/src/tools/dbmanager/`:
-
-- `keys.ts`, `Workspace.tsx`, `TableNav.tsx`, `ObjectList.tsx`,
-  `LocationBar.tsx`, `ObjectSheet.tsx`;
-- tests: `keys.test.ts`, `history.test.ts` (the store's place and history
-  actions), `TableNav.test.tsx`, `ObjectList.test.tsx`,
-  `ObjectList.keyboard.test.tsx`, `DbmanagerView.navigation.test.tsx`.
-
-Edit:
-
-- `store.ts`: places, history, list states, `current`, `navigate`;
-- `DbmanagerView.tsx`: render `Workspace` instead of the placeholder;
-- `shortcuts.ts`, `useDbmanagerShortcuts.ts`, `fixtures.ts`;
-- `styles/dbmanager.css`;
-- the root `DESIGN.md`: in the Layout section, change "Planned (dbmanager
-  U3): the Database Manager's panes" to "Landed (dbmanager U3)", and correct
-  any value that differs from what you built. Change nothing else there.
-
-Fixtures: the example database's tables (Authors with `searchable`; Books;
-Genres; Members; Loans; Publishers **pickable**; plus one `read-only` table,
-"Audit" (`mode: "read-only"`), for the Read-only tag), with 250 authors generated for
-the paging tests and one label of 300 characters.
+Create: `apps/filemanager/src/tools/dbmanager/view/{workspace.rs,table_nav.rs,object_list.rs,location_bar.rs,sheet.rs}`.
+Edit: `tools/dbmanager/view/{mod.rs,keys.rs,tests.rs}`.
+Do not touch: model, draft, text, fixtures, other tools, `crates/`,
+`docs/plans/`.
 
 ## Skill
 
-- Run `/impeccable layout` on the workspace once it renders, at 1366×800,
-  1000×700 and 800×560, and at 200% text. Run it from `apps/desktop` with
-  `--target src/tools/dbmanager/Workspace.tsx`.
-- Read `reference/craft-floor.md` before the first UI edit.
-- Extend the established world: the app's tool navigation is the reference
-  for list items, and the tarpack table's sticky and scroll rules for panes.
-- Run `/impeccable audit` on `tools/dbmanager/` and the detector before done.
-- If the skill is missing, install it (`npx impeccable install`) or follow
-  its references by hand, and say so.
+None here; U14 critiques the screenshots.
 
 ## Acceptance criteria
 
-**Layout:**
-
-- With the workspace ≥ 68rem: three panes. At 46–68rem: two, with the "Table:
-  Books" disclosure. Below 46rem: one pane per place. Tests set the class or
-  container width the CSS keys on; check the CSS by reading it in the CSS
-  test.
-
-**Table list:**
-
-- It shows every non-pickable table by display name; Publishers (pickable)
-  is absent.
-- Audit (read-only) shows "Read-only" as a word, not only an icon.
-- The current table has `aria-current`.
-- Up/Down/Home/End rove, and Enter chooses.
-
-**Object list:**
-
-- It requests `{ search: null, offset: 0, limit: 100, referencing: null }`.
-- With 250 authors, the pager reads "1–100 of 250"; Next page requests
-  offset 100; PageDown does the same and focuses the first item; the
-  buttons disable at the ends.
-- Search sends the trimmed text after 250 ms (immediately on Enter).
-- A late response for an older search is ignored.
-- Escape clears the search; Ctrl+F focuses it.
-- Empty table, no match (with Clear search), error (with Try again) and first
-  load (skeleton, `aria-busy`) each render.
-- A 300-character label wraps and clamps; its accessible name and `title`
-  are the full label.
-- Up/Down move focus without opening; Enter opens.
-
-**Places and history:**
-
-- Choosing Authors, then opening "Herbert, Frank", gives history `[table
-  Books, table Authors, object Herbert]`.
-- Back (button, Alt+Left, mouse button 3) returns to Authors, and Forward
-  returns to the object. The buttons disable at the ends.
-- Pushing after Back drops the forward entries. History never exceeds 50.
-- Each table's search and offset are restored on return.
-- Opening a different database resets history and list states.
-- A reload in which the current table disappears goes to `tables`, with the
-  notice.
-- **A Publishers object place** (reached by pushing it, as a followed link
-  would):
-  - the objects pane shows the Publishers list with **Lookup table**;
-  - the rail has no `aria-current`;
-  - the disclosure reads "Table: Publishers (lookup)";
-  - Back returns to the previous place.
-
-**Sheet shell:**
-
-- An object place loads with skeletons, then shows the eyebrow, the label
-  `h2`, and the Read-only tag for an Audit object and for a Publishers
-  (pickable) object.
-- `UnknownObject` shows its state with Back.
-- `SchemaChanged` from `list` or `object` sets the schema-changed banner.
-
-**Focus and keyboard:**
-
-- Focus follows the focus-rules table.
-- F6 cycles the visible regions.
-- Alt and Ctrl shortcuts work from inside the search input.
-
-**Accessibility:**
-
-- jsx-a11y lint passes.
-- Every list is a labelled `nav` with `ul` and buttons.
-- Read-only is stated in words.
-- Nothing scrolls horizontally at 800×560 or at 200% text.
+- The pane count follows W exactly as tabled; at 1366×800 the panes are
+  192 / 288 / rest px.
+- Pickable tables never appear in the table nav.
+- Keyboard: every list is reachable and operable as specified; Back/Forward
+  by keys and mouse buttons.
+- Labels or tooltips everywhere; no colour literal outside `theme`.
+- fmt; clippy pedantic `-D warnings`; `cargo test --workspace`.
 
 ## Tests proving completion
 
-- `keys.test.ts`:
-  - `objectId is stable and distinguishes tables`.
-- `history.test.ts`:
-  - `push, back, forward`;
-  - `push truncates forward`;
-  - `cap at 50`;
-  - `replace`;
-  - `list state per table`;
-  - `new database resets to the first non-pickable table`;
-  - `missing table after reload`;
-  - `pickable object place`.
-- `TableNav.test.tsx`:
-  - `rail lists tables with read-only words and omits pickable`;
-  - `lookup place has no current table`;
-  - `roving keys`;
-  - `disclosure expands and collapses`;
-  - `no tables`.
-- `ObjectList.test.tsx`:
-  - `first page query`;
-  - `paging and pager text`;
-  - `search debounce and enter`;
-  - `stale search ignored`;
-  - `empty, no match, error, loading`;
-  - `long labels clamp with full name`.
-- `ObjectList.keyboard.test.tsx`:
-  - `arrows move without opening`;
-  - `enter opens`;
-  - `page keys load pages`;
-  - `ctrl+F and escape`.
-- `DbmanagerView.navigation.test.tsx`:
-  - `open object loads sheet`;
-  - `back and forward by button, alt+arrows and mouse`;
-  - `unknown object state`;
-  - `schema changed sets banner`;
-  - `focus after navigation`;
-  - `F6 cycles regions`;
-  - `one-pane place routing`.
-
-Run: `npm run typecheck && npm run lint && npm run test`.
+`tools/dbmanager/view/tests.rs` (`#[gpui::test]`, fixture backend, temp
+database): `pane_count_follows_width` (1366, 1000, 800 px),
+`table_nav_omits_pickable`, `enter_opens_table_and_object`,
+`arrow_keys_move_in_list`, `page_keys_and_buttons_page`,
+`search_types_into_model`, `alt_left_right_navigate`,
+`mouse_navigate_buttons_navigate`, `breadcrumb_table_goes_to_table`,
+`gone_object_shows_back`, `f6_cycles_regions`.
 
 ## States covered
 
-- **Loading:** table list (with the session), object list (first load and
-  reload), sheet.
-- **Empty:** no tables, empty table, no match, no object chosen.
-- **Error:** list error, object error, object gone, schema changed.
-- **Success:** lists, paging, current item, history.
+No tables, table list, first load, loading with kept rows, empty table, no
+match, list error, page, current item, lookup table place, no object,
+loading object, gone object; one, two and three panes.
 
 ## Out of scope
 
-- The fields, relations and editing in the sheet (U4 onwards).
-- **New** (U8) and **Delete** (U11).
-- Guarding navigation when a draft is dirty (U6): only route it through
-  `navigate`.
+Field values (U4), editing (U5+), New (U8), Delete key (U11).

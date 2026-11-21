@@ -1,6 +1,6 @@
 # UI project plan: the Database Manager view
 
-Status: **design confirmed; implementation layer superseded by the GPUI migration (2026-11-21, see the note below).** Amended 2026-11-18 for the M5 review: FKs
+Status: **design confirmed; implementation layer rewritten for GPUI (2026-11-21, ui-designer: §5, §8, §12 and the U tasks); the rewrite awaits approval.** Amended 2026-11-18 for the M5 review: FKs
 into hidden or unlisted tables arrive as plain read-only fields (no
 non-navigable link case), and config patterns are restricted to a
 Rust/JS-common subset (examples here stay inside it). Written 2026-11-16 by the `ui-designer`.
@@ -50,8 +50,11 @@ GPUI:
   the shortcuts help stay.
 - **Screenshots** (§9) come from the Rust harness, scenario names unchanged;
   they feed gpui-migration M13, not dbmanager M12.
-- U1 merges into the migration's shared-widget tasks; U2–U11 and U13 are
-  rewritten against M12a–M12d; U12 shrinks to keyboard and shortcuts help.
+- U1 merges into the migration's shared-widget tasks; U2–U11 are
+  rewritten against M12a–M12d; U12 becomes Edit config, the reload notices
+  and the keyboard map; U13 is folded into gpui-migration U4 and U6 here;
+  U14 is new (scenarios). **§12 is the GPUI implementation; it wins over
+  earlier sections where they differ.**
 
 **Method.** `impeccable` 4.9.0. The launcher (`impeccable context`) ran from
 `apps/desktop` and loaded the root `PRODUCT.md` and `DESIGN.md`; no surface
@@ -697,7 +700,10 @@ always-mounted polite announcer, as the other tools do.
 | `--shadow-overlay` | the object picker popover, the shared menu and shortcuts popover, dialogs |
 | `--scrim` | the dialog backdrop |
 
-The light and dark values are unchanged (see `DESIGN.md` and `tokens.css`).
+The light and dark values are unchanged (see `DESIGN.md` and `tokens.css`;
+in GPUI, `apps/filemanager/src/theme/tokens.rs`). **GPUI:** `--shadow-overlay`
+is not applied (gpui-kit's fixed shadow, D12); the `danger` on
+`surface_sunken` contrast check is in gpui-migration U1.
 U1 adds one assertion to `tokens.test.ts`: `--danger` on `--surface-sunken`
 meets 4.5:1 in both themes, because the danger button's hover sits on it
 (light ≈ 6.0:1, dark ≈ 8:1).
@@ -707,57 +713,52 @@ marked **Planned (dbmanager U1)**. U1 flips them to **Landed**.
 
 ## 5. Component inventory
 
-Shared components are in `apps/desktop/src/app/`, with CSS in
-`styles/controls.css`. View-local components are in
-`apps/desktop/src/tools/dbmanager/`, with CSS in `styles/dbmanager.css`, every
-selector scoped under `.dbmanager`. **Tools never import each other**: nothing
-here imports from `tools/tarpack/`. The Tar Packager keeps its own
-`ShortcutsHelp` and Recent menu, and migrating it to the shared ones is a
-later, separate change.
+**GPUI (2026-11-21).** The React inventory is superseded. Shared widgets are
+in `apps/filemanager/src/widgets/` (gpui-migration U2, U3; their names are in
+`gpui-migration-ui.md` §3.1); the shell's close prompt is gpui-migration U4.
+View-local views are in `apps/filemanager/src/tools/dbmanager/view/`
+(ui-implementer); behaviour and copy are in the tool's `model.rs`,
+`draft.rs` and `text.rs` (backend implementer, gpui-migration M12a–M12d).
+**Tools never import each other.** The Tar Packager uses the same shared
+`MenuButton` and `ShortcutsHelp`.
 
-### 5.1 Shared (U1)
+### 5.1 Shared (gpui-migration U2, U3, U4; dbmanager U2 for icons)
 
-| Component | File | Props | States |
-| --- | --- | --- | --- |
-| `Button` (extended) | `app/Button.tsx` | `variant` gains `"danger"` | default, hover, active, focus, disabled, busy |
-| `ConfirmDialog` (extended) | `app/ConfirmDialog.tsx` | adds `cancelLabel?`, `confirmLabel: string \| null` (null: only the cancel button, e.g. "Close"), `confirmVariant?: "primary" \| "danger"`, `confirmIcon?`, `confirmBusy?` (Cancel and Escape do nothing while busy), `size?: "default" \| "wide"`, `children?` (extra content below the description, in a scrollable region, not part of `aria-describedby`) | open, busy, closed; unchanged when the new props are omitted |
-| `MenuButton` | `app/MenuButton.tsx` | `label`, `menuLabel`, `items: { id, label, description?, title?, disabled?, onSelect }[]`, `disabled?`, `keyshortcut?` | closed, open, empty (not rendered), item disabled |
-| `ShortcutsHelp` | `app/ShortcutsHelp.tsx` | `shortcuts: { keys: string[][]; action; when; devOnly? }[]`, `onOpenChange?` | closed, open |
-| `Icon` (extended) | `app/icons.tsx` | new names: `arrow-left`, `arrow-right`, `lock`, `plus`, `trash`, `search`, `chevron-left`, `chevron-right`, `undo`, `check` | — |
-| Form controls | `styles/controls.css` | classes `.input` (input, textarea, select), `.checkbox` | default, hover, focus, invalid, read-only, disabled |
-| `CloseGuard` (U13, not U1) | `app/closeGuard.tsx`, rendered once by `app/AppShell.tsx` | `registerUnsavedWork(id, () => { toolLabel, description } \| null): () => void` (module-level; a tool registers from its store, so it works while another tool is showing); the component registers `guardWindowClose` once and shows the prompt | idle, prompting, closing |
+| Widget | Used here for | States |
+|---|---|---|
+| `button` (`.danger()`, `.quiet()`, `.icon`, `.icon_only`, `.busy`, `.shortcut`) | every action; Delete… and Discard changes (danger) | default, hover, active, focus, disabled, busy |
+| `sync_confirm` + `ConfirmSpec` (`cancel_label`, `confirm: None` single-button, `ConfirmVariant::Danger`, icon, `busy`, `wide`, `extra` scrolling region) | leave dialog, delete dialog, blocked delete | open, busy, closed |
+| close prompt (gpui-migration U4) | "Close FileManager with unsaved changes?", fed by the model's `unsaved_work` | hidden, shown |
+| `MenuButton` | Recent databases | closed, open, empty |
+| `ShortcutsHelp` | the §3.11 list | closed, open |
+| `text_input` (`.mono`, `.invalid`, `.read_only`, `.multiline`) | field and link-field editors, read-only values, search | default, focus, invalid, read-only, disabled |
+| `checkbox` + `CheckState::NotSet` | booleans, checklist rows, Linked only | ticked, clear, not set, disabled |
+| `select` | allowed-values fields | closed, open, disabled |
+| `tag` | Read-only (lock), Edited, Required, Key, Set when created, Set when linked, Will be added, Will be removed, Not saved yet, Lookup table | — |
+| `Banner`, `Disclosure`, `skeleton_bar`, `kbd`, `text::*` | banners, Referenced by, Details, skeletons | — |
+| icons (dbmanager U2 adds) | `arrow-left`, `arrow-right`, `lock`, `plus`, `trash`, `search`, `chevron-left`, `chevron-right`, `undo`, `check` | — |
 
-### 5.2 View-local
+### 5.2 View-local (`tools/dbmanager/view/`)
 
-| Component | File | Props | States | Task |
-| --- | --- | --- | --- | --- |
-| `DbmanagerView` | `DbmanagerView.tsx` | — | loading, restore failed, nothing open, opening, open | U2 |
-| store | `store.ts` | `useDbmanager()`, actions, `resetDbmanagerStore()` | — | U2 (places U3, drafts U5) |
-| error copy | `errorMessages.ts` | `errorMessage(e, context)`, `toDbmanagerError(e)`, `issueMessage(issue, field)`, `problemMessage(fieldValue, field)` | one entry per kind/code | U2, U4, U5 |
-| `SessionHeader` | `SessionHeader.tsx` | `session`, `devMode`, the action callbacks | nothing open, open, read-only database, backup; config loaded / missing / failed closed; Edit config in developer mode | U2 |
-| `EmptyState` | `EmptyState.tsx` | `recent: string[]`, `configPath`, `onOpen`, `onOpenRecent` | no recent, recent databases | U2 |
-| `SessionBanners` | `SessionBanners.tsx` | `session`, notices, the actions | each banner of §2.1 | U2 |
-| `ConfigProblems` | `ConfigProblems.tsx` | `diagnostics`, `errorCount`, `warningCount`, `expanded`, `onToggle` | none, warnings only, errors | U2 |
-| `Workspace` | `Workspace.tsx` | `session` | three / two / one pane | U3 |
-| `TableNav` | `TableNav.tsx` | `tables` (pickable ones filtered out), `current`, `onChoose`, `variant` | none listed, list, read-only items, current is a lookup table (no current item); rail or disclosure | U3 |
-| `ObjectList` | `ObjectList.tsx` | `table: TableView`, list state, `currentId`, `onOpen`, `onNew`, `onDelete` | first load (skeleton), loading (kept items), empty table, no match, error, page | U3 |
-| `LocationBar` | `LocationBar.tsx` | history, `onBack`, `onForward`, `onTable` | back/forward enabled or not | U3 |
-| `ObjectSheet` | `ObjectSheet.tsx` | place, `TableView`, `ObjectView` | empty (no object), loading, gone, error, read, edit, create | U3 (shell), U4 (read), U5–U8 |
-| `FieldRow` | `FieldRow.tsx` | `field: FieldView`, `value: FieldValue \| null`, editing props | read-only, editable, changed, invalid, problem | U4, U5 |
-| `FieldEditor` | `FieldEditor.tsx` | `field`, `value: EditorValue`, `onChange`, `onRevert`, `labelSuffix?`, `describedBy` | per kind (§3.4) | U5 |
-| `BoolField` | `BoolField.tsx` | `field`, `checked: boolean \| null`, `problem?`, `onChange` | ticked, clear, not set, notBool | U5 |
-| `ReferenceField` | `ReferenceField.tsx` | `field`, `value`, staged pick, `onFollow`, `onPick`, `onClear` | linked, not set, dangling, staged | U4 (read), U7 (edit) |
-| `ObjectPicker` | `ObjectPicker.tsx` | `table: TableView`, `currentId?`, `nullable`, `onPick`, `onClear`, `onClose` | loading, results, no match, error, more | U7 |
-| `ReferencedBy` | `ReferencedBy.tsx` | `relations`, `counts`, `objectKey`, `onFollow` | none, closed, loading, list, more, error | U4 |
-| `SaveBar` | `SaveBar.tsx` | dirty count, `saving`, `mode: "edit" \| "create"`, `blockedReason?`, `onSave`, `onDiscard` | clean, dirty, saving, saved, blocked | U6 |
-| `ErrorSummary` | `ErrorSummary.tsx` | `items: { label, targetId }[]`, `heading` | hidden, shown (focused) | U6 |
-| `ConflictPanel` | `ConflictPanel.tsx` | `rows`, `otherChanged`, `onReapply`, `onDiscard` | shown | U6 |
-| `M2mChecklist` | `M2mChecklist.tsx` | `table`, `objectKey \| null`, `view: M2mView`, `linkedCount`, staged links, `onStage`, `onOpen` | loading, empty, no match, error, read-only, page, staged | U9, U10 |
-| `LinkFieldEditors` | `LinkFieldEditors.tsx` | `fields: FieldView[]`, values, `objectLabel`, `phase: "add" \| "update"`, `onChange` | add, existing, read-only, invalid | U10 |
-| `DeleteDialog` | `DeleteDialog.tsx` | `impact`, `notice?`, `busy`, `dirty`, `firstWrite`, `onConfirm`, `onCancel` | confirmable, blocked, impact changed, config changed, busy | U11 |
-| unsaved-work registration | `store.ts` → `registerUnsavedWork("dbmanager", …)` | describes the dirty draft for the close prompt | — | U13 |
-| shortcuts | `shortcuts.ts`, `useDbmanagerShortcuts.ts` | `SHORTCUTS` (the §3.11 table) | — | U2 (first rows), U12 (complete) |
-| keys and drafts | `keys.ts`, `draft.ts`, `linkDraft.ts` | `objectId`; `toDbValue`, `isChanged`, `rebaseDraft`; `rebaseLinkChange` | pure | U3, U5, U9 |
+| View | File | Model it reads (M12a–d) | States | Task |
+|---|---|---|---|---|
+| `DbmanagerView` (frame, banners, layout mode) | `mod.rs`, `banners.rs` | `snapshot`, `loading`, `error`, `notice` | loading, nothing open, open | U2 |
+| Session header | `header.rs` | `snapshot` (database, config, backup), `open`, `open_recent`, `reload`, `close_database` | nothing open, open, read-only database, backup; config loaded / missing / failed closed | U2 |
+| Empty state | `empty.rs` | `snapshot.recent`, `open`, `open_recent` | no recent, recent | U2 |
+| Config problems | `config_problems.rs` | `snapshot.diagnostics`, counts | none, warnings, errors | U2 |
+| Workspace (pane layout) | `workspace.rs` | `place` | three / two / one pane | U3 |
+| Table nav | `table_nav.rs` | `listed_tables`, `place`, `choose_table` | none listed, list, current is a lookup table | U3 |
+| Object list | `object_list.rs` | `list_state`, `set_search`, `set_offset`, `open_object`, `new_object`, `request_delete_of` | first load, loading, empty, no match, error, page, current item | U3 (U8 New, U11 Delete key) |
+| Location bar | `location_bar.rs` | `can_back`, `can_forward`, `back`, `forward`, `place` | — | U3 |
+| Object sheet | `sheet.rs` | `object`, `place`, table view | empty, loading, gone, error, read, edit, create | U3 shell, U4 read, U5–U8 |
+| Field row and editors | `field_row.rs`, `editors.rs` | `draft`, `edit`, `blur`, `revert_field` | read-only, editable, changed, invalid, problem | U4, U5 |
+| Reference field and picker | `reference.rs`, `picker.rs` | `follow`, `open_picker`, `picker`, `picker_search`, `picker_more`, `pick`, `clear_reference`, `close_picker` | link, not set, dangling, staged; picker loading, results, no match, error, more | U4, U7 |
+| Referenced by | `referenced_by.rs` | `referenced_by`, `open_referenced_by`, `show_more_referenced_by` | none, closed, loading, list, more, error | U4 |
+| Save bar, error summary, conflict panel | `save_bar.rs`, `error_summary.rs`, `conflict.rs` | `dirty_count`, `save`, `saving`, `discard`, `conflict`, `reapply`, `discard_mine` | clean, dirty, saving, blocked; shown | U6 |
+| Leave dialog | `leave.rs` | `leave_request`, `confirm_leave`, `cancel_leave` | hidden, shown | U6 |
+| Checklist and link fields | `checklist.rs`, `link_fields.rs` | `m2m`, `set_m2m_query`, `toggle_link`, `edit_link_field`, `undo_link`, `staged_rows`, `link_counts`, `link_conflict`, `reapply_link`, `discard_link` | loading, empty, no match, error, read-only, page, staged, conflict | U9, U10 |
+| Delete dialog | `delete.rs` | `request_delete`, `delete_state`, `confirm_delete`, `cancel_delete` | checking, confirmable, blocked, impact changed, config changed, deleting | U11 |
+| Keys and help | `keys.rs`, `shortcuts.rs` | the model's methods above | — | U2 (first rows), U12 (complete) |
 
 ## 6. States, by surface
 
@@ -921,36 +922,37 @@ time it appears on a sheet.
 
 ## 8. UI task index
 
+**GPUI (2026-11-21).** The tasks are rewritten in place for
+`apps/filemanager`. Backend milestones are those of
+[`gpui-migration.md`](gpui-migration.md) (M12a reads and navigation; M12b
+drafts, save, create, conflicts, leave and close guard; M12c links and
+delete; M12d config watch and Edit config). Shared widgets and the shell
+come from gpui-migration U3 and U4.
+
 | # | Task plan | Goal | Depends on |
-| --- | --- | --- | --- |
-| U1 | [`U1-shared-controls.md`](../tasks/dbmanager/U1-shared-controls.md) | Shared vocabulary: danger button, extended `ConfirmDialog`, `MenuButton`, generic `ShortcutsHelp`, new icons, form-control styles | M10 |
-| U2 | [`U2-view-and-session.md`](../tasks/dbmanager/U2-view-and-session.md) | Registry entry, view scaffold, store, session header with config status, empty state, open/recent databases/reload/close, drop, banners (no config, failed closed, reloaded), config problems, dev-mode Edit config, error copy | U1, M10, M13 |
-| U3 | [`U3-navigator-and-history.md`](../tasks/dbmanager/U3-navigator-and-history.md) | Responsive panes, table nav (pickable left out), paged searchable object list, places and Back/Forward, sheet shell | U2, M10 |
-| U4 | [`U4-object-sheet-read.md`](../tasks/dbmanager/U4-object-sheet-read.md) | The object sheet read view: typed values, tags, problems, followable references, pickable objects read-only, Referenced by | U3, M10 |
-| U5 | [`U5-field-editors.md`](../tasks/dbmanager/U5-field-editors.md) | Typed field editors, the draft, dirty markers, inline validation | U4, M10, M11 |
-| U6 | [`U6-save-and-conflicts.md`](../tasks/dbmanager/U6-save-and-conflicts.md) | Save bar, save flow with `configHash`, error summary, conflict panel, leave guard, draft re-check on reload / automatic config reload / `ConfigChangedOnDisk`, backup notice | U5, M10, M11, M13 |
-| U7 | [`U7-reference-picker.md`](../tasks/dbmanager/U7-reference-picker.md) | Editing FK fields with the object picker | U6, M10 |
-| U8 | [`U8-create.md`](../tasks/dbmanager/U8-create.md) | New object: create form, defaults, required, open after create | U7, M10, M11 |
-| U9 | [`U9-m2m-checklist.md`](../tasks/dbmanager/U9-m2m-checklist.md) | Many-to-many checklists: paging, search, linked only, staged add/remove, saving links, link conflicts | U8, M10 |
-| U10 | [`U10-link-fields.md`](../tasks/dbmanager/U10-link-fields.md) | Link-field editors on links: defaults, create-only, removal with data, link errors | U9, M10, M11 |
-| U11 | [`U11-delete.md`](../tasks/dbmanager/U11-delete.md) | Delete with impact confirmation (button and Delete key), `configHash`, blocked, impact changed | U6, M10 |
-| U13 | [`U13-window-close-guard.md`](../tasks/dbmanager/U13-window-close-guard.md) | Shared `CloseGuard` in the app shell: prompt on window close with unsaved edits | U6, M14 |
-| U12 | [`U12-keyboard-and-audit.md`](../tasks/dbmanager/U12-keyboard-and-audit.md) | Complete shortcuts and help, F6 regions, 200%/800×560 pass, `/impeccable audit` + detector, a11y sweep | U1–U11, U13 |
+|---|---|---|---|
+| U1 | [`U1-shared-controls.md`](../tasks/dbmanager/U1-shared-controls.md) | **Superseded:** merged into gpui-migration U2, U3 (and the ten icons into U2 here) | — |
+| U2 | [`U2-view-and-session.md`](../tasks/dbmanager/U2-view-and-session.md) | View frame, session header with config status, empty state, Open/Recent/Reload/Close, banners, config problems, first shortcuts; the ten new icons | gpui-migration U4, M12a |
+| U3 | [`U3-navigator-and-history.md`](../tasks/dbmanager/U3-navigator-and-history.md) | Width-based panes, table nav, paged searchable object list, Back/Forward, location bar, sheet shell | U2, M12a |
+| U4 | [`U4-object-sheet-read.md`](../tasks/dbmanager/U4-object-sheet-read.md) | Sheet read view: typed values, tags, problems, followable references, pickable read-only, Referenced by | U3, M12a |
+| U5 | [`U5-field-editors.md`](../tasks/dbmanager/U5-field-editors.md) | Field editors over the model's draft, Edited tags, inline issues | U4, M12b (with R4) |
+| U6 | [`U6-save-and-conflicts.md`](../tasks/dbmanager/U6-save-and-conflicts.md) | Save bar, error summary, conflict panel, leave dialog, notices (backup, reload re-check), close-prompt line | U5, M12b |
+| U7 | [`U7-reference-picker.md`](../tasks/dbmanager/U7-reference-picker.md) | FK editing with the object picker | U6, M12b (with R4) |
+| U8 | [`U8-create.md`](../tasks/dbmanager/U8-create.md) | New object: button, create form, Create/Cancel | U7, M12b |
+| U9 | [`U9-m2m-checklist.md`](../tasks/dbmanager/U9-m2m-checklist.md) | Checklists: paging, search, linked only, staged add/remove, Not saved yet group, link conflicts | U8, M12c |
+| U10 | [`U10-link-fields.md`](../tasks/dbmanager/U10-link-fields.md) | Link-field editors, removal with data, link errors | U9, M12c |
+| U11 | [`U11-delete.md`](../tasks/dbmanager/U11-delete.md) | Delete… and the Delete key, impact dialog, blocked, impact changed, config changed | U6, M12c |
+| U12 | [`U12-keyboard-and-audit.md`](../tasks/dbmanager/U12-keyboard-and-audit.md) | Edit config, config-reloaded and starter notices, the complete keyboard map, F6 regions, shortcuts help | U2–U11, M12d |
+| U13 | [`U13-window-close-guard.md`](../tasks/dbmanager/U13-window-close-guard.md) | **Superseded:** the prompt is gpui-migration U4; the dbmanager line is tested in U6 | — |
+| U14 | [`U14-scenarios.md`](../tasks/dbmanager/U14-scenarios.md) | The 25 screenshot scenarios of §9 | U12, gpui-migration U12, M4, R1, R6, R7 |
 
-**Backend alignment:**
+U9/U10 and U11 may run in parallel once U8 (resp. U6) and M12c land.
+gpui-migration M13 runs after U14.
 
-- Every U task depends on **M10**. U5, U6, U8 and U10 also use **M11**.
-- U2 and U6 use **M13** (`onConfigChanged`, `editConfig`).
-- U13 uses **M14** (`guardWindowClose`, `closeWindow`).
-- U13 is numbered after U12 (to keep the existing numbers), but runs
-  **before** it: U12 is the final audit.
-- **M12** runs after U12.
-- U11 and U13 can run in parallel with U7–U10 once U6 lands.
+## 9. Screenshot scenarios for gpui-migration M13
 
-## 9. Screenshot scenarios for M12
-
-`mock.js` scenarios named `dbmanager-*`, built on the example schema and
-config (`examples/dbmanager/`). The windows are 1366×800 (three panes) unless
+Rust harness scenarios named `dbmanager-*` (dbmanager U14), built on the
+example schema and config (`examples/dbmanager/`) through the fixture backend. The windows are 1366×800 (three panes) unless
 noted; 1000×700 is the default window (two panes).
 
 | Shot | Window | Shows |
@@ -1030,3 +1032,98 @@ No requests remain.
    A missing config file gives the calm "No config file" banner, §7.3.)
 
 No questions remain open.
+
+## 12. GPUI implementation (2026-11-21)
+
+This section turns §1–§9 into GPUI terms. Where it differs from an earlier
+section, it wins. The design (structure, places, drafts, copy, keyboard map)
+is unchanged.
+
+### 12.1 What changes
+
+- **State lives in the model** (`tools/dbmanager/model.rs`, `draft.rs`):
+  places, history, list states, the draft, staged links, the picker, save,
+  conflicts, delete, notices and the config re-check (§3.2's "store").
+  Views render it and call its methods; they own focus, layout, key
+  bindings and purely visual state (hover, scroll, which disclosure is
+  open when the model does not hold it).
+- **Validation** is `fm_dbmanager::rules::validate`, called by the model as
+  the user types; config patterns are full Rust `regex`.
+- **Copy** is in `tools/dbmanager/text.rs` (§7's tables are its spec).
+- **Layout is width-based**, not container queries: the workspace width is
+  the window width minus the sidebar (192 px, at most 40%) minus the view's
+  48 px padding. ≥ 1088 px (68rem): three panes; 736–1088 px: two panes;
+  below 736 px (46rem): one pane. At 1366×800 → three; 1000×700 → two;
+  800×560 → one. The sheet's property layout is two columns (label 176 px)
+  when the sheet is at least 576 px (36rem) wide, else stacked.
+- **The save bar** is the last item of the sheet pane's column, outside its
+  scrolling region, so it stays visible (no sticky positioning). The
+  under-34rem whole-view scroll is dropped (the 560 px minimum window never
+  reaches it).
+- **Labels and keys:** `aria-*` wiring goes. Every control has a visible
+  label or a tooltip; buttons with shortcuts carry the tooltip "Shortcut:
+  …". Accessible names that added context ("Open Herbert, Frank in
+  Authors", "Role for Ada Lovelace", "New object in Books") become the
+  control's tooltip. F5/Ctrl+R need no default prevention (no webview).
+- **Announcements** (the polite announcer) are not rendered. Focus moves
+  (§3.10) come from the model's focus hints (`take_focus_hint`, request R5
+  in `gpui-migration-ui.md`).
+- **Dialogs** are `widgets::dialog::sync_confirm`; their shadow is
+  gpui-kit's fixed one. Focus returns to the opener only when it was
+  opened from the keyboard.
+- **Pickers and menus** are gpui-component popovers anchored under their
+  trigger.
+- **Mouse back/forward** buttons: GPUI's `MouseButton::Navigate(Back|Forward)`.
+- **Dropped:** the 200% text pass, axe, jsx-a11y, `/impeccable audit` (D15,
+  D16, D20).
+
+### 12.2 Parity list (the reference for the views and U14)
+
+- Frame: the tool view pads 16/24; session header, banners (8 px apart),
+  config problems, then the workspace, 12 px apart. Panes on `surface`,
+  1 px `border` rules between them, no radius or shadow; the workspace has a
+  1 px border rule above it and fills the remaining height; each pane
+  scrolls on its own.
+- Header: h1 (20 px 700) = database file name or "Database Manager"; the
+  path mono 13 px muted, wrapping; the config line 13 px (path in mono); the
+  Read-only tag; the backup line (13 px muted, mono name, full path as
+  tooltip); actions right, 8 px apart, wrapping: Open database…, Recent,
+  Reload, Close database, Edit config (developer mode), Keyboard shortcuts.
+- Table nav (three panes: 192 px column; two panes: a disclosure "Table:
+  Books" above the object list in an 288 px navigator): items like the tool
+  sidebar's (padding 8/12, radius 6; current: `surface_sunken` fill, 600,
+  the accent dot), a Read-only tag on read-only tables.
+- Object list (288 px): heading (16 px 600) = table display name with the
+  Lookup table tag when pickable; toolbar (search input with `search` icon,
+  New); rows 32 px high (label, wrapping off, end-ellipsis; tooltip full
+  label), current row `surface_sunken` + dot; pager "26–50 of 312" with
+  `chevron-left`/`chevron-right` icon-only buttons (tooltips "Previous
+  page", "Next page").
+- Sheet: location bar (Back/Forward quiet with arrow icons, tooltips "Back
+  to Dune (Alt+Left)"; breadcrumb Table / Object, the table part a quiet
+  button); eyebrow (13 px muted) table name; h2 (20 px 600) the label; tags;
+  Delete… (danger, trash icon) right; then fields (rows 8 px apart:
+  label 14 px 600 | value; hint line 13 px muted; issue lines `danger` with
+  `x-circle`; problem lines `warn` icon + `text`), checklists, Referenced by;
+  the save bar (`surface`, 1 px rule above, padding 12/24): status text,
+  Discard changes, Save/Create (primary).
+- Read-only values are read-only inputs (`surface_sunken`, no border, full
+  text, selectable), never the disabled look.
+- Accepted differences: those of `gpui-migration-ui.md` §4.6 (A1, A4, A5,
+  A7, A8, A9, A12, A14, A15).
+
+### 12.3 Keyboard map (GPUI)
+
+§3.11 holds, bound in the view's key context `Dbmanager` with
+`KeyBinding`s; Ctrl/Alt chords work inside inputs; plain keys (Up, Down,
+Home, End, PageUp, PageDown, Enter, Delete) act on the focused list only;
+held keys do not repeat an action. F6/Shift+F6 cycle focus between the
+table nav, the object list and the sheet's first control. Escape reverts the
+focused changed field (`revert_field`), else closes the picker or menu.
+
+### 12.4 Model requests
+
+Listed in `gpui-migration-ui.md` §8: R4 (the `EditorInput` editor API, the
+picker in the model, `request_delete_of`), R5 (consumable focus hints with
+the variants this view needs), R6 (scenario fixtures), R7
+(`Shell::request_close` for the close-prompt scenario).
