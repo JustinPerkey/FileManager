@@ -578,9 +578,9 @@ fn glob_extension_parsing() {
 
 #[test]
 fn dump_parity_cases() {
-    let Ok(file) = std::env::var("PARITY_DUMP") else {
+    if std::env::var_os("PARITY_DUMP").is_none() {
         return;
-    };
+    }
     let mut out = String::new();
     for case in cases().iter().filter(|c| !c.win) {
         let line = serde_json::json!({
@@ -591,5 +591,6 @@ fn dump_parity_cases() {
         out.push_str(&line.to_string());
         out.push('\n');
     }
+    let file = Path::new(env!("CARGO_TARGET_TMPDIR")).join("parity-cases.jsonl");
     std::fs::write(file, out).unwrap();
 }
