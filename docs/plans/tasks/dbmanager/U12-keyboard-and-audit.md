@@ -1,6 +1,6 @@
 # U12 — Keyboard completeness, layout pass, and audit
 
-Status: awaiting approval (revised 2026-11-16: the fixed config, Edit config,
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: the fixed config, Edit config,
 pickable tables, the window-close prompt)
 Project: dbmanager   Depends on: U1–U11 (landed), U13 (landed), M10 (landed),
 M11 (landed), M13 (landed), M14 (landed)

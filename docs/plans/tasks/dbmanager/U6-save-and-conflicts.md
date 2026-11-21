@@ -1,6 +1,6 @@
 # U6 — Saving, conflicts, and leaving with unsaved changes
 
-Status: awaiting approval (revised 2026-11-16: `configHash` on writes,
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: `configHash` on writes,
 automatic config reload, the new meaning of `ConfigChangedOnDisk`)
 Project: dbmanager   Depends on: U5 (landed), M10 (landed), M11 (landed),
 M13 (landed)

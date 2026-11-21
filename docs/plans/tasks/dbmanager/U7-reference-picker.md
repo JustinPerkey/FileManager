@@ -1,6 +1,6 @@
 # U7 — Editing references with the object picker
 
-Status: awaiting approval (revised 2026-11-16: pickable targets; 2026-11-18:
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: pickable targets; 2026-11-18:
 no non-navigable FKs)
 Project: dbmanager   Depends on: U6 (landed), M10 (landed)
 

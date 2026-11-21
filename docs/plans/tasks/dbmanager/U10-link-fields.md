@@ -1,6 +1,6 @@
 # U10 — Link fields on many-to-many links
 
-Status: awaiting approval
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval
 Project: dbmanager   Depends on: U9 (landed), M10 (landed), M11 (landed)
 
 ## Goal

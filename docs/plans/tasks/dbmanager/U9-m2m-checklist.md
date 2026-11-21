@@ -1,6 +1,6 @@
 # U9 — Many-to-many checklists
 
-Status: awaiting approval (revised 2026-11-16: `M2mQuery.only`, pickable
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: `M2mQuery.only`, pickable
 other sides)
 Project: dbmanager   Depends on: U8 (landed), M10 (landed)
 

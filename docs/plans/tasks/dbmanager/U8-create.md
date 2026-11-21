@@ -1,6 +1,6 @@
 # U8 — Creating objects
 
-Status: awaiting approval (revised 2026-11-16: objectName, configHash, pickable)
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: objectName, configHash, pickable)
 Project: dbmanager   Depends on: U7 (landed), M10 (landed), M11 (landed)
 
 ## Goal

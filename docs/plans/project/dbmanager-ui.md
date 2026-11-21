@@ -1,6 +1,6 @@
 # UI project plan: the Database Manager view
 
-Status: **awaiting approval.** Amended 2026-11-18 for the M5 review: FKs
+Status: **design confirmed; implementation layer superseded by the GPUI migration (2026-11-21, see the note below).** Amended 2026-11-18 for the M5 review: FKs
 into hidden or unlisted tables arrive as plain read-only fields (no
 non-navigable link case), and config patterns are restricted to a
 Rust/JS-common subset (examples here stay inside it). Written 2026-11-16 by the `ui-designer`.
@@ -19,6 +19,38 @@ Backend project plan: [`dbmanager.md`](dbmanager.md) (its §7 is the handoff
 this plan answers). Task plans: [`../tasks/dbmanager/`](../tasks/dbmanager/)
 `U1`–`U13`.
 
+**Migration to GPUI (2026-11-21, planner).** The human decided to replace
+the Tauri + React UI with GPUI and gpui-component
+([`gpui-migration.md`](gpui-migration.md), §11 and §13 there). The design in
+this plan (structure, places and history, drafts, saving, creating,
+deleting, copy, keyboard map) carries over; the human confirmed it. Its
+implementation layer is superseded and is rewritten by the ui-designer for
+GPUI:
+
+- **"Stack (decided)" below is historical.** Views go in
+  `apps/filemanager/src/tools/dbmanager/view/` (ui-implementer); tokens in
+  `apps/filemanager/src/theme/tokens.rs`.
+- **No Tauri commands and no `lib/dbmanager.ts`:** views call the model
+  `apps/filemanager/src/tools/dbmanager/model.rs` (gpui-migration M12a–M12d),
+  which holds places, history, lists, **the draft and staged link changes**,
+  save, conflicts, delete and the config reload's re-check. The "view store"
+  of §3.2 is that model.
+- **No `lib/dbmanagerValidation.ts` (dbmanager M11 dropped):** the model
+  validates with `fm_dbmanager::rules::validate` as the user types. The
+  pattern subset restriction is relaxed for shorthand classes (dbmanager
+  M15).
+- **`onConfigChanged`, `guardWindowClose`, `closeWindow`** are replaced by
+  the model's automatic reload (M12d) and the GPUI shell's close guard
+  (gpui-migration M3b; dbmanager registers its draft in M12b).
+- **Web-only checks are dropped (D15, D20):** `aria-*` wiring, axe,
+  jsx-a11y, `/impeccable audit`, the 200% text pass and container-query
+  breakpoints (width-based layout instead). Keyboard operation, labels and
+  the shortcuts help stay.
+- **Screenshots** (§9) come from the Rust harness, scenario names unchanged;
+  they feed gpui-migration M13, not dbmanager M12.
+- U1 merges into the migration's shared-widget tasks; U2–U11 and U13 are
+  rewritten against M12a–M12d; U12 shrinks to keyboard and shortcuts help.
+
 **Method.** `impeccable` 4.9.0. The launcher (`impeccable context`) ran from
 `apps/desktop` and loaded the root `PRODUCT.md` and `DESIGN.md`; no surface
 brief existed. `/impeccable shape` was followed for a *whole surface inside an
@@ -34,7 +66,7 @@ structure was chosen by the designer (§1.1). Assumptions are marked
 *(assumed)*. The human has since confirmed the structure and every open
 design question (§11).
 
-**Stack (decided).** Tauri v2 shell; React + TypeScript + Vite in
+**Stack (historical; see the migration note above).** Tauri v2 shell; React + TypeScript + Vite in
 `apps/desktop/src/`; tokens in `apps/desktop/src/styles/tokens.css`. The
 backend `implementer` owns `apps/desktop/src/lib/`; the `ui-implementer` owns
 the rest of `apps/desktop/src/`. **No U task starts before M10 lands.** Inline

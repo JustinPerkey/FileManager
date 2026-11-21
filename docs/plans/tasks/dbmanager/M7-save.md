@@ -6,6 +6,16 @@ writes carry the config hash (the config now reloads automatically), and
 `pickable` tables are never written.
 Project: dbmanager   Depends on: M6 (landed)
 
+**Note (2026-11-21): the UI is moving to GPUI.** This domain milestone is
+unchanged, with one condition. If `apps/desktop/src-tauri/src/generated_types.rs`
+still exists when you start, derive `ts_rs::TS` and update `EXPORTERS` and
+the generated files as written below. If it no longer exists (the migration
+removed Tauri and ts-rs), skip every ts-rs step: no `ts_rs::TS` derive, no
+`#[ts(...)]` attribute, no export, no regeneration, and keep `serde` only
+where this plan needs it for something other than the TypeScript boundary.
+Wherever this plan says the Tauri commands or the UI error type come later,
+read "the GPUI app's Database Manager model comes later".
+
 ## Goal
 
 Let a `Session` save one object's field changes, for an existing object or a

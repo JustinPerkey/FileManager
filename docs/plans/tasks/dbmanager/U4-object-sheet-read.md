@@ -1,6 +1,6 @@
 # U4 — The object sheet: reading an object
 
-Status: awaiting approval (revised 2026-11-16: pickable tables open read-only;
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: pickable tables open read-only;
 2026-11-18: FKs into hidden or unlisted tables are plain fields)
 Project: dbmanager   Depends on: U3 (landed), M10 (landed)
 

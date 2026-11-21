@@ -1,6 +1,6 @@
 # U2 — Database Manager view scaffold and session
 
-Status: awaiting approval (revised 2026-11-16: the fixed app-wide config,
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: the fixed app-wide config,
 recent databases, automatic config reload, developer-mode Edit config; then
 `ConfigNotDroppable` and the backup-path rules)
 Project: dbmanager   Depends on: U1 (landed), M10 (landed), M13 (landed)

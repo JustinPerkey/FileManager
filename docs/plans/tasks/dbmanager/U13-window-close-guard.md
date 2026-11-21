@@ -1,6 +1,6 @@
 # U13 — Ask before closing the window with unsaved edits
 
-Status: awaiting approval (new 2026-11-16: the human's answer "prompt on
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (new 2026-11-16: the human's answer "prompt on
 window close")
 Project: dbmanager   Depends on: U6 (landed), M14 (landed, including the
 reviewer-approved capability change), M10 (landed)

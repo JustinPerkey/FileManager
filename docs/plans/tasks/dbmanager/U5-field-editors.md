@@ -1,6 +1,6 @@
 # U5 — Typed field editors, the draft, and inline validation
 
-Status: awaiting approval (revised 2026-11-16: pickable tables)
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: pickable tables)
 Project: dbmanager   Depends on: U4 (landed), M10 (landed), M11 (landed)
 
 ## Goal

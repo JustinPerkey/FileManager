@@ -1,6 +1,6 @@
 # U3 — Panes, table and object navigation, and history
 
-Status: awaiting approval (revised 2026-11-16: pickable tables, recent
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: pickable tables, recent
 databases, the config reloads by itself)
 Project: dbmanager   Depends on: U2 (landed), M10 (landed)
 

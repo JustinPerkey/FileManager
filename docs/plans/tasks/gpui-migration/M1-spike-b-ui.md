@@ -1,6 +1,6 @@
 # M1b — Spike, part B: gpui-kit widgets, the themed screen, PNG capture, the report
 
-Status: awaiting approval (revised 2026-11-20: the human's answers on
+Status: done (2026-11-21) on branch `spike/gpui-migration`; the human decided go. Previous status: awaiting approval (revised 2026-11-20: the human's answers on
 similarity, size/build time, minimum Windows version and spike location are
 folded in)
 Project: gpui-migration   Depends on: M1a (landed on branch `spike/gpui-migration`)

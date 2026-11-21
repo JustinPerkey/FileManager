@@ -1,6 +1,6 @@
 # U11 — Deleting objects, with the impact confirmation
 
-Status: awaiting approval (revised 2026-11-16: `configHash` on the delete,
+Status: **superseded (2026-11-21):** the UI moves to GPUI; the ui-designer rewrites this task for `apps/filemanager` (its design decisions carry over). Do not run this plan. Previous status: awaiting approval (revised 2026-11-16: `configHash` on the delete,
 the Delete key confirmed by the human, pickable tables)
 Project: dbmanager   Depends on: U6 (landed), M10 (landed). Can run in
 parallel with U7–U10 once U6 has landed; if it runs after them, keep their

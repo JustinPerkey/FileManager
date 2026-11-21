@@ -1,6 +1,6 @@
 # Project plan: the Database Manager tool
 
-Status: **awaiting approval.** First written by the planner on 2026-11-13,
+Status: **awaiting approval; UI-facing milestones re-planned for GPUI on 2026-11-21** (see the migration note below). First written by the planner on 2026-11-13,
 then revised three times on 2026-11-16:
 
 1. The human answered four open questions (§8.1). Defaults became editable,
@@ -27,6 +27,34 @@ The UI is not designed here. §7 hands it to the `ui-designer`, who writes
 [`dbmanager-ui.md`](dbmanager-ui.md) and the `U<n>` task plans.
 
 Task plans: [`../tasks/dbmanager/`](../tasks/dbmanager/).
+
+**Migration to GPUI (2026-11-21).** The human decided to replace the Tauri +
+React UI with GPUI ([`gpui-migration.md`](gpui-migration.md), §11 there).
+For this tool that means:
+
+- **Unchanged:** M1–M6 (done) and M7–M9 (save, links, delete) in
+  `fm-dbmanager`. If M7–M9 land before the migration's cutover (its M9),
+  they keep deriving `ts_rs::TS` and appending to `EXPORTERS`; after it,
+  they skip both. Their task plans say so.
+- **Superseded:** M10 (Tauri contract) by gpui-migration **M12a–M12c**
+  (tool core in `fm_dbmanager::tool`, backend trait, view-model with drafts,
+  save, links, delete); M13 (config watch, Edit config) by gpui-migration
+  **M2b** (`FileWatcher` moves to `fm-core`) and **M12d**; M12 (docs and
+  release) by gpui-migration **M13**.
+- **Dropped:** M11 (TS validation mirror): the model calls
+  `rules::validate` directly; M14 (window-close guard): the GPUI app's close
+  guard (gpui-migration M3b), with dbmanager registering its drafts (M12b).
+- **New:** [M15](../tasks/dbmanager/M15-pattern-shorthand.md) lifts the
+  pattern shorthand-class ban (any time).
+- **UI:** `dbmanager-ui.md`'s design decisions carry over; its implementation
+  parts and U1–U13 are superseded and are rewritten by the ui-designer for
+  GPUI.
+- Sections below that describe Tauri commands, `lib/*.ts`, generated types,
+  capabilities or the CSP (§2.1 shell lines, §2.6, §2.8, §2.11, the
+  "Boundary types" and "Security settings" rules of §3, §4's last sentence)
+  are **historical**; the replacements are in the gpui-migration task plans
+  named above.
+
 
 ## 1. Request
 
@@ -254,7 +282,7 @@ Rust. Search uses `LIKE` over the label's text and integer columns.
 - **Validation codes:** `notDuration` and `durationPrecision`.
 - **Search** skips duration columns.
 
-### 2.6 Validation, mirrored *(decided)*
+### 2.6 Validation, mirrored *(decided; mirror dropped 2026-11-21: only Rust validates, gpui-migration M12b)*
 
 - `rules::validate` is pure and authoritative. Integers, reals and durations
   cross the boundary as strings.
@@ -307,7 +335,7 @@ Rust. Search uses `LIKE` over the label's text and integer columns.
 **Removing a link with fields** is staged and committed only by Save. The
 backup covers it.
 
-### 2.8 Boundary contract *(decided; built in M10, M13, M14)*
+### 2.8 Boundary contract *(historical: superseded 2026-11-21 by gpui-migration M12a–M12d; no Tauri commands are built)*
 
 All commands are `async`, and the work runs under `spawn_blocking`.
 
@@ -411,7 +439,7 @@ empty state and `stateWarning` says why, and the entry is kept (*confirmed*).
 - **Removed:** choosing a config, opening without a config, config files in
   the recent list or in drops, and a config that names its database.
 
-### 2.11 Window-close prompt *(decided; the human's UI answer)*
+### 2.11 Window-close prompt *(the human's answer stands; the mechanism below is historical: the GPUI shell's close guard, gpui-migration M3b and M12b)*
 
 - **Where it is intercepted.** The **frontend** intercepts the close through
   `getCurrentWindow().onCloseRequested`. Only the UI knows about unsaved
@@ -497,29 +525,22 @@ meaningful once the shell links the crate, in M10.
 | M7 | [`M7-save.md`](../tasks/dbmanager/M7-save.md) | Backup, object save with `configHash`, conflicts | M6 |
 | M8 | [`M8-links.md`](../tasks/dbmanager/M8-links.md) | Link add, update and remove with link fields | M7 |
 | M9 | [`M9-delete.md`](../tasks/dbmanager/M9-delete.md) | Delete impact and confirmed delete with `configHash` | M8 |
-| M10 | [`M10-tauri-contract.md`](../tasks/dbmanager/M10-tauri-contract.md) | Commands, snapshot with the config view, errors, `lib/dbmanager.ts`: **the UI contract** | M9 |
-| M11 | [`M11-validation-mirror.md`](../tasks/dbmanager/M11-validation-mirror.md) | `lib/dbmanagerValidation.ts` | M4 |
-| M12 | [`M12-docs-release.md`](../tasks/dbmanager/M12-docs-release.md) | Docs, manual, screenshots, Windows check: **depends on UI plan** | M10, M11, M13, M14, all U tasks |
-| M13 | [`M13-config-watch-and-edit.md`](../tasks/dbmanager/M13-config-watch-and-edit.md) | **New:** shared `FileWatcher` in `fm-core` (tarpack moved onto it), automatic config reload with an event, `onConfigChanged`, developer-mode `editConfig` with the starter file | M10 |
-| M14 | [`M14-window-close-guard.md`](../tasks/dbmanager/M14-window-close-guard.md) | **New:** `guardWindowClose` and `closeWindow` in `lib/tauri.ts`, `core:window:allow-destroy`; **capability change, reviewed** | none |
+| M10 | ~~[`M10-tauri-contract.md`](../tasks/dbmanager/M10-tauri-contract.md)~~ **superseded** by gpui-migration M12a–M12c | — | — |
+| M11 | ~~[`M11-validation-mirror.md`](../tasks/dbmanager/M11-validation-mirror.md)~~ **dropped** (only Rust validates) | — | — |
+| M12 | ~~[`M12-docs-release.md`](../tasks/dbmanager/M12-docs-release.md)~~ **superseded** by gpui-migration M13 | — | — |
+| M13 | ~~[`M13-config-watch-and-edit.md`](../tasks/dbmanager/M13-config-watch-and-edit.md)~~ **superseded** by gpui-migration M2b (watcher move) and M12d | — | — |
+| M14 | ~~[`M14-window-close-guard.md`](../tasks/dbmanager/M14-window-close-guard.md)~~ **dropped** (GPUI close guard: gpui-migration M3b, M12b) | — | — |
+| M15 | [`M15-pattern-shorthand.md`](../tasks/dbmanager/M15-pattern-shorthand.md) | **New 2026-11-21:** allow `\d \w \s \b` and their negations in patterns (only Rust validates) | M5 |
 
-**Execution order:**
+**Execution order (revised 2026-11-21 for the GPUI migration):**
 
-1. M1.
-2. M2 and M3, in parallel.
-3. M4, then M5–M10. M11 can run any time after M4.
-4. M13, after M10. M14 can run any time.
-5. The U tasks.
-6. M12.
+1. M1–M6: done.
+2. M7 → M8 → M9 (domain), any time. M15 any time.
+3. gpui-migration M12a → M12b → M12c → M12d (after M9 and the migration's
+   M7b), each followed by the dbmanager U tasks that consume it.
+4. gpui-migration M13 (docs, manual, Windows check) last.
 
-**Interleaving with the UI pipeline:**
-
-- No U task starts before **M10**.
-- The U task that shows the config status, re-checks drafts on
-  `onConfigChanged`, and offers developer-mode Edit config needs **M13**.
-- The U task that prompts on window close needs **M14**.
-- Inline validation needs **M11**.
-- **M12** runs last.
+The original order, interleaving and M10–M14 are historical.
 
 ## 6. Risks
 
