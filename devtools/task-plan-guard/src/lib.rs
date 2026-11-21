@@ -14,6 +14,10 @@ const PLANS: &str = "docs/plans";
 const ALLOWED: &str = "docs/plans/tasks";
 const FORBIDDEN_MARKER: &str = "plans/project";
 
+/// The only subagent roles the guard applies to, matched exactly against the
+/// hook input's `agent_type`.
+pub const GUARDED_AGENTS: [&str; 2] = ["implementer", "ui-implementer"];
+
 /// The outcome of one tool call.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Decision {
@@ -60,6 +64,13 @@ pub fn decide_with(
     let Value::Object(obj) = &parsed else {
         return Decision::Allow; // the script would throw (exit 1): not a block
     };
+    let guarded = matches!(
+        obj.get("agent_type"),
+        Some(Value::String(a)) if GUARDED_AGENTS.contains(&a.as_str())
+    );
+    if !guarded {
+        return Decision::Allow; // not one of the two roles: never block
+    }
     let process_cwd = process_cwd.to_string_lossy();
     let tool = match obj.get("tool_name") {
         Some(Value::String(s)) => s.as_str(),
@@ -93,6 +104,42 @@ pub fn decide_with(
         )),
         None => Decision::Allow,
     }
+}
+
+/// One trace line (without the newline): `<agent_type>\t<agent_id>\t<tool_name>\t<allow|block>`,
+/// with `-` for an absent or non-string field. Unreadable input traces as dashes.
+#[must_use]
+pub fn trace_line(input: &str, decision: &Decision) -> String {
+    let parsed = serde_json::from_str::<Value>(&replace_lone_surrogates(input.trim())).ok();
+    let get = |key: &str| {
+        parsed
+            .as_ref()
+            .and_then(|v| v.get(key))
+            .and_then(Value::as_str)
+            .map_or("-", |s| s)
+            .replace(['\t', '\n', '\r'], " ")
+    };
+    let verdict = match decision {
+        Decision::Allow => "allow",
+        Decision::Block(_) => "block",
+    };
+    format!(
+        "{}\t{}\t{}\t{verdict}",
+        get("agent_type"),
+        get("agent_id"),
+        get("tool_name")
+    )
+}
+
+/// Append `line` and a newline to the trace file. Write errors are ignored: the
+/// trace never changes the guard's outcome.
+pub fn append_trace(path: &Path, line: &str) {
+    use std::io::Write;
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut f| writeln!(f, "{line}"));
 }
 
 /// `serde_json` rejects an unpaired surrogate escape (`\uD800`..`\uDFFF`) that

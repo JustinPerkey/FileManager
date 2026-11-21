@@ -9,5 +9,18 @@
   },
   "enabledPlugins": {
     "impeccable@impeccable": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|NotebookEdit|Grep|Glob|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cargo run --quiet --locked --manifest-path \"$CLAUDE_PROJECT_DIR/devtools/task-plan-guard/Cargo.toml\" --target-dir \"$CLAUDE_PROJECT_DIR/target/task-plan-guard\""
+          }
+        ]
+      }
+    ]
   }
 }

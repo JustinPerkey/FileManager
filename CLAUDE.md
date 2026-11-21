@@ -26,9 +26,10 @@ are stubs). The Database Manager (`dbmanager`) is in progress: crate only
 - `.claude/settings.json` — enables the `impeccable` plugin (marketplace
   `pbakaus/impeccable`): one skill, `impeccable:impeccable`, whose
   sub-commands (`shape`, `critique`, `audit`, `polish`, …) the UI roles use.
-- `devtools/task-plan-guard/` — Rust binary (workspace member) run as the
-  implementer subagents' `PreToolUse` hook; keeps them out of every plan except
-  task plans.
+- `devtools/task-plan-guard/` — Rust binary (workspace member) run from
+  `.claude/settings.json` as a `PreToolUse` hook; guards only the `implementer`
+  and `ui-implementer` subagents (by `agent_type`) and keeps them out of every
+  plan except task plans. `TASK_PLAN_GUARD_TRACE=<file>` appends one line per call.
 - `PRODUCT.md`, `DESIGN.md` — the `impeccable` skill's context: durable product
   truth, and the visual system (normative source: `styles/tokens.css`). Read
   by the UI agents; `DESIGN.md` changes when the tokens or shared components

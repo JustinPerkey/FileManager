@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use task_plan_guard::{decide_with, Decision};
+use task_plan_guard::{append_trace, decide_with, trace_line, Decision};
 
 struct Case {
     name: &'static str,
@@ -491,7 +491,7 @@ fn cases() -> Vec<Case> {
 
 fn stdin_for(case: &Case) -> String {
     let mut s = format!(
-        r#"{{"tool_name":"{}","tool_input":{}"#,
+        r#"{{"agent_type":"implementer","tool_name":"{}","tool_input":{}"#,
         case.tool, case.input
     );
     if let Some(cwd) = case.cwd {
@@ -555,7 +555,7 @@ fn empty_object_and_missing_fields_allow() {
 
 #[test]
 fn root_falls_back_to_process_cwd() {
-    let input = r#"{"tool_name":"Read","tool_input":{"file_path":"docs/plans/project/x.md"}}"#;
+    let input = r#"{"agent_type":"implementer","tool_name":"Read","tool_input":{"file_path":"docs/plans/project/x.md"}}"#;
     let got = decide_with(input, None, Path::new("/proc-root"), false);
     assert!(matches!(got, Decision::Block(_)));
     let got = decide_with(input, Some(""), Path::new("/proc-root"), false);
@@ -593,4 +593,79 @@ fn dump_parity_cases() {
     }
     let file = Path::new(env!("CARGO_TARGET_TMPDIR")).join("parity-cases.jsonl");
     std::fs::write(file, out).unwrap();
+}
+
+fn read_project_plan(agent: &str) -> String {
+    format!(
+        r#"{{{agent}"tool_name":"Read","tool_input":{{"file_path":"docs/plans/project/x.md"}},"cwd":"/repo"}}"#
+    )
+}
+
+fn judge(input: &str) -> Decision {
+    decide_with(input, Some("/repo"), Path::new("/repo"), false)
+}
+
+#[test]
+fn guarded_roles_are_blocked() {
+    for role in ["implementer", "ui-implementer"] {
+        let got = judge(&read_project_plan(&format!(r#""agent_type":"{role}","#)));
+        assert!(matches!(got, Decision::Block(_)), "role: {role}");
+    }
+}
+
+#[test]
+fn other_callers_are_allowed() {
+    for agent in [
+        String::new(),
+        r#""agent_type":"planner","#.into(),
+        r#""agent_type":"reviewer","#.into(),
+        r#""agent_type":"Explore","#.into(),
+        r#""agent_type":"general-purpose","#.into(),
+        r#""agent_type":"some-plugin:implementer","#.into(),
+        r#""agent_type":"Implementer","#.into(),
+        r#""agent_type":"","#.into(),
+        r#""agent_type":null,"#.into(),
+        r#""agent_type":7,"#.into(),
+        r#""agent_type":["implementer"],"#.into(),
+        r#""agent_type":{"a":"implementer"},"#.into(),
+    ] {
+        assert_eq!(
+            judge(&read_project_plan(&agent)),
+            Decision::Allow,
+            "{agent}"
+        );
+    }
+}
+
+fn temp_dir(tag: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("tpg-{tag}-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+#[test]
+fn trace_line_format() {
+    let dir = temp_dir("fmt");
+    let file = dir.join("trace.log");
+    let blocked = r#"{"agent_type":"implementer","agent_id":"a1","tool_name":"Read","tool_input":{"file_path":"docs/plans/project/x.md"},"cwd":"/repo"}"#;
+    let main_conv = r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#;
+    for input in [blocked, main_conv, "not json"] {
+        let line = trace_line(input, &judge(input));
+        append_trace(&file, &line);
+    }
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        text,
+        "implementer\ta1\tRead\tblock\n-\t-\tBash\tallow\n-\t-\t-\tallow\n"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn trace_write_failure_is_ignored() {
+    let dir = temp_dir("fail");
+    // A directory cannot be opened for append as a file: the write fails.
+    append_trace(&dir, "x");
+    append_trace(&dir.join("missing").join("t.log"), "x");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
