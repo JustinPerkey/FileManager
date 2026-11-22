@@ -1,60 +1,145 @@
 //! Manual check of the native file dialogs (Windows only; see
 //! `docs/gpui-dialogs-check.md`). Never part of the exe.
 //!
-//! Usage: `cargo run -p filemanager-gpui --example dialog_check -- <folder>`
+//! Usage: `cargo run -p filemanager-gpui --example dialog_check -- <folder> [--click]`
 //!
-//! Opens a window (the dialogs' owner), then in turn an open dialog filtered
-//! to `*.toml`, a folder picker, and a save dialog for `.tar.gz`. Each result
-//! is written with `{:?}` to `dialog-check.txt` in the current directory, so a
-//! lone surrogate shows as `\u{d800}`.
+//! Opens a window (the dialogs' owner). By default it then shows, in turn, an
+//! open dialog filtered to `*.toml`, a folder picker and a save dialog for
+//! `.tar.gz`, and quits. With `--click` the window instead holds one Browse
+//! button that opens an open dialog on every click (for the double-click
+//! check); close the window to finish. Each result is written with `{:?}` to
+//! `dialog-check.txt` in `<folder>`, so a lone surrogate shows as `\u{d800}`.
 
 #[cfg(windows)]
 mod check {
+    use std::cell::Cell;
     use std::fmt::Write as _;
-    use std::path::PathBuf;
+    use std::io::Write as _;
+    use std::path::{Path, PathBuf};
+    use std::rc::Rc;
 
+    use fm_app::platform::gpui::GpuiPlatform;
     use fm_app::platform::{
-        gpui::GpuiPlatform, platform, set_platform, FileFilter, OpenSpec, PickKind, SaveSpec,
+        platform, set_platform, FileFilter, OpenSpec, PickKind, PickResult, SaveSpec,
     };
-    use gpui::{div, App, AppContext as _, IntoElement, Render, Window, WindowOptions};
+    use gpui::prelude::*;
+    use gpui::{div, App, Window, WindowOptions};
 
-    struct Blank;
+    const REPORT: &str = "dialog-check.txt";
 
-    impl Render for Blank {
-        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-            div()
+    /// The owner window. With a button (`--click`), every click requests an
+    /// open dialog.
+    struct Owner {
+        browse: Option<Browse>,
+    }
+
+    struct Browse {
+        report: PathBuf,
+        spec: OpenSpec,
+        clicks: Rc<Cell<u32>>,
+    }
+
+    impl Render for Owner {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let root = div().size_full().p_4();
+            let Some(browse) = &self.browse else {
+                return root.child("dialog_check: the owner window");
+            };
+            let report = browse.report.clone();
+            let spec = browse.spec.clone();
+            let clicks = browse.clicks.clone();
+            root.child(
+                div()
+                    .id("browse")
+                    .p_4()
+                    .border_1()
+                    .cursor_pointer()
+                    .child("Browse")
+                    .on_click(move |_, _window, cx: &mut App| {
+                        clicks.set(clicks.get() + 1);
+                        let n = clicks.get();
+                        let report = report.clone();
+                        let task = platform(cx).pick(spec.clone(), cx);
+                        cx.spawn(async move |_cx| {
+                            append(&report, &format!("click {n}: {:?}\n", task.await));
+                        })
+                        .detach();
+                    }),
+            )
+        }
+    }
+
+    fn append(report: &Path, text: &str) {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(report);
+        if let Err(e) = file.and_then(|mut f| f.write_all(text.as_bytes())) {
+            eprintln!("could not write {}: {e}", report.display());
+        }
+    }
+
+    fn line(out: &mut String, label: &str, result: &PickResult) {
+        let _ = writeln!(out, "{label}: {result:?}");
+    }
+
+    fn open_spec(start: Option<PathBuf>) -> OpenSpec {
+        OpenSpec {
+            kind: PickKind::File,
+            filters: vec![FileFilter {
+                name: "Manifest (*.toml)".into(),
+                patterns: vec!["*.toml".into()],
+            }],
+            start_dir: start,
+            title: Some("Open a manifest".into()),
         }
     }
 
     pub fn main() {
-        let start: Option<PathBuf> = std::env::args_os().nth(1).map(PathBuf::from);
+        let mut args = std::env::args_os().skip(1);
+        let start: Option<PathBuf> = args.next().map(PathBuf::from);
+        let click = args.any(|a| a == "--click");
+        let report = start.clone().unwrap_or_default().join(REPORT);
         gpui_platform::application().run(move |cx: &mut App| {
             set_platform(cx, GpuiPlatform);
+            let spec = open_spec(start.clone());
             let opened = cx.open_window(WindowOptions::default(), |window, cx| {
                 fm_app::platform::win_dialog::capture_owner(window);
-                cx.new(|_| Blank)
+                let browse = click.then(|| Browse {
+                    report: report.clone(),
+                    spec: spec.clone(),
+                    clicks: Rc::new(Cell::new(0)),
+                });
+                cx.new(|_| Owner { browse })
             });
             if opened.is_err() {
                 cx.quit();
                 return;
             }
+            cx.on_window_closed(|cx, closed| {
+                fm_app::platform::release_owner(closed);
+                if cx.windows().is_empty() {
+                    cx.quit();
+                }
+            })
+            .detach();
+            if click {
+                return;
+            }
+            let start = start.clone();
+            let report = report.clone();
             cx.spawn(async move |cx| {
-                let mut report = String::new();
-                let open = OpenSpec {
-                    kind: PickKind::File,
-                    filters: vec![FileFilter {
-                        name: "Manifest (*.toml)".into(),
-                        patterns: vec!["*.toml".into()],
-                    }],
-                    start_dir: start.clone(),
-                    title: Some("Open a manifest".into()),
-                };
+                let mut out = String::new();
+                let task = cx.update(|cx| platform(cx).pick(spec, cx));
+                line(&mut out, "open", &task.await);
                 let folder = OpenSpec {
                     kind: PickKind::Folder,
                     filters: Vec::new(),
                     start_dir: start.clone(),
                     title: Some("Pick a folder".into()),
                 };
+                let task = cx.update(|cx| platform(cx).pick(folder, cx));
+                line(&mut out, "folder", &task.await);
                 let save = SaveSpec {
                     filters: vec![FileFilter {
                         name: "Gzip archive (.tar.gz)".into(),
@@ -65,16 +150,10 @@ mod check {
                     suggested_name: Some("gateway.tar.gz".into()),
                     title: None,
                 };
-                let task = cx.update(|cx| platform(cx).pick(open, cx));
-                let _ = writeln!(report, "open: {:?}", task.await);
-                let task = cx.update(|cx| platform(cx).pick(folder, cx));
-                let _ = writeln!(report, "folder: {:?}", task.await);
                 let task = cx.update(|cx| platform(cx).pick_save(save, cx));
-                let _ = writeln!(report, "save: {:?}", task.await);
-                if let Err(e) = std::fs::write("dialog-check.txt", &report) {
-                    eprintln!("could not write dialog-check.txt: {e}");
-                }
-                print!("{report}");
+                line(&mut out, "save", &task.await);
+                append(&report, &out);
+                print!("{out}");
                 cx.update(|cx| cx.quit());
             })
             .detach();

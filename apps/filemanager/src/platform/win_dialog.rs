@@ -11,21 +11,20 @@
 use std::ffi::{c_void, OsStr, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
 
-use gpui::{App, Task};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use raw_window_handle::RawWindowHandle;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{ERROR_CANCELLED, HWND};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IBindCtx,
-    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
 };
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
     FileOpenDialog, FileSaveDialog, IFileDialog, IFileOpenDialog, IFileSaveDialog, IShellItem,
-    SHCreateItemFromParsingName, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST,
-    FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    SHCreateItemFromParsingName, FILEOPENDIALOGOPTIONS, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM,
+    FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
 };
 
 use super::{FileFilter, OpenSpec, PickError, PickKind, PickResult, SaveSpec};
@@ -33,13 +32,30 @@ use super::{FileFilter, OpenSpec, PickError, PickKind, PickResult, SaveSpec};
 /// The main window's `HWND`, as an integer so it can cross threads. Zero means
 /// no owner: the dialog is then not modal to the app.
 static OWNER: AtomicIsize = AtomicIsize::new(0);
+/// The id of the window `OWNER` belongs to.
+static OWNER_WINDOW: AtomicU64 = AtomicU64::new(0);
 
 /// Remembers `window`'s `HWND` as the owner of every dialog shown later.
 pub fn capture_owner(window: &gpui::Window) {
-    if let Ok(handle) = window.window_handle() {
+    // `gpui::Window` has its own `window_handle`, which would shadow the
+    // `raw_window_handle` one in method syntax.
+    if let Ok(handle) = raw_window_handle::HasWindowHandle::window_handle(window) {
         if let RawWindowHandle::Win32(h) = handle.as_raw() {
             OWNER.store(h.hwnd.get(), Ordering::Relaxed);
+            OWNER_WINDOW.store(
+                window.window_handle().window_id().as_u64(),
+                Ordering::Relaxed,
+            );
         }
+    }
+}
+
+/// Forgets the owner when its window closes, so no dialog is ever given a
+/// stale (possibly recycled) `HWND`.
+pub fn release_owner(closed: gpui::WindowId) {
+    if OWNER_WINDOW.load(Ordering::Relaxed) == closed.as_u64() {
+        OWNER.store(0, Ordering::Relaxed);
+        OWNER_WINDOW.store(0, Ordering::Relaxed);
     }
 }
 
@@ -107,7 +123,7 @@ impl ComApartment {
     fn enter() -> Result<Self, PickError> {
         // SAFETY: no reserved argument; paired with `CoUninitialize` in `Drop`
         // on the same thread. Called once per dialog thread.
-        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) }
             .ok()
             .map_err(failed)?;
         Ok(Self)
@@ -121,50 +137,87 @@ impl Drop for ComApartment {
     }
 }
 
-fn set_folder(dialog: &IFileDialog, dir: &std::path::Path) {
-    let dir = wide(dir.as_os_str());
-    // SAFETY: `dir` is NUL-terminated and outlives the call.
-    let item: windows::core::Result<IShellItem> =
-        unsafe { SHCreateItemFromParsingName(PCWSTR(dir.as_ptr()), None::<&IBindCtx>) };
-    // A folder that no longer exists is skipped: Windows picks one.
-    if let Ok(item) = item {
-        // SAFETY: `item` is a live shell item.
-        let _ = unsafe { dialog.SetFolder(&item) };
+/// Every string a dialog is given, as NUL-terminated wide buffers. The caller
+/// keeps this value alive until `Show` returns, so no pointer handed to the
+/// dialog dangles whether or not the dialog copies it.
+struct DialogStrings {
+    filters: Vec<WideFilter>,
+    specs: Vec<COMDLG_FILTERSPEC>,
+    extension: Option<Vec<u16>>,
+    folder: Option<Vec<u16>>,
+    file_name: Option<Vec<u16>>,
+    title: Option<Vec<u16>>,
+}
+
+impl DialogStrings {
+    fn new(
+        filters: &[FileFilter],
+        extension: Option<&str>,
+        folder: Option<&std::path::Path>,
+        file_name: Option<&OsStr>,
+        title: Option<&str>,
+    ) -> Self {
+        let filters = wide_filters(filters);
+        let specs = filters
+            .iter()
+            .map(|f| COMDLG_FILTERSPEC {
+                pszName: PCWSTR(f.name.as_ptr()),
+                pszSpec: PCWSTR(f.spec.as_ptr()),
+            })
+            .collect();
+        Self {
+            filters,
+            specs,
+            extension: extension.map(default_extension),
+            folder: folder.map(|p| wide(p.as_os_str())),
+            file_name: file_name.map(wide),
+            title: title.map(|t| wide(OsStr::new(t))),
+        }
+    }
+
+    /// Hands the strings to `dialog`.
+    fn apply(&self, dialog: &IFileDialog) -> windows::core::Result<()> {
+        debug_assert_eq!(self.filters.len(), self.specs.len());
+        if !self.specs.is_empty() {
+            // SAFETY: every pointer in `self.specs` points into
+            // `self.filters`, and `self` outlives `Show` (see the type docs).
+            unsafe {
+                dialog.SetFileTypes(&self.specs)?;
+                dialog.SetFileTypeIndex(1)?;
+            }
+        }
+        if let Some(ext) = &self.extension {
+            // SAFETY: NUL-terminated, owned by `self`, which outlives `Show`.
+            unsafe { dialog.SetDefaultExtension(PCWSTR(ext.as_ptr()))? };
+        }
+        if let Some(folder) = &self.folder {
+            // SAFETY: NUL-terminated, owned by `self`.
+            let item: windows::core::Result<IShellItem> =
+                unsafe { SHCreateItemFromParsingName(PCWSTR(folder.as_ptr()), None::<&IBindCtx>) };
+            // A folder that no longer exists is skipped: Windows picks one.
+            if let Ok(item) = item {
+                // SAFETY: `item` is a live shell item.
+                let _ = unsafe { dialog.SetFolder(&item) };
+            }
+        }
+        if let Some(name) = &self.file_name {
+            // SAFETY: NUL-terminated, owned by `self`, which outlives `Show`.
+            unsafe { dialog.SetFileName(PCWSTR(name.as_ptr()))? };
+        }
+        if let Some(title) = &self.title {
+            // SAFETY: NUL-terminated, owned by `self`, which outlives `Show`.
+            let _ = unsafe { dialog.SetTitle(PCWSTR(title.as_ptr())) };
+        }
+        Ok(())
     }
 }
 
-fn set_filters(dialog: &IFileDialog, filters: &[FileFilter]) -> windows::core::Result<()> {
-    if filters.is_empty() {
-        return Ok(());
-    }
-    let wides = wide_filters(filters);
-    let specs: Vec<COMDLG_FILTERSPEC> = wides
-        .iter()
-        .map(|f| COMDLG_FILTERSPEC {
-            pszName: PCWSTR(f.name.as_ptr()),
-            pszSpec: PCWSTR(f.spec.as_ptr()),
-        })
-        .collect();
-    // SAFETY: every pointer in `specs` points into `wides`, which outlives
-    // both calls; the dialog copies the strings.
-    unsafe {
-        dialog.SetFileTypes(&specs)?;
-        dialog.SetFileTypeIndex(1)
-    }
-}
-
-fn set_title(dialog: &IFileDialog, title: Option<&str>) {
-    if let Some(title) = title {
-        let title = wide(OsStr::new(title));
-        // SAFETY: `title` is NUL-terminated and outlives the call.
-        let _ = unsafe { dialog.SetTitle(PCWSTR(title.as_ptr())) };
-    }
-}
-
-/// Shows `dialog` and reads the chosen path; `Ok(None)` when cancelled.
-fn show_and_read(dialog: &IFileDialog) -> PickResult {
-    // SAFETY: `dialog` is a live dialog; the owner is a window handle that
-    // belongs to another thread, which is allowed for an owner.
+/// Shows `dialog` and reads the chosen path; `Ok(None)` when cancelled. The
+/// caller still holds the [`DialogStrings`] the dialog was given.
+fn show_and_read(dialog: &IFileDialog, _strings: &DialogStrings) -> PickResult {
+    // SAFETY: `dialog` is a live dialog. The owner, if any, is cleared when
+    // its window closes and belongs to another thread, which is allowed for
+    // an owner. The strings passed to the dialog outlive this call (`_strings`).
     if let Err(e) = unsafe { dialog.Show(owner_hwnd()) } {
         return if e.code() == windows::core::HRESULT::from_win32(ERROR_CANCELLED.0) {
             Ok(None)
@@ -184,8 +237,16 @@ fn show_and_read(dialog: &IFileDialog) -> PickResult {
     }
 }
 
-/// Shows an open dialog and blocks until it closes. Call from a thread of
-/// your own: the dialog must not run on the UI thread.
+/// Adds `extra` to the dialog's default options.
+fn add_options(dialog: &IFileDialog, extra: FILEOPENDIALOGOPTIONS) -> Result<(), PickError> {
+    // SAFETY: `dialog` is a live dialog.
+    let options = unsafe { dialog.GetOptions() }.map_err(failed)?;
+    // SAFETY: as above.
+    unsafe { dialog.SetOptions(options | extra) }.map_err(failed)
+}
+
+/// Shows an open dialog and blocks until it closes. Run it on a thread of
+/// your own (see [`super::gate::run_dialog`]): never on the UI thread.
 ///
 /// # Errors
 /// [`PickError::Failed`] if the dialog could not be shown or returned an error.
@@ -195,22 +256,23 @@ pub fn run_open(spec: &OpenSpec) -> PickResult {
     let open: IFileOpenDialog =
         unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) }.map_err(failed)?;
     let dialog: &IFileDialog = &open;
-    let extra = match spec.kind {
-        PickKind::File => FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST,
-        PickKind::Folder => FOS_FORCEFILESYSTEM | FOS_PICKFOLDERS,
+    let (extra, filters): (_, &[FileFilter]) = match spec.kind {
+        PickKind::File => (
+            FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST,
+            &spec.filters,
+        ),
+        PickKind::Folder => (FOS_FORCEFILESYSTEM | FOS_PICKFOLDERS, &[]),
     };
-    // SAFETY: `dialog` is a live dialog.
-    let options = unsafe { dialog.GetOptions() }.map_err(failed)?;
-    // SAFETY: as above.
-    unsafe { dialog.SetOptions(options | extra) }.map_err(failed)?;
-    if spec.kind == PickKind::File {
-        set_filters(dialog, &spec.filters).map_err(failed)?;
-    }
-    if let Some(dir) = &spec.start_dir {
-        set_folder(dialog, dir);
-    }
-    set_title(dialog, spec.title.as_deref());
-    show_and_read(dialog)
+    add_options(dialog, extra)?;
+    let strings = DialogStrings::new(
+        filters,
+        None,
+        spec.start_dir.as_deref(),
+        None,
+        spec.title.as_deref(),
+    );
+    strings.apply(dialog).map_err(failed)?;
+    show_and_read(dialog, &strings)
 }
 
 /// Shows a save dialog and blocks until it closes. Windows asks "replace?"
@@ -224,60 +286,16 @@ pub fn run_save(spec: &SaveSpec) -> PickResult {
     let save: IFileSaveDialog =
         unsafe { CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER) }.map_err(failed)?;
     let dialog: &IFileDialog = &save;
-    // SAFETY: `dialog` is a live dialog.
-    let options = unsafe { dialog.GetOptions() }.map_err(failed)?;
-    // SAFETY: as above.
-    unsafe { dialog.SetOptions(options | FOS_FORCEFILESYSTEM) }.map_err(failed)?;
-    set_filters(dialog, &spec.filters).map_err(failed)?;
-    if let Some(ext) = &spec.default_extension {
-        let ext = default_extension(ext);
-        // SAFETY: `ext` is NUL-terminated and outlives the call.
-        unsafe { dialog.SetDefaultExtension(PCWSTR(ext.as_ptr())) }.map_err(failed)?;
-    }
-    if let Some(dir) = &spec.start_dir {
-        set_folder(dialog, dir);
-    }
-    if let Some(name) = &spec.suggested_name {
-        let name = wide(name);
-        // SAFETY: `name` is NUL-terminated and outlives the call.
-        unsafe { dialog.SetFileName(PCWSTR(name.as_ptr())) }.map_err(failed)?;
-    }
-    set_title(dialog, spec.title.as_deref());
-    show_and_read(dialog)
-}
-
-/// Runs `dialog` on a dedicated thread; the task resolves with its result.
-fn on_dialog_thread(
-    name: &str,
-    dialog: impl FnOnce() -> PickResult + Send + 'static,
-    cx: &App,
-) -> Task<PickResult> {
-    let (tx, rx) = async_channel::bounded(1);
-    let spawned = std::thread::Builder::new()
-        .name(name.to_string())
-        .spawn(move || {
-            let _ = tx.send_blocking(dialog());
-        });
-    if let Err(e) = spawned {
-        return Task::ready(Err(failed(e)));
-    }
-    cx.foreground_executor().spawn(async move {
-        rx.recv()
-            .await
-            .unwrap_or_else(|_| Err(failed("the dialog thread stopped")))
-    })
-}
-
-/// Shows an open dialog without blocking the caller.
-#[must_use]
-pub fn pick(spec: OpenSpec, cx: &App) -> Task<PickResult> {
-    on_dialog_thread("open-dialog", move || run_open(&spec), cx)
-}
-
-/// Shows a save dialog without blocking the caller.
-#[must_use]
-pub fn pick_save(spec: SaveSpec, cx: &App) -> Task<PickResult> {
-    on_dialog_thread("save-dialog", move || run_save(&spec), cx)
+    add_options(dialog, FOS_FORCEFILESYSTEM)?;
+    let strings = DialogStrings::new(
+        &spec.filters,
+        spec.default_extension.as_deref(),
+        spec.start_dir.as_deref(),
+        spec.suggested_name.as_deref(),
+        spec.title.as_deref(),
+    );
+    strings.apply(dialog).map_err(failed)?;
+    show_and_read(dialog, &strings)
 }
 
 #[cfg(test)]

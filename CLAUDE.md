@@ -47,7 +47,8 @@ Cargo.toml                    workspace: members crates/*, devtools/*, apps/file
                               ts-rs, tempfile, notify-debouncer-mini, gpui (gpui-pre
                               =0.3.12), gpui_platform (gpui-pre-platform =0.3.12, no
                               default features), gpui-component =0.10.0,
-                              gpui-kit-assets =0.10.0, async-channel;
+                              gpui-kit-assets =0.10.0, async-channel, log, windows (0.62;
+                              the GPUI app's Windows dialogs), raw-window-handle;
                               [workspace.lints.clippy] turns on pedantic, and every
                               crate opts in with [lints] workspace = true
 .cargo/config.toml            [env] TS_RS_EXPORT_DIR points stray #[ts(export)] into target/;
@@ -133,6 +134,7 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               Cascadia Mono else Consolas)
   src/platform/               Platform trait (pick(OpenSpec), pick_save(SaveSpec), open,
                               reveal, copy_text; global PlatformHandle), gpui.rs (real),
+                              gate.rs (DialogGate, run_dialog: one dialog at a time),
                               win_dialog.rs (Windows only: the common item dialog over the
                               `windows` crate, filters, default extension, exact OsString
                               paths; the only `unsafe` in the app; manual check in

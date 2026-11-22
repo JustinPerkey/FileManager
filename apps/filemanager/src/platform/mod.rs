@@ -6,6 +6,7 @@
 //! ([`PlatformHandle`]); models fetch it with [`platform`].
 
 pub mod fake;
+pub mod gate;
 pub mod gpui;
 pub mod path_loss;
 #[cfg(windows)]
@@ -74,6 +75,15 @@ pub trait Platform: 'static {
     fn reveal(&self, path: &Path, cx: &mut App);
     /// Puts `text` on the clipboard.
     fn copy_text(&self, text: &str, cx: &mut App);
+}
+
+/// Tells the dialogs that window `closed` is gone, so none of them is given its
+/// handle as an owner. A no-op off Windows.
+pub fn release_owner(closed: ::gpui::WindowId) {
+    #[cfg(windows)]
+    win_dialog::release_owner(closed);
+    #[cfg(not(windows))]
+    let _ = closed;
 }
 
 /// The app's platform, as a GPUI global.

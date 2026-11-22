@@ -45,7 +45,8 @@ pub fn run(self_check: bool) -> i32 {
             DevMode::init(cx);
             platform::set_platform(cx, platform::gpui::GpuiPlatform);
             cx.set_global(PathLossFeed(platform::path_loss::install()));
-            cx.on_window_closed(|cx, _| {
+            cx.on_window_closed(|cx, closed| {
+                platform::release_owner(closed);
                 if cx.windows().is_empty() {
                     cx.quit();
                 }

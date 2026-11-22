@@ -6,6 +6,9 @@ use std::path::Path;
 use ::gpui::PathPromptOptions;
 use ::gpui::{App, ClipboardItem, Task};
 
+#[cfg(windows)]
+use super::gate::run_dialog;
+use super::gate::DialogGate;
 use super::{OpenSpec, PickResult, Platform, SaveSpec};
 #[cfg(not(windows))]
 use super::{PickError, PickKind};
@@ -28,48 +31,75 @@ fn failed(e: impl std::fmt::Display) -> PickError {
 }
 
 #[cfg(windows)]
-fn open_dialog(spec: &OpenSpec, cx: &mut App) -> Task<PickResult> {
-    super::win_dialog::pick(spec.clone(), cx)
+fn open_dialog(spec: OpenSpec, cx: &mut App) -> Task<PickResult> {
+    run_dialog(
+        &DialogGate::global(),
+        move || super::win_dialog::run_open(&spec),
+        cx,
+    )
 }
 
 #[cfg(windows)]
 fn save_dialog(spec: SaveSpec, cx: &mut App) -> Task<PickResult> {
-    super::win_dialog::pick_save(spec, cx)
+    run_dialog(
+        &DialogGate::global(),
+        move || super::win_dialog::run_save(&spec),
+        cx,
+    )
 }
 
-// The fallbacks below are unused in practice (see `GpuiPlatform`).
+// The fallbacks below are unused in practice (see `GpuiPlatform`). They take
+// the same gate, held until GPUI's prompt answers.
 #[cfg(not(windows))]
-fn open_dialog(spec: &OpenSpec, cx: &mut App) -> Task<PickResult> {
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "same signature as the Windows version, which moves the spec to the dialog thread"
+)]
+fn open_dialog(spec: OpenSpec, cx: &mut App) -> Task<PickResult> {
+    let Some(guard) = DialogGate::global().try_enter() else {
+        return Task::ready(Ok(None));
+    };
     let rx = cx.prompt_for_paths(PathPromptOptions {
         files: spec.kind == PickKind::File,
         directories: spec.kind == PickKind::Folder,
         multiple: false,
         prompt: None,
     });
-    cx.spawn(async move |_cx| match rx.await {
-        Ok(Ok(paths)) => Ok(paths.and_then(|p| p.into_iter().next())),
-        Ok(Err(e)) => Err(failed(e)),
-        Err(e) => Err(failed(e)),
+    cx.spawn(async move |_cx| {
+        let answer = match rx.await {
+            Ok(Ok(paths)) => Ok(paths.and_then(|p| p.into_iter().next())),
+            Ok(Err(e)) => Err(failed(e)),
+            Err(e) => Err(failed(e)),
+        };
+        drop(guard);
+        answer
     })
 }
 
 #[cfg(not(windows))]
 fn save_dialog(spec: SaveSpec, cx: &mut App) -> Task<PickResult> {
+    let Some(guard) = DialogGate::global().try_enter() else {
+        return Task::ready(Ok(None));
+    };
     let dir = spec.start_dir.unwrap_or_default();
     let name = spec
         .suggested_name
         .map(|n| n.to_string_lossy().into_owned());
     let rx = cx.prompt_for_new_path(&dir, name.as_deref());
-    cx.spawn(async move |_cx| match rx.await {
-        Ok(Ok(path)) => Ok(path),
-        Ok(Err(e)) => Err(failed(e)),
-        Err(e) => Err(failed(e)),
+    cx.spawn(async move |_cx| {
+        let answer = match rx.await {
+            Ok(Ok(path)) => Ok(path),
+            Ok(Err(e)) => Err(failed(e)),
+            Err(e) => Err(failed(e)),
+        };
+        drop(guard);
+        answer
     })
 }
 
 impl Platform for GpuiPlatform {
     fn pick(&self, spec: OpenSpec, cx: &mut App) -> Task<PickResult> {
-        open_dialog(&spec, cx)
+        open_dialog(spec, cx)
     }
 
     fn pick_save(&self, spec: SaveSpec, cx: &mut App) -> Task<PickResult> {
