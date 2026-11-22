@@ -338,7 +338,13 @@ Ownership:
   `*.<last suffix>`; Schedule "Text"/"XML" with "All files"; Database
   Manager "SQLite database" with "All files"). A failed dialog is
   `PickError::Failed` with the copy "The file dialog could not be shown. See
-  Details." Tests use `FakePlatform`, which records every spec. Not `rfd`.
+  Details." **At most one dialog is in flight per process:** a request
+  made while a dialog is open resolves at once as `Ok(None)`, like a cancel,
+  not queued (two dialogs would re-enable the owner when the first closes).
+  Tests use `FakePlatform`, which records every spec, and a gate seam for
+  the one-dialog rule. Not `rfd`: CI checks that `filemanager-gpui`'s
+  dependency graph has none (`Cargo.lock` keeps it via `tauri-plugin-dialog`
+  until M9).
 - **Drop (D11, D26, D29).** GPUI skips a name that is not valid UTF-16 and
   only logs, at Error level with target `gpui_windows::clipboard`,
   `"dragged file name is not UTF-16: {err}"` (gpui-pre-windows

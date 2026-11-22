@@ -75,6 +75,20 @@ lock through GPUI):
   `CoInitializeEx(COINIT_APARTMENTTHREADED)` and uninitialised at the end,
   so the GPUI UI thread is never blocked; the result comes back through a
   oneshot/`async_channel` as a GPUI `Task`.
+- **At most one dialog in flight per process.** Windows disables the owner
+  only once the dialog window exists, so a quick double-click could open two
+  "modal" dialogs, and closing the first would re-enable the owner while the
+  second is still open (gpui-pre-windows `src/dialog.rs` guards against this
+  with a per-owner lock across the modal loop). Guard every dialog call in
+  `GpuiPlatform`, open and save alike, with one process-wide gate (a
+  `DialogGate`: `try_enter() -> Option<DialogGuard>`, the guard released on
+  drop, after the dialog thread has returned). **A request made while a
+  dialog is open resolves at once as `Ok(None)`, exactly like a cancel**: it
+  is not queued (a queued dialog would pop up after the user finished with
+  the first, unasked) and it is not an error. Put the gate and the dialog
+  runner behind a small seam (`run_dialog(gate, job)`, where `job` is the
+  blocking COM call, or a fake in tests) so the rule is testable without COM.
+  The temporary GPUI-prompt path on non-Windows targets uses the same gate.
 - **Owner window:** the main window's `HWND`, captured once when the window
   opens (through `raw-window-handle` from the GPUI window; carry it across
   threads as an integer) and passed to `Show`, so the dialog is modal to
@@ -141,7 +155,9 @@ milestone).
 Create: `apps/filemanager/src/platform/win_dialog.rs`,
 `apps/filemanager/examples/dialog_check.rs`, `docs/gpui-dialogs-check.md`.
 
-Edit: `Cargo.toml`, `Cargo.lock`, `apps/filemanager/Cargo.toml`,
+Create also: `apps/filemanager/src/platform/gate.rs`.
+
+Edit: `.github/workflows/ci.yml` (the rfd check), `Cargo.toml`, `Cargo.lock`, `apps/filemanager/Cargo.toml`,
 `apps/filemanager/src/platform/{mod.rs,gpui.rs,fake.rs}`,
 `apps/filemanager/src/lib.rs` (capture
 the owner window), `CLAUDE.md` (Layout line for `platform/`).
@@ -155,8 +171,17 @@ Do not touch: `path_loss.rs` (drop stays as it is), `crates/`, `apps/desktop/`, 
 - On Windows the dialogs are the common item dialog with the given filters,
   default extension, start folder and owner; paths return as
   `OsString`-exact `PathBuf`s.
-- No `rfd` in `Cargo.lock`; dumpbin and self-check pass; fmt, clippy pedantic
-  (both jobs) and `cargo test --workspace` pass.
+- No `rfd` in the `filemanager-gpui` dependency graph:
+  `cargo tree --locked -p filemanager-gpui -i rfd --target all` finds no
+  package. (`Cargo.lock` still contains `rfd` while `apps/desktop` exists,
+  because `tauri-plugin-dialog` pulls it in; the cutover milestone removes
+  it from the lock.) Add this as a **linux** CI check next to the
+  test-support check: print the output, and fail unless cargo reports that
+  `rfd` matches no package in that graph.
+- A second dialog request while one is open resolves as `Ok(None)` and
+  shows no second dialog.
+- dumpbin and self-check pass; fmt (linux job), clippy pedantic (both jobs)
+  and `cargo test --workspace` pass.
 - `docs/gpui-dialogs-check.md` exists and the example builds
   (`cargo build -p filemanager-gpui --example dialog_check`).
 
@@ -168,6 +193,13 @@ Do not touch: `path_loss.rs` (drop stays as it is), `crates/`, `apps/desktop/`, 
   `0xD800`, convert, compare with `OsString::from_wide`),
   `default_extension_has_no_dot`.
 - `platform::fake::tests::records_specs` and `answers_in_order_and_logs_calls`.
+- `platform::gate::tests` (all platforms, no COM, through the
+  `run_dialog` seam with a fake job that blocks on a channel):
+  `second_request_while_open_resolves_none_at_once` (the fake job ran once),
+  `gate_reopens_after_the_dialog_returns` (a third request after the first
+  finished runs its job), `gate_released_when_the_job_panics_or_errors`, and
+  `open_and_save_share_one_gate`.
+- CI: the linux `rfd` graph check.
 - The manual check above.
 
 ## Out of scope
@@ -181,4 +213,8 @@ Do not touch: `path_loss.rs` (drop stays as it is), `crates/`, `apps/desktop/`, 
 - COM threading: the dialog must run in an STA thread; the owner HWND
   belongs to the UI thread, which is allowed for an owner.
 - CI cannot show a dialog; correctness of the live dialog rests on the
-  manual check.
+  manual check (add a step to `docs/gpui-dialogs-check.md`: double-click a
+  Browse button quickly; exactly one dialog opens, and the window stays
+  disabled until it closes).
+- A request swallowed by the gate looks like a cancel to the model; that is
+  intended (the user is already in a dialog).

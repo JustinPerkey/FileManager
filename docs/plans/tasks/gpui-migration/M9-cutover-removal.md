@@ -117,6 +117,9 @@ Do not touch: `docs/plans/`, the agent roles, `DESIGN.md`, `PRODUCT.md`,
 
 - `git ls-files` lists no `package.json`, `package-lock.json`, `*.ts`,
   `*.tsx`, `*.js` (outside `.github/` if any), `*.css`, `tauri.conf.json`.
+- `Cargo.lock` contains no `rfd` package (it came only through
+  `tauri-plugin-dialog`); the linux CI `rfd` check (from M3c) changes from
+  `-p filemanager-gpui` to `-p filemanager` and keeps passing.
 - `cargo tree --workspace --locked -i ts-rs` and `-i tauri` match no
   package; `grep -rn "ts_rs\|#\[ts(" crates apps` finds nothing.
 - `cargo build --release -p filemanager --locked` produces
