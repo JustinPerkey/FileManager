@@ -10,8 +10,9 @@ use gpui::{AppContext as _, Context, Entity, TestAppContext};
 
 use super::backend::{PipelineBackend, RealPipeline, StepJob};
 use super::fixtures::{Behavior, FixturePipeline, PipelineFixture, StepGate};
-use super::model::{clean_path, FocusHint, Pending, PipelineModel, StepStatus, ViewError};
+use super::model::{FocusHint, Pending, PipelineModel, StepStatus, ViewError};
 use super::text::{self, STEP_IDS};
+use crate::app::path::clean_path;
 use crate::app::text::PICK_FAILED;
 use crate::platform::fake::{FakePlatform, PlatformCall};
 use crate::platform::{self, PickError, PickKind};

@@ -37,7 +37,8 @@ impl ScheduleModel {
     pub fn request_apply(&mut self, cx);  pub fn pending(&self) -> Option<(&str, &str)>;   // text and XML paths in the dialog
     pub fn confirm(&mut self, cx);  pub fn cancel(&mut self, cx);
     pub fn result(&self) -> Option<&ApplySummary>;       // includes the backup path
-    pub fn already_applied(&self) -> bool;               // duplicate warning
+    pub fn dismiss_result(&mut self, cx);                 // the result banner's dismiss
+    pub fn already_applied(&self) -> bool;               // duplicate warning, in the confirmation body
     pub fn announcement(&self) -> Option<&str>;          // not rendered
     pub fn focus_hint(&self) -> Option<FocusHint>;       // Outcome | AddButton
 }
@@ -81,11 +82,13 @@ View scrolls as a whole, padding 16/24, regions 16 px apart:
    XML…** (primary; busy "Adding…" while `applying`; disabled unless
    `can_apply`) and the reason in muted.
 6. Result: an info banner with the result sentence and, below it, the
-   backup line; dismissible. When `already_applied`, a warn banner with the
-   duplicate warning above it.
+   backup line; dismissible (its dismiss calls `dismiss_result`). No
+   duplicate banner here: `already_applied()` is true right after an apply,
+   so a banner would sit beside the success result.
 7. Confirmation (`pending()`): `sync_confirm` key `"schedule-confirm"`,
    title and body from `text.rs` showing both paths, Cancel focused, confirm
-   "Update" (primary).
+   "Update" (primary). When `already_applied()`, the body also carries the
+   duplicate warning from `text.rs`, as today.
 
 Focus: `Outcome` → the result banner (or the error banner); `AddButton` →
 Add to XML….
@@ -130,7 +133,9 @@ None here; U8 critiques the screenshots.
 `renders_each_fixture_state` (empty, ready, bad), `enter_and_blur_commit_typed_paths`,
 `escape_reverts_typing`, `browse_buttons_pick_their_slot`,
 `apply_opens_confirmation_and_update_confirms`, `cancel_applies_nothing`,
-`result_banner_with_backup_line_dismisses`, `duplicate_warning_shows`,
+`result_banner_with_backup_line_dismisses` (calls `dismiss_result`),
+`duplicate_warning_shows_in_confirmation_only` (in the confirmation body for
+the same pair; absent beside the result after an apply),
 `apply_disabled_with_reason`, `focus_follows_hint_after_apply`.
 
 Ledger: settle every `ScheduleView.test.tsx` row M6 marked U.

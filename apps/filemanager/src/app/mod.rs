@@ -4,6 +4,7 @@
 pub mod dev_mode;
 pub mod drop;
 pub mod guard;
+pub mod path;
 pub mod probe;
 pub mod shell;
 pub mod text;

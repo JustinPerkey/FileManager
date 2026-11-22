@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use fm_pipeline::session::{PipelineError, PipelineErrorKind, PipelineSession, StepId};
 use gpui::{AsyncApp, Context, WeakEntity};
 
+use crate::app::path::clean_path;
 use crate::app::text::PICK_FAILED;
 use crate::jobs::{spawn_thread, JobPanicked, Worker};
 use crate::platform::{platform, OpenSpec, PickError, PickKind};
@@ -716,22 +717,5 @@ fn status_of(session: Option<&PipelineSession>, running: Option<StepId>, id: Ste
         }
         None if !view.unlocked => StepStatus::Waiting,
         None => StepStatus::NotRun,
-    }
-}
-
-/// A typed or pasted path: trimmed, without the quotes Explorer's "Copy as
-/// path" adds. Empty means none.
-#[must_use]
-pub fn clean_path(typed: &str) -> Option<PathBuf> {
-    let trimmed = typed.trim();
-    let unquoted = trimmed
-        .strip_prefix('"')
-        .and_then(|t| t.strip_suffix('"'))
-        .unwrap_or(trimmed)
-        .trim();
-    if unquoted.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(unquoted))
     }
 }

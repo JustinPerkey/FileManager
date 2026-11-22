@@ -15,8 +15,9 @@ are stubs). The Database Manager (`dbmanager`) is in progress: crate only
 (`fm-dbmanager`), UI to come.
 
 A GPUI app is being built beside the Tauri shell in `apps/filemanager` (package
-`filemanager-gpui`); the Tauri exe still ships. The Pipeline's model, backend
-trait, copy and fixtures are ported there (its view is still a placeholder). It
+`filemanager-gpui`); the Tauri exe still ships. The Pipeline's and the Schedule
+Creator's model, backend trait, copy and fixtures are ported there (their
+views are still placeholders). It
 moves the UI to GPUI with the gpui-component widgets; a later cutover milestone
 deletes `apps/desktop` and renames the package and binary to `filemanager`.
 
@@ -150,6 +151,7 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               dev_mode.rs (Ctrl+Alt+Shift+D global, keystroke interceptor), text.rs,
                               view/ (the chrome slot: ui-implementer's, placeholder.rs
                               is the plain stand-in)
+  src/app/path.rs             clean_path, shared by the tools' models
   src/app/probe.rs            `.tag("name")` on an element: records its bounds (test and
                               `shoot` builds only) so the harness can click or clip to it;
                               only tags drawn in the latest frame resolve (Shell calls
@@ -160,9 +162,12 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               manual image). src/bin/filemanager-shoot.rs is its binary
                               (required-features = shoot); never in the release exe
   src/tools/                  registry (ToolId, ToolSlot, ToolHooks, build) and one
-                              module per tool (Pipeline has its real model; Tar Packager and
-                              Schedule still have placeholder models), each with a view/
+                              module per tool (Pipeline and Schedule have their real models; Tar
+                              Packager still has a placeholder model), each with a view/
                               placeholder; tools never import each other
+  src/tools/schedule/         same shape as pipeline/ (ScheduleBackend over fm_schedule's
+                              Core; RealSchedule, ScheduleModel, text.rs, fixtures.rs,
+                              tests.rs); view/ is a placeholder
   src/tools/pipeline/         backend.rs (PipelineBackend over fm_pipeline's Core;
                               RealPipeline), model.rs (PipelineModel: all behaviour),
                               text.rs (the copy), fixtures.rs (FixturePipeline, test and

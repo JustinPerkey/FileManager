@@ -50,6 +50,7 @@ pub enum Backend {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FixtureId {
     Pipeline(pipeline::fixtures::PipelineFixture),
+    Schedule(schedule::fixtures::ScheduleFixture),
 }
 
 /// The backend choice for every tool, installed as a global by
