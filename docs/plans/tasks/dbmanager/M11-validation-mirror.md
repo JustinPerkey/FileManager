@@ -1,6 +1,6 @@
 # M11 — TypeScript validation mirror
 
-Status: awaiting approval (renumbered from M10 and revised 2026-11-16:
+Status: **dropped (2026-11-21):** the UI moves to GPUI and validates with `fm_dbmanager::rules::validate` directly. Do not run this plan. Previous status: awaiting approval (renumbered from M10 and revised 2026-11-16:
 durations, link fields)
 Project: dbmanager   Depends on: M4 (landed). Independent of M5–M10; may run
 in parallel with them.

@@ -1,6 +1,6 @@
 # U1 — Shared controls for the Database Manager
 
-Status: awaiting approval
+Status: **superseded (2026-11-21), not rewritten:** merged into gpui-migration U2 and U3 (shared widgets in `apps/filemanager/src/widgets/`); the ten new icons are added by dbmanager U2. Do not run this plan; it is kept as the record of the design.
 Project: dbmanager   Depends on: M10 (landed)
 
 ## Goal

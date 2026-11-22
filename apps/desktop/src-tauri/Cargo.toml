@@ -23,7 +23,6 @@ fm-schedule = { path = "../../../crates/fm-schedule" }
 fm-pipeline = { path = "../../../crates/fm-pipeline" }
 fm-dbmanager = { path = "../../../crates/fm-dbmanager" }
 ts-rs = { workspace = true }
-notify-debouncer-mini = "0.7.0"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]

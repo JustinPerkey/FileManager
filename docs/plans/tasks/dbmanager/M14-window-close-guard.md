@@ -1,6 +1,6 @@
 # M14 — Window-close guard (capability change: reviewed decision)
 
-Status: awaiting approval. New on 2026-11-16, from the human's answer that
+Status: **dropped (2026-11-21):** the GPUI shell's close guard replaces it (`docs/plans/tasks/gpui-migration/M3-app-b-plumbing.md`, `M12-dbmanager-b-edits.md`). Do not run this plan. Previous status: awaiting approval. New on 2026-11-16, from the human's answer that
 closing the window with unsaved edits must prompt. **This milestone changes
 `capabilities/default.json`, so the reviewer must explicitly approve the
 capability change.** The CSP does not change.

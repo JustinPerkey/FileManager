@@ -88,7 +88,7 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
   const [drop, setDrop] = useState<DropState>(null);
   const [pendingShown, setPendingShown] = useState(false);
   const pendingRef = useRef(false);
-  const [announcement, setAnnouncement] = useState("");
+  const [announcer, setAnnouncer] = useState<AnnouncerState>({ text: "", pending: "", id: 0 });
   const [buildRunning, setBuildRunning] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [result, setResult] = useState<BuildOutcome | null>(null);
@@ -102,13 +102,18 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
   const reportRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLElement>(null);
   const sessionRef = useRef<TarpackSession | null>(null);
-  const frame = useRef(0);
 
+  // Clear now, set on a frame scheduled only after the clear has committed (see the
+  // effect below), so React can never batch the two into one unchanged render.
   const announce = useCallback((text: string) => {
-    cancelAnimationFrame(frame.current);
-    setAnnouncement("");
-    frame.current = requestAnimationFrame(() => setAnnouncement(text));
+    setAnnouncer((a) => ({ text: "", pending: text, id: a.id + 1 }));
   }, []);
+  const announceId = announcer.id;
+  useEffect(() => {
+    if (announceId === 0) return;
+    const f = requestAnimationFrame(() => setAnnouncer((a) => ({ ...a, text: a.pending })));
+    return () => cancelAnimationFrame(f);
+  }, [announceId]);
 
   const apply = useCallback(
     (next: TarpackSession, origin: Origin) => {
@@ -179,8 +184,6 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
       unlisten?.();
     };
   }, [announce]);
-
-  useEffect(() => () => cancelAnimationFrame(frame.current), []);
 
   const showErrors = useCallback(() => {
     if ((sessionRef.current?.manifest?.errorCount ?? 0) === 0) return;
@@ -407,7 +410,7 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
 
   return (
     <section ref={rootRef} className="tool-view tarpack" aria-busy={loading ? true : undefined}>
-      <Announcer text={announcement} />
+      <Announcer text={announcer.text} />
       <DropZone
         enabled={dropState.enabled}
         disabledReason={dropState.reason}
@@ -620,6 +623,8 @@ function overwriteBody(outputPath: string): string {
     ? `A file with this name already exists in ${folder}. Replacing it can't be undone.`
     : "A file with this name already exists. Replacing it can't be undone.";
 }
+
+type AnnouncerState = { text: string; pending: string; id: number };
 
 function Announcer({ text }: { text: string }) {
   return (

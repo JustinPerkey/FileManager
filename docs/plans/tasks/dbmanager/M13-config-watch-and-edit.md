@@ -1,6 +1,6 @@
 # M13 — Config file watcher, automatic reload, and the developer-mode "Edit config"
 
-Status: awaiting approval. New on 2026-11-16, from the human's final answers:
+Status: **superseded (2026-11-21)** by `docs/plans/tasks/gpui-migration/M2-session-b-tarpack-watch.md` (the watcher moves to `fm-core`) and `M12-dbmanager-d-config-watch.md`. Do not run this plan. Previous status: awaiting approval. New on 2026-11-16, from the human's final answers:
 the config reloads automatically, and there is one fixed app-wide config.
 It is numbered 13 so the milestone numbers the UI plans already cite stay
 unchanged. **It runs after M10 and before the U task that shows the config

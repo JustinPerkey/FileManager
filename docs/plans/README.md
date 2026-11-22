@@ -44,8 +44,7 @@ A task plan never says "see the project plan". It may point at code, at
 `docs/plans/` (for example `docs/tarpack-manifest.md`).
 
 Implementers are handed the path of one task plan and read no other file under
-`docs/plans/`. For the Claude runtime a `PreToolUse` hook enforces this
-(`.claude/hooks/task-plan-only.mjs`). Codex has no hooks, so there the agent
+`docs/plans/`. For the Claude runtime, a `PreToolUse` hook, the Rust binary in `devtools/task-plan-guard/`, keeps the implementer subagents out of every plan except task plans. Codex has no hooks, so there the agent
 instructions carry the rule on their own.
 
 When a project plan changes, its author updates every task plan the change
@@ -93,14 +92,16 @@ Project: <slug>   Depends on: U<k>, M<k>
 
 ## Goal
 ## Context
-The brief excerpt, the tokens it uses (by name; values live in tokens.css
-once U1 lands), the inventory entries for its components, and the lib/ API it
-calls.
+The brief excerpt, the tokens it uses (by name; values live in
+apps/filemanager/src/theme/tokens.rs once the theme task lands; tokens.css
+for the legacy Tauri UI), the inventory entries for its widgets, and the
+model API it calls (apps/filemanager/src/tools/<tool>/model.rs; lib/ for the
+legacy Tauri UI).
 ## Files
 ## Skill
-The impeccable skill to apply.
+The impeccable sub-command to apply: shape or critique (of screenshots).
 ## Acceptance criteria
-Including accessibility and keyboard checks.
+Including keyboard reachability and labels.
 ## Tests proving completion
 ## States covered
 Loading / empty / error / success.

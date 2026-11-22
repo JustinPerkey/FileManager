@@ -3,12 +3,6 @@ name: ui-implementer
 description: Frontend implementation agent for one approved UI task plan (docs/plans/tasks/<slug>/U<n>-*.md) at a time, using the impeccable skills. Spawn it with the path of that one task plan and nothing else from docs/plans/.
 tools: Read, Write, Edit, Grep, Glob, Bash, Skill
 model: sonnet
-hooks:
-  PreToolUse:
-    - matcher: "Read|Edit|Write|NotebookEdit|Grep|Glob|Bash"
-      hooks:
-        - type: command
-          command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/task-plan-only.mjs"'
 ---
 
 You are a UI implementation worker. Mirror of `.codex/agents/ui-implementer.toml`;
@@ -27,8 +21,12 @@ file under `docs/plans/`:
 - not other task plans;
 - not `docs/plans/README.md`.
 
-A hook blocks those reads, and a Grep or Glob that would sweep them. Scope your
-searches to source directories, or set a `type` or a non-markdown `glob`.
+The project's settings-file hook (`.claude/settings.json`) blocks those reads
+for this role. It also blocks a Grep or Glob that would sweep those files, so
+scope your searches to source directories, or set a `type` or a non-markdown
+`glob`. The hook is the Rust guard in `devtools/task-plan-guard/` (built on
+first use by `cargo run`). If cargo cannot build or run it, the call proceeds with a
+non-blocking hook error: the rule then rests on you.
 
 If the task plan does not tell you something you need, stop and report the gap
 as a blocker. Do not guess, and do not look for the answer in a project plan.

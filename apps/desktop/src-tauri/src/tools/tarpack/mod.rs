@@ -1,30 +1,21 @@
 //! The Tar Packager's Tauri surface: `tarpack_*` commands, the managed state,
-//! and the two events. Commands are thin glue over [`core::Core`], which holds
-//! the logic as plain functions. This module never touches the `Builder`;
-//! `tools::register` wires it in.
-
-mod core;
-mod progress;
-pub(crate) mod types;
-mod watch;
-
-#[cfg(test)]
-mod tests;
+//! and the two events. Commands are thin glue over [`Core`], which holds
+//! the logic as plain functions in `fm_tarpack::session`. This module never
+//! touches the `Builder`; `tools::register` wires it in.
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use fm_core::watch::FileWatcher;
 use fm_core::AppDirs;
 use fm_tarpack::archive::BuildSummary;
 use fm_tarpack::format::ArchiveFormat;
+use fm_tarpack::session::{
+    coalescing, Core, DroppedAssignment, ManifestChanged, TarpackError, TarpackErrorKind,
+    TarpackSession,
+};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_opener::OpenerExt;
-
-use types::{DroppedAssignment, ManifestChanged, TarpackError, TarpackErrorKind, TarpackSession};
-
-use self::core::Core;
-use self::progress::coalescing;
-use self::watch::ManifestWatcher;
 
 const EVENT_MANIFEST_CHANGED: &str = "tarpack://manifest-changed";
 const EVENT_BUILD_PROGRESS: &str = "tarpack://build-progress";
@@ -32,7 +23,7 @@ const EVENT_BUILD_PROGRESS: &str = "tarpack://build-progress";
 /// Tauri-managed state: the session and the manifest watcher.
 pub struct TarpackState {
     core: Mutex<Core>,
-    watcher: Mutex<Option<ManifestWatcher>>,
+    watcher: Mutex<Option<FileWatcher>>,
 }
 
 /// Constructs the managed state over the per-user app data directory.
@@ -65,7 +56,7 @@ fn arm_watcher(app: &AppHandle, state: &TarpackState, force: bool) {
     }
     let handle = app.clone();
     let shown = path.to_string_lossy().into_owned();
-    *watcher = match ManifestWatcher::start(&path, move || {
+    *watcher = match FileWatcher::start(&path, move || {
         let _ = handle.emit(
             EVENT_MANIFEST_CHANGED,
             ManifestChanged {

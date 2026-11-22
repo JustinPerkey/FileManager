@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "apps/desktop/src-tauri"]
+members = ["crates/*", "devtools/*", "apps/desktop/src-tauri", "apps/filemanager"]
 
 [workspace.package]
 version = "0.1.0"
@@ -17,6 +17,17 @@ codegen-units = 1
 [workspace.dependencies]
 ts-rs = "12"
 tempfile = "3"
+notify-debouncer-mini = "0.7.0"
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+# default-features = false must be set here: a member cannot turn defaults off.
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false }
+gpui-component = "=0.10.0"
+gpui-kit-assets = "=0.10.0"
+async-channel = "2"
+log = "0.4"
+# Same version GPUI uses on Windows; the file dialogs (M3c) call it directly.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
+raw-window-handle = "0.6"
 
 # Every crate opts in with `[lints] workspace = true`. CI runs clippy with
 # `-D warnings`, so a pedantic finding fails the build.

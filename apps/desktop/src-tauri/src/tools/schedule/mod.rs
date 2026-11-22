@@ -1,24 +1,15 @@
 //! The Schedule Creator's Tauri surface: `schedule_*` commands and the
-//! managed state. Commands are thin glue over [`core::Core`]. This module
+//! managed state. Commands are thin glue over [`Core`]. This module
 //! never touches the `Builder`; `tools::register` wires it in.
 //!
 //! The parsing and the XML update are hooks in the `fm-schedule` crate
 //! (`fm_schedule::parse` and `fm_schedule::merge`).
 
-mod core;
-pub(crate) mod types;
-
-#[cfg(test)]
-mod tests;
-
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use fm_schedule::session::{ApplySummary, Core, ScheduleError, ScheduleSession};
 use tauri::State;
-
-use types::{ApplySummary, ScheduleError, ScheduleSession};
-
-use self::core::Core;
 
 /// Tauri-managed state: the session.
 pub struct ScheduleState {

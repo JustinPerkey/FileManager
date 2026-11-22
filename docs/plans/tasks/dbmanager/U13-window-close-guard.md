@@ -1,7 +1,6 @@
 # U13 — Ask before closing the window with unsaved edits
 
-Status: awaiting approval (new 2026-11-16: the human's answer "prompt on
-window close")
+Status: **superseded (2026-11-21), not rewritten:** the close prompt is gpui-migration U4 (shell) over M3b's close guard; the Database Manager registers its draft in gpui-migration M12b, and dbmanager U6 tests its line in the prompt. Do not run this plan; it is kept as the record of the design.
 Project: dbmanager   Depends on: U6 (landed), M14 (landed, including the
 reviewer-approved capability change), M10 (landed)
 

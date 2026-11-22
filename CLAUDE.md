@@ -14,6 +14,11 @@ Schedule Creator (`schedule`, UI and plumbing only: its parse and merge hooks
 are stubs). The Database Manager (`dbmanager`) is in progress: crate only
 (`fm-dbmanager`), UI to come.
 
+A GPUI app is being built beside the Tauri shell in `apps/filemanager` (package
+`filemanager-gpui`); the Tauri exe still ships. It moves the UI to GPUI with
+the gpui-component widgets; a later cutover milestone deletes `apps/desktop`
+and renames the package and binary to `filemanager`.
+
 ## Layout
 
 - `.codex/agents`, `.claude/agents` — planner / ui-designer / implementer /
@@ -26,8 +31,10 @@ are stubs). The Database Manager (`dbmanager`) is in progress: crate only
 - `.claude/settings.json` — enables the `impeccable` plugin (marketplace
   `pbakaus/impeccable`): one skill, `impeccable:impeccable`, whose
   sub-commands (`shape`, `critique`, `audit`, `polish`, …) the UI roles use.
-- `.claude/hooks/task-plan-only.mjs` — keeps the implementer subagents out of
-  every plan except task plans.
+- `devtools/task-plan-guard/` — Rust binary (workspace member) run from
+  `.claude/settings.json` as a `PreToolUse` hook; guards only the `implementer`
+  and `ui-implementer` subagents (by `agent_type`) and keeps them out of every
+  plan except task plans. `TASK_PLAN_GUARD_TRACE=<file>` appends one line per call.
 - `PRODUCT.md`, `DESIGN.md` — the `impeccable` skill's context: durable product
   truth, and the visual system (normative source: `styles/tokens.css`). Read
   by the UI agents; `DESIGN.md` changes when the tokens or shared components
@@ -35,8 +42,13 @@ are stubs). The Database Manager (`dbmanager`) is in progress: crate only
 - Application:
 
 ```
-Cargo.toml                    workspace: members crates/*, apps/desktop/src-tauri;
-                              [workspace.dependencies] pins ts-rs (and tempfile);
+Cargo.toml                    workspace: members crates/*, devtools/*, apps/filemanager,
+                              apps/desktop/src-tauri; [workspace.dependencies] pins
+                              ts-rs, tempfile, notify-debouncer-mini, gpui (gpui-pre
+                              =0.3.12), gpui_platform (gpui-pre-platform =0.3.12, no
+                              default features), gpui-component =0.10.0,
+                              gpui-kit-assets =0.10.0, async-channel, log, windows (0.62;
+                              the GPUI app's Windows dialogs), raw-window-handle;
                               [workspace.lints.clippy] turns on pedantic, and every
                               crate opts in with [lints] workspace = true
 .cargo/config.toml            [env] TS_RS_EXPORT_DIR points stray #[ts(export)] into target/;
@@ -45,8 +57,13 @@ Cargo.toml                    workspace: members crates/*, apps/desktop/src-taur
 rust-toolchain.toml           stable channel (latest stable, not pinned)
 rustfmt.toml
 package.json                  root scripts, npm workspaces: apps/desktop
+devtools/
+  task-plan-guard/            the PreToolUse hook binary (serde_json only); `decide` in
+                              src/lib.rs, table-driven tests in tests/cases.rs
 crates/
   fm-core/                    shared, tool-agnostic library. No tauri dependency.
+                              `watch.rs` is FileWatcher (debounced watch of one file's
+                              parent directory, notify-debouncer-mini)
   fm-dbmanager/               Database Manager domain library. Depends on fm-core only.
                               No tauri dependency. `db.rs` opens a SQLite file;
                               `state.rs` is the recent list, persisted as dbmanager/state;
@@ -76,14 +93,22 @@ crates/
                               in fm-core's Store)
     src/archive/              plan, header, eol, encode, write, verify:
                               atomic archive writer and post-write verification
-  fm-schedule/                Schedule Creator domain library. No tauri dependency.
+    src/session/              Core (session logic with no UI types), DropJob, BuildJob,
+                              the boundary types exported through ts-rs, and the
+                              progress ProgressCoalescer
+  fm-schedule/                Schedule Creator domain library. Depends on fm-core only.
+                              No tauri dependency.
                               parse (text -> Schedule) and merge (Schedule + XML -> XML)
                               are the hooks, run only on apply; both are stubs
-                              returning NotImplemented
+                              returning NotImplemented. `src/session/` is the
+                              session logic (Core, Hooks, backup, atomic write),
+                              its types and tests, with no UI types
   fm-pipeline/                Pipeline domain library. No tauri dependency.
                               subdirectories() lists the units of work; one hook
                               per step (verify, batch, schedule, tarpack), all
-                              stubs returning StepError::NotImplemented
+                              stubs returning StepError::NotImplemented.
+                              `src/session/` is the session logic (Core, Dir, Job,
+                              Finished), its types and tests, with no UI types
 examples/tarpack/             example manifests, valid, used by tests through include_str!
 examples/dbmanager/           schema.sql (example database), example.toml (its config),
                               starter.toml (the inert commented starter file), and
@@ -97,10 +122,41 @@ docs/schedule.md              the Schedule Creator's flow and where its hooks go
 docs/pipeline.md              the Pipeline's flow and where its step hooks go
 docs/manual/user-manual.md    end-user manual; images/ are its screenshots, regenerated
                               by screenshots/shoot.js (real frontend, mocked backend)
+apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, lib `fm_app`
+                              (the lib name survives the later rename). Linux builds a
+                              headless backend and runs tests only; the window needs Windows.
+  build.rs                    embeds assets/icon.ico as resource id 1 (Windows)
+  assets/                     icon.ico, icons/*.svg (no font files: fonts are system fonts)
+  src/main.rs                 parses `--self-check`, calls fm_app::run
+  src/lib.rs                  run(): gpui_component::init, mono font, dev mode, installs the
+                              platform (GpuiPlatform) and the path-loss logger, main window
+  src/assets.rs, fonts.rs     embedded icons (icons! list); system fonts (Segoe UI, mono
+                              Cascadia Mono else Consolas)
+  src/platform/               Platform trait (pick(OpenSpec), pick_save(SaveSpec), open,
+                              reveal, copy_text; global PlatformHandle), gpui.rs (real),
+                              gate.rs (DialogGate, run_dialog: one dialog at a time),
+                              win_dialog.rs (Windows only: the common item dialog over the
+                              `windows` crate, filters, default extension, exact OsString
+                              paths; the only `unsafe` in the app; manual check in
+                              docs/gpui-dialogs-check.md, examples/dialog_check.rs),
+                              fake.rs (scripted, logs specs, for tests and screenshots),
+                              path_loss.rs (log::Log that reports dropped names GPUI skips)
+  src/jobs.rs                 Worker (backend off the UI thread) and spawn_thread (long
+                              jobs with progress); models never block the UI thread
+  src/app/                    shell.rs (Shell root view: current tool, drop routing,
+                              notice, close request), drop.rs (DropTarget), guard.rs
+                              (CloseRequest, unsaved work from the tools),
+                              dev_mode.rs (Ctrl+Alt+Shift+D global, keystroke interceptor), text.rs,
+                              view/ (the chrome slot: ui-implementer's, placeholder.rs
+                              is the plain stand-in)
+  src/tools/                  registry (ToolId, ToolSlot, ToolHooks, build) and one
+                              module per tool, each with model and view/ placeholders;
+                              tools never import each other
+docs/gpui-test-ledger.md      every frontend test case and where it goes in the GPUI app
 apps/desktop/
   package.json, vite.config.ts, tsconfig.json, .oxlintrc.json, index.html
   src-tauri/                  package and binary name: filemanager
-    Cargo.toml                (incl. notify-debouncer-mini: manifest file watcher)
+    Cargo.toml
     build.rs                  tauri_build::build()
     tauri.conf.json, capabilities/default.json
     icons/
@@ -108,21 +164,13 @@ apps/desktop/
     src/lib.rs                builder, plugins, tools::register
     src/tools/mod.rs          tool registry: the only place that calls
                               invoke_handler / setup
-    src/tools/tarpack/        mod.rs (the tarpack_* commands and managed state),
-                              core.rs (session logic as plain functions, no
-                              Tauri types), progress.rs (ProgressCoalescer),
-                              watch.rs (manifest watcher, notify-debouncer-mini),
-                              types.rs (boundary types exported through ts-rs),
-                              tests.rs
-    src/tools/schedule/       mod.rs (the schedule_* commands), core.rs (the two
-                              chosen files, drop sorting, backup, atomic write;
-                              calls the fm-schedule hooks),
-                              types.rs, tests.rs
-    src/tools/pipeline/       mod.rs (the pipeline_* commands; a step runs on a
-                              blocking worker), core.rs (directory check,
-                              begin/Job::run/finish with no disk I/O under the
-                              lock, per-step results; calls the fm-pipeline
-                              hooks), types.rs, tests.rs
+    src/tools/tarpack/        mod.rs only (the tarpack_* commands, managed state and
+                              manifest watcher arming over fm_tarpack::session)
+    src/tools/schedule/       mod.rs only (the schedule_* commands over
+                              fm_schedule::session)
+    src/tools/pipeline/       mod.rs only (the pipeline_* commands over
+                              fm_pipeline::session; a step runs on a blocking
+                              worker)
     src/generated_types.rs    #[cfg(test)] ts-rs export and currency test
   src/
     main.tsx, App.tsx
@@ -135,9 +183,12 @@ apps/desktop/
     lib/pipeline.ts           typed client: one function per pipeline_* command
     lib/generated/            TS types generated from Rust (ts-rs)
     tools/registry.ts         export const tools: ToolEntry[]
-.github/workflows/ci.yml      linux and windows jobs, both run cargo test --workspace;
-                              windows also runs the dumpbin dependency check and
-                              uploads the FileManager-<version>-x64.exe artifact
+.github/workflows/ci.yml      linux job: fmt, clippy, tests, the five-crate dependency
+                              check, the gpui test-support check. windows job
+                              (windows-2025): clippy, tests, both release builds,
+                              dumpbin on both exes, the GPUI self-check; uploads
+                              FileManager-<version>-x64.exe and
+                              FileManager-gpui-<version>-x64.exe
 .env.example                  configuration keys (none yet)
 ```
 
@@ -147,6 +198,7 @@ apps/desktop/
 npm install                                        # once, at repo root
 npm run tauri:dev                                  # run the app
 npm run tauri:build                                # portable Windows exe (tauri build --no-bundle)
+cargo run -p filemanager-gpui                      # run the GPUI app (Windows; `-- --self-check` quits after one frame)
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings   # includes clippy::pedantic (workspace lints)
 cargo test --workspace
@@ -167,17 +219,19 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
   tauri-build's default (`true`) re-links the UCRT dynamically. A `RUSTFLAGS`
   environment variable overrides the config's rustflags (dropping
   `+crt-static`), and `STATIC_VCRUNTIME` overrides `staticVCRuntime`, so set
-  neither. The Windows CI job runs `dumpbin /dependents` on the exe and fails if
+  neither. The Windows CI job runs `dumpbin /dependents` on both exes (`filemanager.exe`,
+  `filemanager-gpui.exe`) and fails if
   it lists `vcruntime*`, `msvcp*`, `api-ms-win-crt-*`, `zstd*`, `liblzma*`,
   `sqlite3*`, or `WebView2Loader.dll`, then uploads
-  `FileManager-<version>-x64.exe`.
+  `FileManager-<version>-x64.exe` and `FileManager-gpui-<version>-x64.exe`.
 - Both CI jobs run `cargo test --workspace`, so the generated-types test runs
   on both.
 - Building the shell on Linux needs the webkit2gtk dev packages:
   `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libsoup-3.0-dev`,
   `libjavascriptcoregtk-4.1-dev`. Without them, cargo can be scoped to
-  `-p fm-core -p fm-tarpack -p fm-dbmanager`, but then the generated-types
-  test does not run.
+  `-p fm-core -p fm-tarpack -p fm-dbmanager -p filemanager-gpui -p task-plan-guard`
+  (the GPUI app builds headless on Linux, without the webkit packages), but then the
+  generated-types test does not run.
 - `tauri:build` produces a portable exe (`target/release/filemanager.exe`), not
   an installer.
 - Native prerequisites: `fm-tarpack` depends on `zstd` and `liblzma`

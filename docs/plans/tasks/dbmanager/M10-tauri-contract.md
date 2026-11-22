@@ -1,6 +1,6 @@
 # M10 — Tauri commands, session snapshot, errors, and the typed client
 
-Status: awaiting approval. Renumbered from M9 and revised 2026-11-16 for
+Status: **superseded (2026-11-21)** by `docs/plans/tasks/gpui-migration/M12-dbmanager-a-tool-core.md`, `M12-dbmanager-b-edits.md` and `M12-dbmanager-c-links-delete.md` (the UI moves to GPUI; no Tauri commands are built). Do not run this plan. Previous status: awaiting approval. Renumbered from M9 and revised 2026-11-16 for
 link errors and conflicts, the duration helper and the fail-closed config.
 Then the ui-designer's contract requests were added: `configFailClosed`,
 pinned client names, a cheap `session()`, `objectName` and `M2mQuery.only`.

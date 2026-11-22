@@ -1,6 +1,6 @@
 # M12 — Tool documentation, user manual, and Windows release check
 
-Status: awaiting approval — **depends on UI plan**: runs only after every
+Status: **superseded (2026-11-21)** by `docs/plans/tasks/gpui-migration/M13-dbmanager-docs.md`. Do not run this plan. Previous status: awaiting approval — **depends on UI plan**: runs only after every
 Database Manager UI task (`U<n>`) has landed. (Renumbered from M11 and
 revised 2026-11-16: editable defaults, durations, link fields; then the
 human's final answers: one fixed app-wide config with automatic reload and a
