@@ -190,7 +190,10 @@ fn child_timeout_is_reported() {
     );
     assert!(failed);
     // The hang is reported with the name; the next scenario still ran.
-    assert_eq!(lines, vec!["FAIL hangs: timed out after 0 s".to_string()]);
+    assert_eq!(
+        lines,
+        vec!["FAIL hangs: timed out after 200 ms".to_string()]
+    );
 }
 
 #[cfg(windows)]

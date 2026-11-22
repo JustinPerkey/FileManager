@@ -653,6 +653,24 @@ mod tests {
     }
 
     #[gpui::test]
+    fn shell_starts_a_probe_frame_on_every_draw(cx: &mut TestAppContext) {
+        let tx = feed(cx);
+        let (shell, cx) = open(cx, tools::build);
+        enter(cx);
+        tx.try_send(NON_UNICODE).expect("open channel");
+        cx.run_until_parked();
+        assert!(
+            probe::bounds("shell-notice").is_some(),
+            "the notice is drawn"
+        );
+        // Hide the tagged element and redraw. No manual `begin_frame`: only the
+        // Shell's own call can make the stale entry stop resolving.
+        shell.update(cx, Shell::dismiss_notice);
+        cx.run_until_parked();
+        assert_eq!(probe::bounds("shell-notice"), None);
+    }
+
+    #[gpui::test]
     fn path_loss_during_drag_shows_one_notice(cx: &mut TestAppContext) {
         let tx = feed(cx);
         let (shell, cx) = open(cx, tools::build);

@@ -47,14 +47,15 @@ impl Render for Placeholder {
             Some(DropTarget::None) | None => None,
         };
         let notice = shell.notice().map(|notice| {
-            div().child(notice.message()).child(
-                Button::new("dismiss-notice").label("Dismiss").on_click({
+            div()
+                .child(notice.message())
+                .child(Button::new("dismiss-notice").label("Dismiss").on_click({
                     let shell = self.shell.clone();
                     move |_: &ClickEvent, _window, cx| {
                         shell.update(cx, Shell::dismiss_notice);
                     }
-                }),
-            )
+                }))
+                .tag("shell-notice")
         });
         let close = shell.close_request().map(|request| {
             let items = request

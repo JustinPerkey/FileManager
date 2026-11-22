@@ -7,8 +7,9 @@
 //! The binary runs each scenario in its own child process (itself, with the
 //! hidden `--child <name>` flag), so scenarios share no state and GPUI's
 //! one-run-per-process limit does not matter. A child that runs longer than
-//! 60 s is killed (`FAIL <name>: timed out after 60 s`) and the rest still run. It prints one line per scenario
-//! (`ok <name>` or `FAIL <name>: <reason>`) and exits non-zero if any failed.
+//! 60 s is killed (`FAIL <name>: timed out after 60 s`) and the rest still
+//! run. It prints one line per scenario (`ok <name>` or `FAIL <name>: <reason>`)
+//! and exits non-zero if any failed.
 
 use std::process::{Command, ExitCode};
 

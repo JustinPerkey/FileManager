@@ -233,7 +233,7 @@ fn crop(image: &image::RgbaImage, selector: &str, scale: f32) -> Result<image::R
         probe::bounds(selector).ok_or_else(|| format!("clip tag not found: {selector}"))?;
     let (x, y, w, h) = device_rect(bounds, scale, (image.width(), image.height()));
     if w == 0 || h == 0 {
-        return Err(format!("clip selector {selector} has no area on screen"));
+        return Err(format!("clip tag {selector} has no area on screen"));
     }
     Ok(image::imageops::crop_imm(image, x, y, w, h).to_image())
 }

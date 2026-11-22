@@ -95,8 +95,8 @@ pub fn run_children(
                 }
                 Ok(None) => {
                     report(format!(
-                        "FAIL {name}: timed out after {} s",
-                        timeout.as_secs()
+                        "FAIL {name}: timed out after {}",
+                        describe(timeout)
                     ));
                     failed = true;
                 }
@@ -110,6 +110,15 @@ pub fn run_children(
         }
     }
     (failed, lines)
+}
+
+/// `60 s`, or `200 ms` for a timeout under a second.
+fn describe(timeout: Duration) -> String {
+    if timeout.subsec_nanos() == 0 {
+        format!("{} s", timeout.as_secs())
+    } else {
+        format!("{} ms", timeout.as_millis())
+    }
 }
 
 /// The exit status, or `None` after killing a child that ran past `timeout`.

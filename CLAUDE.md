@@ -154,8 +154,8 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               only tags drawn in the latest frame resolve (Shell calls
                               `begin_frame` once per draw); `.tag` goes last in a chain
   src/shoot/                  screenshot harness, feature `shoot` only: Scenario/Step API,
-                              steps.rs (player), cli.rs (arg parsing,
-                              child runner with a 60 s timeout), scenarios/ (ui-implementer's; one per
+                              steps.rs (player), cli.rs (arg parsing, child runner with
+                              a 60 s timeout), scenarios/ (ui-implementer's; one per
                               manual image). src/bin/filemanager-shoot.rs is its binary
                               (required-features = shoot); never in the release exe
   src/tools/                  registry (ToolId, ToolSlot, ToolHooks, build) and one

@@ -21,6 +21,13 @@
 //!   its cache without redrawing records nothing for that frame; tagged
 //!   elements must not sit inside a `cached` view. [`reset`] forgets
 //!   everything (the harness calls it once per scenario).
+//!   Consequences: a tag on the Shell's root, or on any ancestor of its tracker
+//!   canvas, never resolves (it is laid out before the frame starts); the
+//!   Shell must not be wrapped in a `cached` view; the counter is per thread,
+//!   so a second window's draw invalidates the first window's tags; a step
+//!   that depends on a state a click just caused needs `Step::WaitIdle` before
+//!   the next `Click`; and an element that is prepainted but not painted (list
+//!   measurement, for example) can still resolve.
 //! - `debug_selector` is for `VisualTestContext` tests only; the harness cannot
 //!   read it in a real window. Tag what a scenario drives.
 
