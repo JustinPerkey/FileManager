@@ -78,6 +78,16 @@ for the fixture, and the mock while it exists. That is a fixture change in
 `apps/filemanager/src/tools/tarpack/fixtures.rs` (yours). Record it in the
 PR so the side-by-side review expects the difference.
 
+**Two small code nits, carried over from M7b's re-review** (the next
+backend run that touches the Tar Packager does them, with a test where a
+behaviour changes):
+
+- In `apps/filemanager/src/tools/tarpack/model.rs`, `apply`: split the
+  `take()` side effect from the focus-hint condition (take first, then
+  test).
+- In `apps/filemanager/src/platform/win_shell.rs`: end the fallback detail
+  "Windows error <n>" with a full stop.
+
 ### Rules that bind this task
 
 - Screenshots use fixture backends and the fake platform only; no real

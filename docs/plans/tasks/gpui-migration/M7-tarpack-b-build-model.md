@@ -90,6 +90,16 @@ this section.** Everything else in this plan is built. Read the code first:
    clicking Create archive, as the build fixture's doc says. Check that
    `fixtures.rs`'s doc comment states that number.
 
+### Deferred nits (after the follow-up; done in M8's run)
+
+These are from the follow-up's re-review. Neither blocks M7b.
+
+- In `TarpackModel::apply`, the `take()` side effect is inside the
+  focus-hint condition. Split them: take first, then test. That way the take
+  happens whether or not a hint is set, and the code reads as intended.
+- `win_shell.rs`: the fallback detail "Windows error <n>" gets a final full
+  stop ("Windows error <n>."), like the other details.
+
 ### Follow-up acceptance
 
 - Every item above has its named test.
@@ -155,7 +165,7 @@ impl TarpackModel {
     pub fn can_build(&self) -> bool;                  // session can_build and not building/confirming
     pub fn building(&self) -> bool;
     pub fn progress(&self) -> Option<&Progress>;
-    pub fn progress_unavailable(&self) -> bool;
+    // pub fn progress_unavailable(&self) -> bool;   // removed by the Review follow-up (decision 1)
     pub fn build(&mut self, cx);                      // overwrite = false
     pub fn confirming_overwrite(&self) -> Option<&str>; // the output display path named in the dialog
     pub fn confirm_overwrite(&mut self, cx);  pub fn cancel_overwrite(&mut self, cx);
@@ -189,9 +199,10 @@ impl TarpackModel {
   wrapped in `coalescing` and sending into the channel; a foreground task
   drains progress into the model (`notify` per event); then `finish_build`
   on the Worker. A panic in the job calls `abort_build` and is an Unexpected
-  failure ("the build stopped unexpectedly"). If the progress channel cannot
-  be read, `progress_unavailable` is true (today's flag) and the build still
-  finishes.
+  failure ("the build stopped unexpectedly"; now `BuildOutcome::Unexpected`,
+  Review follow-up decision 2). ~~If the progress channel cannot be read,
+  `progress_unavailable` is true (today's flag) and the build still
+  finishes.~~ Superseded: the flag is removed (Review follow-up decision 1).
 - **Outcomes.** Success: `result = Ok(summary)`, announcement
   `resultAnnouncement`. `OutputExists` without overwrite: no result; opens
   the overwrite confirmation naming the output (`overwriteBody`); confirm
