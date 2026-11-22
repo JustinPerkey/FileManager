@@ -6,6 +6,8 @@ writes carry the config hash (the config now reloads automatically), and
 `pickable` tables are never written.
 Project: dbmanager   Depends on: M6 (landed)
 
+**Review follow-up (2026-11-22):** the first run landed as f53c588; the next run does only the section "Review follow-up" below.
+
 **Note (2026-11-21): the UI is moving to GPUI.** This domain milestone is
 unchanged, with one condition. If `apps/desktop/src-tauri/src/generated_types.rs`
 still exists when you start, derive `ts_rs::TS` and update `EXPORTERS` and
@@ -15,6 +17,116 @@ removed Tauri and ts-rs), skip every ts-rs step: no `ts_rs::TS` derive, no
 where this plan needs it for something other than the TypeScript boundary.
 Wherever this plan says the Tauri commands or the UI error type come later,
 read "the GPUI app's Database Manager model comes later".
+
+## Review follow-up (2026-11-22)
+
+The review of f53c588 did not approve M7 yet. **The next run does only
+this section.** Everything else in this plan is built. Read
+`crates/fm-dbmanager/src/session/{save.rs,backup.rs,sql.rs,mod.rs}` and
+their tests first.
+
+### Must fix (P1): the first save can hang
+
+- `take_backup` calls `backup.run_to_completion(256, Duration::ZERO, None)`.
+  In rusqlite 0.43 that retries Busy/Locked forever, so when another
+  program holds a lock that blocks readers, the first save spins at 100%
+  CPU. `busy_when_locked` misses it because it calls `adopt_backup` first.
+- Drive `backup.step(n)` yourself and give up after the session's busy
+  timeout (3 s), or after a bounded number of tries. Busy or Locked →
+  `SessionError::Busy`; any other error → `BackupFailed`. Remove the temp
+  file in every failure case; never leave a `.bak`.
+- Test: `busy_when_locked_on_first_save`, the `busy_when_locked` set-up
+  **without** `adopt_backup`. It expects `Busy`, no `.bak` file and no temp
+  file, and returns within a few seconds.
+
+### Should fix in the same run (P2): `backup_created` is not lost
+
+- Today, if the first save takes the backup and then fails (unique,
+  `Conflict`, `SchemaChanged`, a failed COMMIT, …), the backup's path is
+  never reported.
+- Keep a separate "announced" flag on the session. `backup_created` carries
+  the path on the **first successful write after the backup was taken**,
+  then never again.
+- An adopted backup (`adopt_backup`, after a reload) counts as already
+  announced.
+- Test: `backup_announced_on_first_successful_save`. A first save fails
+  `unique` after the backup; a second save succeeds with
+  `backup_created: Some(path)`; a third has `None`.
+
+### Decisions (planner, 2026-11-22)
+
+1. **The backup moves inside the write transaction.** The new order of steps
+   6–8 is:
+   - **6.** `BEGIN IMMEDIATE`, then re-check `schema_version` →
+     `SchemaChanged`.
+   - **7.** On an update, re-read the row: missing → `UnknownObject`;
+     version differs → `Conflict { current }`. Roll back in both cases.
+   - **8.** **Backup**, if this is the session's first write. It reads the
+     database through the same connection while the IMMEDIATE transaction
+     holds the write lock, so no other program can commit between the backup
+     and the write. A failure rolls back: `BackupFailed`, or `Busy` per P1.
+   - Steps 9 onward are unchanged (resolve references, write, re-read,
+     COMMIT).
+
+   Why: no stray backup on `SchemaChanged`, `Conflict` or `UnknownObject`,
+   and no race between the backup and `BEGIN`. The P1 bounded-step loop
+   stays as a guard.
+
+   Proving it is part of this run. Test `backup_taken_inside_transaction`:
+   the backup file holds the pre-write state, and no `.bak` exists after a
+   `Conflict` or a `SchemaChanged` on a first save. **If SQLite refuses the
+   online backup from the connection that holds the write transaction, stop
+   and report.** Keep step 6's old position until the planner decides
+   again.
+
+   M8 and M9 follow the same order.
+2. **Creates where the PK is not a rowid alias and is omitted or NULL.**
+   Today these fail after INSERT with "the saved object's key cannot be
+   determined". Instead:
+   - **rowid table with a declared non-alias PK:**
+     - the PK columns have a default: insert, then read the new row back by
+       `last_insert_rowid()` to get its key;
+     - otherwise: the PK columns are required on create, checked in
+       `check_changes` (`required`), before any write.
+   - **WITHOUT ROWID table:** the PK columns are always required on create
+     (`required`, in `check_changes`).
+   - Tests: `create_declared_pk_with_default_reads_key_by_rowid`,
+     `create_declared_pk_without_default_requires_it`,
+     `create_without_rowid_requires_pk`.
+3. **Accepted deviations** from the plan text, recorded:
+   - `resolve_references` returns a nested `Result` (an outer error, and the
+     inner collected issues);
+   - `map_constraint(table, …)` takes the table;
+   - the object is re-read inside the transaction before COMMIT;
+   - a missing version on an update is a `Conflict`;
+   - backup names are capped at 100 attempts.
+
+   **Struct variants now, before M8.** The plan said "struct variants" but
+   listed tuple-like ones. Make them `NotEditable { reason: String }`,
+   `BackupFailed { detail: String }` and `Constraint { message: String }`,
+   and update every match. Callers (the Tauri shell if any, and later the
+   GPUI tool core) then gain fields without breaking. The stale
+   "`tempfile` as a normal dependency" note in Files is removed. It stays a
+   dependency only if the code still uses it.
+
+### P3, in the same run
+
+- Move the literal `PRAGMA schema_version` in `save.rs` into `sql.rs`, or a
+  shared helper used by the read and the write paths.
+- Tests:
+  - `notnull_violation_is_required` (`SQLITE_CONSTRAINT_NOTNULL` →
+    `required`);
+  - `primary_key_violation_is_unique` (a duplicate `genre.code` →
+    `unique`);
+  - `map_constraint_unit`: build raw `SqliteFailure`s and check single-column
+    unique → `unique`, and multi-column unique → `Constraint`.
+- Tie the `backup_failure_blocks_write` loop's bound to `MAX_ATTEMPTS`, not
+  a literal.
+
+### Follow-up acceptance
+
+- Every named test passes. fmt, clippy pedantic and `cargo test --workspace`
+  pass. If ts-rs still exists, `generated_types_are_current` passes.
 
 ## Goal
 
@@ -249,8 +361,6 @@ tests.
 Edit:
 
 - `src/session/mod.rs` and `src/session/sql.rs`;
-- `crates/fm-dbmanager/Cargo.toml`: `tempfile` as a normal dependency,
-  workspace version;
 - `apps/desktop/src-tauri/src/generated_types.rs` and the generated files;
 - `Cargo.lock`;
 - `CLAUDE.md`: the layout line for `src/session/`.
