@@ -1,15 +1,21 @@
-//! The Tar Packager model's tests (manifest side): the copy, loading and
-//! restoring, opening, reloading, the watcher, the manifest's errors,
-//! assignment by browse, clear and drop, and the fixtures. Model tests run
+//! The Tar Packager model's tests: the copy, loading and restoring, opening,
+//! reloading, the watcher, the manifest's errors, assignment by browse, clear
+//! and drop, the output and format, building with progress, the confirmed
+//! overwrite, the result, reveal and copy, the shortcuts, and the fixtures.
+//! Model tests run
 //! against [`FixtureTarpack`] and [`FakePlatform`]; those that need the disk
 //! run [`RealTarpack`] over a temporary directory.
 
+use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use fm_core::AppDirs;
-use fm_tarpack::manifest::EntryView;
+use fm_tarpack::archive::{BuildPhase, BuildSummary, Progress};
+use fm_tarpack::format::ArchiveFormat;
+use fm_tarpack::manifest::{Diagnostic, EntryFailure, EntryView, Severity};
 use fm_tarpack::session::{SessionEntry, TarpackError, TarpackErrorKind};
 use fm_tarpack::sources::{
     Ambiguity, DropOutcome, EntryStatus, Unmatched, UnmatchedReason as Reason,
@@ -22,8 +28,8 @@ use super::fixtures::{
     GATEWAY, MANIFEST_PATH, OUTPUT_PATH,
 };
 use super::model::{
-    default_start_dir, DropState, FocusHint, Origin, TarpackModel, ViewError, LOOKUP_THREADS,
-    SKELETON_DELAY,
+    default_start_dir, BuildOutcome, DropState, FocusHint, Origin, Shortcut, TarpackModel,
+    ViewError, LOOKUP_THREADS, SKELETON_DELAY,
 };
 use super::text::{self, DropBlocker, DropLine};
 use super::Hooks;
@@ -1850,7 +1856,7 @@ fn fixtures_build_each_manifest_state(cx: &mut TestAppContext) {
                 assert!(manifest.is_none(), "{fixture:?}");
                 assert_eq!(recent, Vec::<String>::new());
             }
-            F::Recent | F::Loaded | F::Drag | F::Dropped => {
+            F::Recent | F::Loaded | F::Drag | F::Dropped | F::Shortcuts => {
                 let m = manifest.expect("manifest");
                 assert_eq!((m.entries.len(), m.error_count), (5, 0), "{fixture:?}");
                 assert_eq!(statuses(EntryStatus::Unassigned), 5);
@@ -1871,12 +1877,19 @@ fn fixtures_build_each_manifest_state(cx: &mut TestAppContext) {
                 assert_eq!(statuses(EntryStatus::Missing), 1);
                 assert!(!session.can_build);
             }
-            F::Partial => {
+            F::Partial | F::ResultPartial => {
                 assert_eq!(statuses(EntryStatus::Ready), 3);
                 assert_eq!(statuses(EntryStatus::Unassigned), 2);
                 assert_eq!(session.output_path.as_deref(), Some(OUTPUT_PATH));
             }
-            F::Changed | F::Ready => {
+            F::Changed
+            | F::Ready
+            | F::BuildBar
+            | F::Building
+            | F::Replace
+            | F::Result
+            | F::Dev
+            | F::DevResult => {
                 assert_eq!(statuses(EntryStatus::Ready), 5, "{fixture:?}");
                 assert!(session.can_build);
             }
@@ -2402,4 +2415,1939 @@ fn the_errors_fixture_carries_the_reference_diagnostics() {
     assert_eq!(loaded.entries.len(), 5);
     assert_eq!(loaded.entries[3].view.source, "ca.pem");
     assert_eq!(loaded.entries[4].view.source, "gateway.service");
+}
+
+// ---- the build side: copy ----
+
+fn diag(message: &str, line: u32, col: u32) -> Diagnostic {
+    Diagnostic {
+        severity: Severity::Error,
+        line,
+        col,
+        entry_id: None,
+        message: message.to_string(),
+    }
+}
+
+fn failure(index: u32, id: Option<&str>, source: Option<&str>, line: u32) -> EntryFailure {
+    EntryFailure {
+        index,
+        id: id.map(str::to_string),
+        source: source.map(str::to_string),
+        line,
+        errors: vec![diag(
+            &format!("file `bad{index}`: missing field `dir`"),
+            line + 1,
+            3,
+        )],
+    }
+}
+
+/// `summary()` of `fixtures.ts`: a clean build of `gateway.tar.zst`.
+fn summary() -> BuildSummary {
+    BuildSummary {
+        path: "C:\\out\\gateway.tar.zst".to_string(),
+        format: ArchiveFormat::TarZst,
+        entries: 3,
+        files: 2,
+        dirs: 1,
+        bytes: 2048,
+        uncompressed_bytes: 10 * 1024 * 1024,
+        sha256_hex: "ab".repeat(32),
+        extract_command: "tar --zstd --no-overwrite-dir -xpPf gateway.tar.zst".to_string(),
+        normalized_entries: Vec::new(),
+        built_ids: vec!["gateway".to_string(), "core".to_string()],
+        left_out: Vec::new(),
+        not_loaded: Vec::new(),
+        manifest_errors: Vec::new(),
+        warnings: Vec::new(),
+        error_count: 0,
+    }
+}
+
+#[test]
+#[expect(clippy::too_many_lines, reason = "one case per reportText test")]
+fn report_text_matches_today() {
+    // reportText.test.ts: the full report.
+    let full = BuildSummary {
+        left_out: vec![
+            EntryFailure {
+                errors: vec![diag("bad dir", 6, 3), diag("bad mode", 7, 1)],
+                ..failure(1, Some("a"), Some("a.bin"), 5)
+            },
+            EntryFailure {
+                errors: vec![diag("no id", 10, 1)],
+                ..failure(2, None, None, 9)
+            },
+        ],
+        manifest_errors: vec![diag("bad name", 1, 1)],
+        warnings: vec![Diagnostic {
+            severity: Severity::Warning,
+            ..diag("odd mode", 4, 2)
+        }],
+        error_count: 4,
+        ..summary()
+    };
+    assert_eq!(
+        text::report_text(&full),
+        [
+            "Created gateway.tar.zst with 2 files left out",
+            "",
+            "Left out of the archive:",
+            "a (source a.bin, line 5)",
+            "  6:3 bad dir",
+            "  7:1 bad mode",
+            "Entry #2 (line 9)",
+            "  10:1 no id",
+            "",
+            "Manifest errors:",
+            "  1:1 bad name",
+            "",
+            "Warnings:",
+            "  4:2 odd mode",
+        ]
+        .join("\n")
+    );
+    // Empty sections are omitted.
+    let errors_only = BuildSummary {
+        manifest_errors: vec![diag("bad name", 1, 1)],
+        error_count: 1,
+        ..summary()
+    };
+    assert_eq!(
+        text::report_text(&errors_only),
+        "Created gateway.tar.zst with 1 manifest error\n\nManifest errors:\n  1:1 bad name"
+    );
+    // Announcements and headings.
+    assert_eq!(
+        text::result_announcement(&summary()),
+        "Created gateway.tar.zst."
+    );
+    let one_left_out = BuildSummary {
+        left_out: vec![failure(1, Some("bad1"), Some("bad1.bin"), 5)],
+        error_count: 1,
+        ..summary()
+    };
+    assert_eq!(
+        text::result_heading(&one_left_out),
+        "Created gateway.tar.zst with 1 file left out"
+    );
+    assert_eq!(
+        text::result_announcement(&one_left_out),
+        "Created gateway.tar.zst. 1 file was left out because of errors."
+    );
+    let two_left_out = BuildSummary {
+        left_out: vec![
+            failure(1, Some("bad1"), None, 5),
+            failure(2, Some("bad2"), None, 10),
+        ],
+        error_count: 2,
+        ..summary()
+    };
+    assert_eq!(
+        text::result_announcement(&two_left_out),
+        "Created gateway.tar.zst. 2 files were left out because of errors."
+    );
+    let two_errors = BuildSummary {
+        manifest_errors: vec![diag("x", 3, 1), diag("y", 3, 1)],
+        error_count: 2,
+        ..summary()
+    };
+    assert_eq!(
+        text::result_announcement(&two_errors),
+        "Created gateway.tar.zst with 2 manifest errors."
+    );
+    // A partial build names the files with no source chosen.
+    let partial = BuildSummary {
+        not_loaded: vec!["gateway".to_string()],
+        built_ids: vec!["core".to_string()],
+        ..summary()
+    };
+    assert_eq!(
+        text::result_heading(&partial),
+        "Created gateway.tar.zst with 1 file not included"
+    );
+    assert!(text::report_text(&partial).contains("Not included (no file chosen):\n  gateway"));
+    assert_eq!(
+        text::result_announcement(&partial),
+        "Created gateway.tar.zst. 1 file was not included because no file was chosen."
+    );
+    // BuildResult.tsx: ledes, facts, sizes.
+    assert_eq!(
+        text::not_loaded_lede(&partial).as_deref(),
+        Some("The archive holds 1 of the manifest's 2 files. No file was chosen for:")
+    );
+    assert_eq!(text::left_out_lede(&partial), None);
+    assert_eq!(
+        text::left_out_lede(&two_left_out).as_deref(),
+        Some("The archive holds 2 of the manifest's 4 files. The rest have errors, listed below.")
+    );
+    assert_eq!(
+        text::result_facts(&summary()),
+        "zstd \u{b7} 2 files, 1 folder \u{b7} 2.0 KB (10.0 MB uncompressed)"
+    );
+    let tar = BuildSummary {
+        format: ArchiveFormat::Tar,
+        ..summary()
+    };
+    assert_eq!(
+        text::result_facts(&tar),
+        "tar \u{b7} 2 files, 1 folder \u{b7} 2.0 KB"
+    );
+    assert_eq!(text::normalized_line("a.conf", 0), "a.conf: no CRLF found");
+    assert_eq!(
+        text::normalized_line("a.conf", 42),
+        "a.conf: 42 CRLF replaced"
+    );
+    // `toFixed(1)` rounds a tie up: 1280 B is 1.25 KB.
+    for (n, shown) in [
+        (0, "0 B"),
+        (1023, "1023 B"),
+        (1024, "1.0 KB"),
+        (1280, "1.3 KB"),
+        (1024 * 1024 - 1, "1024.0 KB"),
+        (1024 * 1024, "1.0 MB"),
+        (24_117_248, "23.0 MB"),
+    ] {
+        assert_eq!(text::file_size(n), shown, "{n}");
+    }
+}
+
+fn session_with(
+    reason: Option<fm_tarpack::session::BuildBlockedReason>,
+    manifest: Option<fm_tarpack::session::SessionManifest>,
+    ready: u32,
+    total: u32,
+) -> fm_tarpack::session::TarpackSession {
+    fm_tarpack::session::TarpackSession {
+        manifest,
+        output_path: None,
+        format: ArchiveFormat::Tar,
+        formats: fm_tarpack::session::ArchiveFormatOption::all(),
+        suggested_output_name: None,
+        ready_count: ready,
+        total_count: total,
+        can_build: reason.is_none(),
+        build_blocked_reason: reason,
+        state_warning: None,
+    }
+}
+
+fn manifest_with(
+    entries: Vec<SessionEntry>,
+    errors: Vec<Diagnostic>,
+    failed: Vec<EntryFailure>,
+    withheld: bool,
+) -> fm_tarpack::session::SessionManifest {
+    let error_count = errors.len() + failed.iter().map(|f| f.errors.len()).sum::<usize>();
+    fm_tarpack::session::SessionManifest {
+        path: "C:\\pkgs\\gateway\\manifest.toml".to_string(),
+        name: "gateway".to_string(),
+        output_name: None,
+        hash: "abc".to_string(),
+        entries,
+        entries_withheld: withheld,
+        errors,
+        failed_entries: failed,
+        error_count: u32::try_from(error_count).expect("small"),
+        warnings: Vec::new(),
+    }
+}
+
+fn with_status(id: &str, status: EntryStatus) -> SessionEntry {
+    SessionEntry {
+        status,
+        ..entry(id)
+    }
+}
+
+#[test]
+#[expect(clippy::too_many_lines, reason = "one case per BuildBar test")]
+fn reason_and_left_out_note_cases() {
+    use fm_tarpack::session::BuildBlockedReason as R;
+    let reason = |s: &fm_tarpack::session::TarpackSession| text::build_reason(s);
+    // BuildBar.test.tsx: "disabled reason: %s".
+    assert_eq!(
+        reason(&session_with(Some(R::NoManifest), None, 0, 0)).as_deref(),
+        Some("Open a manifest first")
+    );
+    let withheld = manifest_with(vec![], vec![diag("x", 3, 1)], vec![], true);
+    assert_eq!(
+        reason(&session_with(Some(R::NoEntries), Some(withheld), 0, 0)).as_deref(),
+        Some("No files can be built until the manifest errors are fixed")
+    );
+    let failed = manifest_with(
+        vec![],
+        vec![],
+        vec![failure(1, Some("bad1"), None, 5)],
+        false,
+    );
+    assert_eq!(
+        reason(&session_with(Some(R::NoEntries), Some(failed), 0, 0)).as_deref(),
+        Some("Every file in the manifest has errors")
+    );
+    let none = manifest_with(vec![], vec![], vec![], false);
+    assert_eq!(
+        reason(&session_with(Some(R::NoEntries), Some(none), 0, 0)).as_deref(),
+        Some("This manifest lists no files")
+    );
+    let one_missing = manifest_with(
+        vec![with_status("a", EntryStatus::Missing), entry("b")],
+        vec![],
+        vec![],
+        false,
+    );
+    assert_eq!(
+        reason(&session_with(
+            Some(R::EntriesNotReady),
+            Some(one_missing),
+            0,
+            2
+        ))
+        .as_deref(),
+        Some("1 chosen file is missing from disk")
+    );
+    let two_missing = manifest_with(
+        vec![
+            with_status("a", EntryStatus::Missing),
+            with_status("b", EntryStatus::Missing),
+        ],
+        vec![],
+        vec![],
+        false,
+    );
+    assert_eq!(
+        reason(&session_with(
+            Some(R::EntriesNotReady),
+            Some(two_missing),
+            0,
+            2
+        ))
+        .as_deref(),
+        Some("2 chosen files are missing from disk")
+    );
+    let two = manifest_with(vec![entry("a"), entry("b")], vec![], vec![], false);
+    assert_eq!(
+        reason(&session_with(Some(R::NothingLoaded), Some(two), 0, 2)).as_deref(),
+        Some("Add at least one file to build an archive")
+    );
+    let ready = manifest_with(
+        vec![with_status("a", EntryStatus::Ready)],
+        vec![],
+        vec![],
+        false,
+    );
+    assert_eq!(
+        reason(&session_with(Some(R::NoOutput), Some(ready.clone()), 1, 1)).as_deref(),
+        Some("Choose where to save the archive")
+    );
+    assert_eq!(reason(&session_with(None, Some(ready), 1, 1)), None);
+
+    // The left-out note.
+    let left_out = |s: &fm_tarpack::session::TarpackSession| text::left_out_note(s);
+    let ready_entries = || vec![with_status("a", EntryStatus::Ready)];
+    assert_eq!(
+        left_out(&session_with(None, None, 0, 0)),
+        None,
+        "no manifest"
+    );
+    assert_eq!(
+        left_out(&session_with(
+            None,
+            Some(manifest_with(vec![], vec![], vec![], false)),
+            0,
+            0
+        )),
+        None,
+        "no entries"
+    );
+    assert_eq!(
+        left_out(&session_with(
+            None,
+            Some(manifest_with(ready_entries(), vec![], vec![], false)),
+            1,
+            1
+        )),
+        None,
+        "nothing to say"
+    );
+    let one_failed = manifest_with(
+        ready_entries(),
+        vec![],
+        vec![failure(1, Some("bad1"), None, 5)],
+        false,
+    );
+    assert_eq!(
+        left_out(&session_with(None, Some(one_failed), 1, 1)).as_deref(),
+        Some("1 file will be left out; errors will be listed after the build")
+    );
+    let two_failed = manifest_with(
+        ready_entries(),
+        vec![],
+        vec![
+            failure(1, Some("bad1"), None, 5),
+            failure(2, Some("bad2"), None, 10),
+        ],
+        false,
+    );
+    assert_eq!(
+        left_out(&session_with(None, Some(two_failed), 1, 1)).as_deref(),
+        Some("2 files will be left out; errors will be listed after the build")
+    );
+    let two_errors = manifest_with(
+        ready_entries(),
+        vec![diag("a", 3, 1), diag("b", 3, 1)],
+        vec![],
+        false,
+    );
+    assert_eq!(
+        left_out(&session_with(None, Some(two_errors), 1, 1)).as_deref(),
+        Some("Builds with 2 manifest errors")
+    );
+    let one_error = manifest_with(ready_entries(), vec![diag("a", 3, 1)], vec![], false);
+    assert_eq!(
+        left_out(&session_with(None, Some(one_error), 1, 1)).as_deref(),
+        Some("Builds with 1 manifest error")
+    );
+    let partial = manifest_with(
+        vec![with_status("a", EntryStatus::Ready), entry("b"), entry("c")],
+        vec![],
+        vec![],
+        false,
+    );
+    assert_eq!(
+        left_out(&session_with(None, Some(partial), 1, 3)).as_deref(),
+        Some("Partial archive: 1 of 3 files; 2 without a file will be left out")
+    );
+    // nothingLoaded with errors: the reason and the note both show.
+    let nothing = manifest_with(
+        vec![entry("a")],
+        vec![],
+        vec![failure(1, Some("bad1"), None, 5)],
+        false,
+    );
+    let s = session_with(Some(R::NothingLoaded), Some(nothing), 0, 1);
+    assert_eq!(
+        reason(&s).as_deref(),
+        Some("Add at least one file to build an archive")
+    );
+    assert_eq!(
+        left_out(&s).as_deref(),
+        Some("1 file will be left out; errors will be listed after the build")
+    );
+}
+
+#[test]
+fn display_paths_split_like_today() {
+    // pathParts.test.ts (fileName, displayFolder) and the overwrite copy.
+    for (path, name, folder) in [
+        (
+            "C:\\out\\gateway.tar.zst",
+            "gateway.tar.zst",
+            Some("C:\\out"),
+        ),
+        ("C:\\gateway.tar", "gateway.tar", Some("C:\\")),
+        ("C:/a/b.tar", "b.tar", Some("C:/a")),
+        ("\\\\srv\\share\\x.tar", "x.tar", Some("\\\\srv\\share\\")),
+        (
+            "\\\\srv\\share\\d\\x.tar",
+            "x.tar",
+            Some("\\\\srv\\share\\d"),
+        ),
+        ("x.tar", "x.tar", None),
+        ("/x.tar", "x.tar", Some("/")),
+        (
+            "C:\\out\\caf\u{e9}\u{fffd}\\x.tar",
+            "x.tar",
+            Some("C:\\out\\caf\u{e9}\u{fffd}"),
+        ),
+    ] {
+        assert_eq!(text::file_name(path), name, "{path}");
+        assert_eq!(text::display_folder(path).as_deref(), folder, "{path}");
+    }
+    assert_eq!(
+        text::overwrite_title("C:\\out\\gateway.tar.zst"),
+        "Replace gateway.tar.zst?"
+    );
+    assert_eq!(
+        text::overwrite_body("C:\\out\\gateway.tar.zst"),
+        "A file with this name already exists in C:\\out. Replacing it can't be undone."
+    );
+    assert_eq!(
+        text::overwrite_body("gateway.tar"),
+        "A file with this name already exists. Replacing it can't be undone."
+    );
+}
+
+#[test]
+fn progress_text_matches_today() {
+    let ev = |phase, id: Option<&str>, done, total| Progress {
+        phase,
+        entry_id: id.map(str::to_string),
+        bytes_done: done,
+        bytes_total: total,
+    };
+    let w = ev(BuildPhase::Writing, Some("gateway"), 40, 100);
+    assert_eq!(
+        text::progress_label(None, None),
+        "Step 1 of 2 \u{b7} Writing"
+    );
+    assert_eq!(
+        text::progress_label(Some(&w), Some("gateway.conf")),
+        "Step 1 of 2 \u{b7} Writing gateway.conf"
+    );
+    assert_eq!(text::progress_percent(Some(&w)), 40);
+    assert_eq!(
+        text::progress_value_text(Some(&w), Some("gateway.conf")),
+        "Writing gateway.conf, 40%"
+    );
+    let v = ev(BuildPhase::Verifying, None, 10, 100);
+    assert_eq!(
+        text::progress_label(Some(&v), None),
+        "Step 2 of 2 \u{b7} Verifying"
+    );
+    assert_eq!(text::progress_value_text(Some(&v), None), "Verifying, 10%");
+    let end = ev(BuildPhase::Verifying, None, 100, 100);
+    assert_eq!(
+        text::progress_label(Some(&end), Some("x")),
+        "Finishing\u{2026}"
+    );
+    // The last event of the writing phase names no file even with a
+    // remembered one.
+    let done = ev(BuildPhase::Writing, None, 100, 100);
+    assert_eq!(
+        text::progress_label(Some(&done), Some("gateway.conf")),
+        "Step 1 of 2 \u{b7} Writing"
+    );
+    assert_eq!(
+        text::progress_percent(Some(&ev(BuildPhase::Writing, None, 0, 0))),
+        100
+    );
+    assert!((text::progress_fraction(Some(&w)) - 0.4).abs() < 1e-6);
+    assert!((text::progress_fraction(None)).abs() < f32::EPSILON);
+}
+
+#[test]
+fn shortcut_list_matches_today() {
+    let ts = include_str!("../../../../desktop/src/tools/tarpack/ShortcutsHelp.tsx");
+    for row in text::SHORTCUTS {
+        assert!(
+            ts.contains(&format!("action: \"{}\"", row.action))
+                && ts.contains(&format!("when: \"{}\"", row.when)),
+            "{} is not in ShortcutsHelp.tsx",
+            row.action
+        );
+        assert_eq!(
+            row.dev_only,
+            row.action == "Edit in editor",
+            "only Edit is developer-only"
+        );
+    }
+    assert!(
+        text::SHORTCUTS
+            .iter()
+            .all(|r| r.keys.iter().all(|c| !c.contains(&"Alt"))),
+        "the developer-mode chord is not listed"
+    );
+    assert_eq!(text::SHORTCUTS.len(), 9);
+}
+
+#[test]
+fn build_text_matches_ts_sources() {
+    let sources = [
+        include_str!("../../../../desktop/src/tools/tarpack/BuildBar.tsx"),
+        include_str!("../../../../desktop/src/tools/tarpack/BuildResult.tsx"),
+        include_str!("../../../../desktop/src/tools/tarpack/BuildProgress.tsx"),
+        include_str!("../../../../desktop/src/tools/tarpack/BuildReport.tsx"),
+        include_str!("../../../../desktop/src/tools/tarpack/FormatPicker.tsx"),
+        include_str!("../../../../desktop/src/tools/tarpack/reportText.ts"),
+        TARPACK_VIEW_TSX,
+    ]
+    .join("\n");
+    let in_sources = |s: &str| {
+        assert!(
+            sources.contains(&ts(s)) || sources.contains(s),
+            "`{s}` is not in the TypeScript sources"
+        );
+    };
+    for s in [
+        text::OUTPUT_LABEL,
+        text::OUTPUT_NOT_CHOSEN,
+        text::CREATE_ARCHIVE,
+        text::SHOW_ERRORS,
+        text::SHOW_ERRORS_HINT,
+        text::CREATE_ARCHIVE_HINT,
+        text::FORMAT_LABEL,
+        text::BUILDING_ARCHIVE,
+        text::PROGRESS_UNAVAILABLE,
+        text::FINISHING,
+        text::VERIFYING_ANNOUNCEMENT,
+        text::OVERWRITE_CONFIRM,
+        text::RESULT_DISMISS,
+        text::SHOW_IN_FOLDER,
+        text::SHA256_LABEL,
+        text::EXTRACT_LABEL,
+        text::EXTRACT_HINT,
+        text::NORMALIZED_LABEL,
+        text::NO_CRLF,
+        text::COPY,
+        text::COPY_SHA256,
+        text::COPY_EXTRACTION_COMMAND,
+        text::COPY_REPORT,
+        text::COPIED,
+        text::REPORT_LABEL,
+        text::MANIFEST_ERRORS_LABEL,
+        "Left out of the archive",
+        "Warnings",
+        "Not included (no file chosen):",
+        "Format changed to",
+        "to match the file name.",
+        "Partial archive:",
+        "without a file will be left out",
+        "will be left out; errors will be listed after the build",
+        "Add at least one file to build an archive",
+        "Choose where to save the archive",
+        "missing from disk",
+        "An archive holds",
+    ]
+    .into_iter()
+    .filter(|s| *s != "An archive holds")
+    {
+        in_sources(s);
+    }
+    for kind in [
+        ArchiveFormat::Tar,
+        ArchiveFormat::TarGz,
+        ArchiveFormat::TarZst,
+        ArchiveFormat::TarXz,
+    ] {
+        let name = text::format_name(kind);
+        assert!(
+            sources.contains(&format!("\"{name}\"")),
+            "format name {name}"
+        );
+    }
+    assert!(sources.contains("Step {phase === \"writing\" ? 1 : 2} of 2"));
+    assert!(sources.contains("A file with this name already exists"));
+    assert!(sources.contains("Replacing it can't be undone."));
+    assert!(sources.contains("Replace ${fileName("));
+}
+
+// ---- the build side: model ----
+
+/// (done, phase, file, label, value) at a redraw of the progress.
+type Seen = (u64, BuildPhase, Option<String>, String, String);
+
+/// A model over the fixture `fixture`, loaded and idle.
+fn start_fixture(
+    cx: &mut TestAppContext,
+    fixture: TarpackFixture,
+) -> (Entity<TarpackModel>, FakePlatform, FixtureTarpack) {
+    let backend = FixtureTarpack::from_fixture(fixture);
+    let (model, fake) = start(cx, &backend);
+    idle(cx, &model);
+    (model, fake, backend)
+}
+
+/// Runs until the build has settled (nothing runs and no confirmation is
+/// open or none is wanted).
+fn settled(cx: &mut TestAppContext, model: &Entity<TarpackModel>) {
+    wait_for(cx, |cx| read(cx, model, |m| !m.building() && !m.loading()));
+}
+
+fn result_of(cx: &mut TestAppContext, model: &Entity<TarpackModel>) -> Option<BuildOutcome> {
+    read(cx, model, |m| m.result().cloned())
+}
+
+fn build(cx: &mut TestAppContext, model: &Entity<TarpackModel>) {
+    act(cx, model, TarpackModel::build);
+}
+
+fn run_shortcut(cx: &mut TestAppContext, model: &Entity<TarpackModel>, s: Shortcut) {
+    let window = cx.add_empty_window();
+    window.update(|window, cx| model.update(cx, |m, cx| m.run_shortcut(s, window, cx)));
+}
+
+fn shortcut_on(cx: &mut TestAppContext, model: &Entity<TarpackModel>, s: Shortcut) -> bool {
+    cx.read(|cx| model.read(cx).shortcut(s, cx))
+}
+
+fn save_spec_of(fake: &FakePlatform) -> SaveSpec {
+    fake.calls()
+        .into_iter()
+        .find_map(|c| match c {
+            PlatformCall::PickSave(spec) => Some(spec),
+            _ => None,
+        })
+        .expect("a save dialog was shown")
+}
+
+fn session_of(
+    cx: &mut TestAppContext,
+    model: &Entity<TarpackModel>,
+) -> fm_tarpack::session::TarpackSession {
+    read(cx, model, |m| m.session().cloned().expect("a session"))
+}
+
+const ONE_FILE: &str =
+    "version = 1\nname = \"t\"\n\n[[file]]\nid = \"a\"\nsource = \"a.bin\"\ndir = \"/opt\"\n";
+
+/// A real model over a temporary directory with the entry `a` assigned and
+/// the output chosen (`dir/out/a.tar`), all through the model. Returns the
+/// model, the fake platform, the output path and the manifest path.
+fn real_ready(
+    cx: &mut TestAppContext,
+    dir: &Path,
+) -> (Entity<TarpackModel>, FakePlatform, PathBuf, PathBuf) {
+    let manifest = write_manifest(dir, "m.toml", ONE_FILE);
+    let source = dir.join("a.bin");
+    fs::write(&source, vec![7_u8; 300_000]).expect("write");
+    fs::create_dir_all(dir.join("out")).expect("mkdir");
+    let out = dir.join("out").join("a.tar");
+    let (model, fake) = start_boxed(cx, Box::new(real(dir)));
+    idle(cx, &model);
+    fake.answer_pick(pick(&manifest));
+    act(cx, &model, TarpackModel::open);
+    wait_for(cx, |cx| manifest_path(cx, &model).is_some());
+    fake.answer_pick(pick(&source));
+    act(cx, &model, |m, cx| m.browse("a", cx));
+    wait_for(cx, |cx| {
+        status_of(cx, &model, "a").is_some_and(|s| s.1 == EntryStatus::Ready)
+    });
+    fake.answer_save(pick(&out));
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for(cx, |cx| read(cx, &model, TarpackModel::can_build));
+    (model, fake, out, manifest)
+}
+
+// ---- output and format ----
+
+#[gpui::test]
+fn choose_output_starts_in_output_folder_with_name(cx: &mut TestAppContext) {
+    let backend = FixtureTarpack::from_fixture(TarpackFixture::Ready)
+        .with_output("/releases/gateway-9.tar.zst");
+    let (model, fake) = start(cx, &backend);
+    idle(cx, &model);
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for_calls(cx, &fake, 1);
+    let spec = save_spec_of(&fake);
+    assert_eq!(spec.start_dir.as_deref(), Some(Path::new("/releases")));
+    assert_eq!(
+        spec.suggested_name.as_deref(),
+        Some("gateway-9.tar.zst".as_ref())
+    );
+    assert_eq!(spec.title, None);
+
+    // No output yet: the manifest's folder, and the session's suggested name.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let manifest = write_manifest(dir.path(), "m.toml", GATEWAY);
+    let (model, fake) = start_boxed(cx, Box::new(real(dir.path())));
+    idle(cx, &model);
+    fake.answer_pick(pick(&manifest));
+    act(cx, &model, TarpackModel::open);
+    wait_for(cx, |cx| manifest_path(cx, &model).is_some());
+    let suggested = session_of(cx, &model)
+        .suggested_output_name
+        .expect("suggested");
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for(cx, |_| {
+        fake.calls()
+            .iter()
+            .any(|c| matches!(c, PlatformCall::PickSave(_)))
+    });
+    let spec = save_spec_of(&fake);
+    assert_eq!(spec.start_dir.as_deref(), Some(dir.path()));
+    assert_eq!(spec.suggested_name, Some(suggested.into()));
+}
+
+#[gpui::test]
+fn choose_output_needs_a_manifest_and_a_name(cx: &mut TestAppContext) {
+    let (model, fake, _) = start_fixture(cx, TarpackFixture::Empty);
+    act(cx, &model, TarpackModel::choose_output);
+    cx.run_until_parked();
+    assert_eq!(fake.calls(), Vec::<PlatformCall>::new(), "nothing to name");
+}
+
+#[gpui::test]
+fn choose_output_passes_format_filter(cx: &mut TestAppContext) {
+    let backend = FixtureTarpack::from_fixture(TarpackFixture::Ready)
+        .with_output("/releases/gateway.tar.zst");
+    let (model, fake) = start(cx, &backend);
+    idle(cx, &model);
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for_calls(cx, &fake, 1);
+    let spec = save_spec_of(&fake);
+    assert_eq!(
+        spec.filters,
+        [FileFilter {
+            name: "zstd archive (.tar.zst)".to_string(),
+            patterns: vec!["*.zst".to_string()],
+        }]
+    );
+    assert_eq!(spec.default_extension.as_deref(), Some("zst"));
+    // Another format, another filter.
+    act(cx, &model, |m, cx| m.set_format(ArchiveFormat::Tar, cx));
+    wait_for(cx, |cx| session_of(cx, &model).format == ArchiveFormat::Tar);
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for_calls(cx, &fake, 2);
+    let PlatformCall::PickSave(spec) = fake.calls()[1].clone() else {
+        panic!("a save dialog");
+    };
+    assert_eq!(
+        spec.filters,
+        [FileFilter {
+            name: "tar archive (.tar)".to_string(),
+            patterns: vec!["*.tar".to_string()],
+        }]
+    );
+    assert_eq!(spec.default_extension.as_deref(), Some("tar"));
+    assert_eq!(
+        spec.suggested_name.as_deref(),
+        Some("gateway.tar".as_ref()),
+        "the output kept its name, now with the new extension"
+    );
+}
+
+#[gpui::test]
+fn output_name_changing_format_sets_notice(cx: &mut TestAppContext) {
+    let (model, fake, backend) = start_fixture(cx, TarpackFixture::Ready);
+    // Same format: no notice.
+    fake.answer_save(pick(Path::new("/o/other.tar.zst")));
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for(cx, |cx| {
+        session_of(cx, &model).output_path.as_deref() == Some("/o/other.tar.zst")
+    });
+    assert_eq!(
+        read(cx, &model, |m| m.format_notice().map(String::from)),
+        None
+    );
+    // A name that carries another format switches it and says so.
+    fake.answer_save(pick(Path::new("/o/typed.tar.gz")));
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for(cx, |cx| {
+        session_of(cx, &model).format == ArchiveFormat::TarGz
+    });
+    let session = session_of(cx, &model);
+    assert_eq!(session.output_path.as_deref(), Some("/o/typed.tar.gz"));
+    assert_eq!(
+        read(cx, &model, |m| m.format_notice().map(String::from)).as_deref(),
+        Some("Format changed to gzip to match the file name.")
+    );
+    assert!(backend
+        .calls()
+        .contains(&Call::SetOutput(PathBuf::from("/o/typed.tar.gz"))));
+    // A cancelled dialog changes neither.
+    act(cx, &model, TarpackModel::choose_output);
+    cx.run_until_parked();
+    assert_eq!(
+        read(cx, &model, |m| m.format_notice().map(String::from)).as_deref(),
+        Some("Format changed to gzip to match the file name.")
+    );
+}
+
+#[gpui::test]
+fn notice_cleared_by_later_change(cx: &mut TestAppContext) {
+    let notice = |cx: &mut TestAppContext, model: &Entity<TarpackModel>| {
+        read(cx, model, |m| m.format_notice().map(String::from))
+    };
+    let (model, fake, _) = start_fixture(cx, TarpackFixture::Ready);
+    let switch = |cx: &mut TestAppContext, name: &str, format: ArchiveFormat| {
+        fake.answer_save(pick(Path::new(name)));
+        act(cx, &model, TarpackModel::choose_output);
+        wait_for(cx, |cx| {
+            session_of(cx, &model).format == format
+                && read(cx, &model, |m| m.format_notice().is_some())
+        });
+    };
+    // A later format change.
+    switch(cx, "/o/a.tar.gz", ArchiveFormat::TarGz);
+    act(cx, &model, |m, cx| m.set_format(ArchiveFormat::TarXz, cx));
+    assert_eq!(notice(cx, &model), None, "cleared at once");
+    wait_for(cx, |cx| {
+        session_of(cx, &model).format == ArchiveFormat::TarXz
+    });
+    assert_eq!(notice(cx, &model), None);
+    // A later output change that keeps the format.
+    switch(cx, "/o/b.tar.gz", ArchiveFormat::TarGz);
+    fake.answer_save(pick(Path::new("/o/c.tar.gz")));
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for(cx, |cx| {
+        session_of(cx, &model).output_path.as_deref() == Some("/o/c.tar.gz")
+    });
+    assert_eq!(notice(cx, &model), None);
+    // A new build.
+    switch(cx, "/o/d.tar", ArchiveFormat::Tar);
+    build(cx, &model);
+    assert_eq!(notice(cx, &model), None);
+    settled(cx, &model);
+    // A reload.
+    switch(cx, "/o/e.tar.xz", ArchiveFormat::TarXz);
+    act(cx, &model, TarpackModel::reload);
+    wait_for(cx, |cx| notice(cx, &model).is_none());
+    // Activation.
+    switch(cx, "/o/f.tar.gz", ArchiveFormat::TarGz);
+    act(cx, &model, TarpackModel::activated);
+    assert_eq!(notice(cx, &model), None);
+}
+
+#[gpui::test]
+fn output_dialog_failure_is_the_dialog_banner(cx: &mut TestAppContext) {
+    let (model, fake, _) = start_fixture(cx, TarpackFixture::Ready);
+    fake.answer_save(Err(PickError::Failed {
+        detail: "no shell".to_string(),
+    }));
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for(cx, |cx| error_of(cx, &model).is_some());
+    assert_eq!(error_of(cx, &model).expect("banner").copy(), PICK_FAILED);
+}
+
+// ---- building ----
+
+#[gpui::test]
+fn build_runs_off_thread_with_ordered_progress(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (model, _fake, out, _) = real_ready(cx, dir.path());
+    let seen: Rc<RefCell<Vec<Progress>>> = Rc::default();
+    let sink = seen.clone();
+    cx.update(|cx| {
+        cx.observe(&model, move |model, cx| {
+            if let Some(p) = model.read(cx).progress() {
+                if sink.borrow().last() != Some(p) {
+                    sink.borrow_mut().push(p.clone());
+                }
+            }
+        })
+        .detach();
+    });
+    build(cx, &model);
+    assert!(read(cx, &model, TarpackModel::building), "set at once");
+    assert!(!read(cx, &model, TarpackModel::can_build));
+    settled(cx, &model);
+    let Some(BuildOutcome::Ok(summary)) = result_of(cx, &model) else {
+        panic!("the build succeeded: {:?}", result_of(cx, &model));
+    };
+    assert_eq!(PathBuf::from(&summary.path), out);
+    assert!(out.is_file(), "the archive is on disk");
+    // Events are in order: writing before verifying, the bytes of a phase
+    // never go down, and the last one delivered is the final event.
+    let events = seen.borrow().clone();
+    assert!(events.len() >= 4, "{events:?}");
+    let first_verifying = events
+        .iter()
+        .position(|p| p.phase == BuildPhase::Verifying)
+        .expect("a verifying phase");
+    assert!(events[..first_verifying]
+        .iter()
+        .all(|p| p.phase == BuildPhase::Writing));
+    assert!(events[first_verifying..]
+        .iter()
+        .all(|p| p.phase == BuildPhase::Verifying));
+    for phase in events.chunk_by(|a, b| a.phase == b.phase) {
+        assert!(phase.windows(2).all(|w| w[0].bytes_done <= w[1].bytes_done));
+        let last = phase.last().expect("not empty");
+        assert_eq!(
+            (last.bytes_done, last.entry_id.as_deref()),
+            (last.bytes_total, None)
+        );
+    }
+    // Settled: the progress is gone and the controls are back.
+    assert_eq!(read(cx, &model, |m| m.progress().cloned()), None);
+    assert!(read(cx, &model, TarpackModel::can_build));
+}
+
+#[gpui::test]
+fn build_holds_without_blocking_the_ui(cx: &mut TestAppContext) {
+    let backend = FixtureTarpack::from_fixture(TarpackFixture::Building);
+    let (model, _fake) = start(cx, &backend);
+    idle(cx, &model);
+    build(cx, &model);
+    wait_for(cx, |cx| {
+        read(cx, &model, |m| {
+            m.progress().is_some_and(|p| p.bytes_done > 0)
+        })
+    });
+    // The write is held on its thread; the UI thread is free.
+    assert!(read(cx, &model, TarpackModel::building));
+    let progress = read(cx, &model, |m| m.progress().cloned()).expect("progress");
+    assert_eq!(progress.phase, BuildPhase::Writing);
+    assert_eq!(text::progress_percent(Some(&progress)), 42);
+    assert_eq!(
+        read(cx, &model, |m| m.progress_file().map(String::from)).as_deref(),
+        Some("gateway.conf"),
+        "the second ready entry's file"
+    );
+    // Controls are locked while it runs.
+    let calls = backend.calls().len();
+    act(cx, &model, TarpackModel::reload);
+    act(cx, &model, TarpackModel::open);
+    act(cx, &model, |m, cx| m.clear("gateway-bin", cx));
+    act(cx, &model, |m, cx| m.set_format(ArchiveFormat::Tar, cx));
+    act(cx, &model, TarpackModel::choose_output);
+    act(cx, &model, TarpackModel::build);
+    dropped(cx, &model, &["C:\\x\\gateway"]);
+    cx.run_until_parked();
+    assert_eq!(backend.calls().len(), calls, "no backend call was made");
+    assert_eq!(
+        hooks_target(cx, &model),
+        disabled("A build is running"),
+        "drops are refused"
+    );
+    backend.release_build();
+    settled(cx, &model);
+    assert!(matches!(result_of(cx, &model), Some(BuildOutcome::Ok(_))));
+}
+
+#[gpui::test]
+fn progress_names_the_last_file_of_the_phase(cx: &mut TestAppContext) {
+    let backend = FixtureTarpack::from_fixture(TarpackFixture::Ready);
+    let gate = Gate::new();
+    let ev = |phase, id: Option<&str>, done| Progress {
+        phase,
+        entry_id: id.map(str::to_string),
+        bytes_done: done,
+        bytes_total: 100,
+    };
+    backend.script_build(
+        vec![
+            ev(BuildPhase::Writing, Some("gateway-bin"), 10),
+            ev(BuildPhase::Writing, Some("gateway-conf"), 30),
+        ],
+        Some(&gate),
+        vec![
+            // Long after the last event, so the coalescer forwards it.
+            ev(BuildPhase::Writing, None, 60),
+            ev(BuildPhase::Verifying, None, 5),
+        ],
+    );
+    let (model, _fake) = start(cx, &backend);
+    idle(cx, &model);
+    let seen: Rc<RefCell<Vec<Seen>>> = Rc::default();
+    let sink = seen.clone();
+    cx.update(|cx| {
+        cx.observe(&model, move |model, cx| {
+            let m = model.read(cx);
+            if let Some(p) = m.progress() {
+                let row = (
+                    p.bytes_done,
+                    p.phase,
+                    m.progress_file().map(String::from),
+                    m.progress_label(),
+                    m.progress_value_text(),
+                );
+                if sink.borrow().last() != Some(&row) {
+                    sink.borrow_mut().push(row);
+                }
+            }
+        })
+        .detach();
+    });
+    build(cx, &model);
+    wait_for(cx, |cx| {
+        read(cx, &model, |m| {
+            m.progress().is_some_and(|p| p.bytes_done == 30)
+        })
+    });
+    std::thread::sleep(Duration::from_millis(120));
+    gate.open();
+    settled(cx, &model);
+    let rows = seen.borrow().clone();
+    let at = |done: u64| {
+        rows.iter()
+            .find(|r| r.0 == done)
+            .cloned()
+            .expect("an event")
+    };
+    let (_, _, file, label, value) = at(10);
+    assert_eq!(file.as_deref(), Some("gateway"));
+    assert_eq!(label, "Step 1 of 2 \u{b7} Writing gateway");
+    assert_eq!(value, "Writing gateway, 10%");
+    let (_, _, file, _, _) = at(30);
+    assert_eq!(file.as_deref(), Some("gateway.conf"));
+    // An event with no file keeps the last one named, but the value names
+    // the current event's file only.
+    let (_, _, file, label, value) = at(60);
+    assert_eq!(file.as_deref(), Some("gateway.conf"));
+    assert_eq!(label, "Step 1 of 2 \u{b7} Writing gateway.conf");
+    assert_eq!(value, "Writing, 60%");
+    // A new phase forgets it.
+    let (_, phase, file, label, _) = at(5);
+    assert_eq!((phase, file), (BuildPhase::Verifying, None));
+    assert_eq!(label, "Step 2 of 2 \u{b7} Verifying");
+}
+
+#[gpui::test]
+fn progress_unavailable_when_the_events_stop_early(cx: &mut TestAppContext) {
+    let (model, _fake, _backend) = start_fixture(cx, TarpackFixture::Ready);
+    let (tx, rx) = async_channel::unbounded::<Progress>();
+    let (finish, finished) = async_channel::bounded::<u8>(1);
+    drop(tx);
+    let job = cx.update(|cx| {
+        cx.foreground_executor().spawn(async move {
+            Ok::<_, crate::jobs::JobPanicked>(finished.recv().await.unwrap_or(0))
+        })
+    });
+    let done: Rc<RefCell<Option<u8>>> = Rc::default();
+    let sink = done.clone();
+    model.update(cx, |_, cx| {
+        cx.spawn(async move |this, cx| {
+            let got = TarpackModel::watch_build(this, rx, job, cx).await;
+            *sink.borrow_mut() = got.and_then(Result::ok);
+        })
+        .detach();
+    });
+    cx.run_until_parked();
+    assert_eq!(*done.borrow(), None, "the job is still running");
+    assert!(
+        read(cx, &model, TarpackModel::progress_unavailable),
+        "its events cannot be read"
+    );
+    finish.try_send(7).expect("room");
+    cx.run_until_parked();
+    assert_eq!(*done.borrow(), Some(7), "the job is still waited for");
+}
+
+#[gpui::test]
+fn build_refused_unless_can_build(cx: &mut TestAppContext) {
+    let (model, _fake, backend) = start_fixture(cx, TarpackFixture::Partial);
+    let (empty, _fake2, backend2) = start_fixture(cx, TarpackFixture::Loaded);
+    assert!(
+        read(cx, &model, TarpackModel::can_build),
+        "a partial build is allowed"
+    );
+    assert!(!read(cx, &empty, TarpackModel::can_build));
+    build(cx, &empty);
+    cx.run_until_parked();
+    assert!(!backend2.calls().contains(&Call::BeginBuild));
+    assert!(!read(cx, &empty, TarpackModel::building));
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(backend.calls().contains(&Call::BeginBuild));
+}
+
+#[gpui::test]
+fn build_success_sets_result_and_announces(cx: &mut TestAppContext) {
+    let (model, _fake, backend) = start_fixture(cx, TarpackFixture::Result);
+    let before = generation(cx, &model);
+    build(cx, &model);
+    settled(cx, &model);
+    let Some(BuildOutcome::Ok(summary)) = result_of(cx, &model) else {
+        panic!("a result");
+    };
+    assert_eq!(summary.path, OUTPUT_PATH);
+    assert_eq!(summary.built_ids.len(), 5);
+    assert_eq!(say(cx, &model).as_deref(), Some("Created gateway.tar.zst."));
+    assert_eq!(generation(cx, &model), before + 1, "announced once");
+    assert_eq!(hint(cx, &model), Some(FocusHint::CreateArchive));
+    assert!(read(cx, &model, TarpackModel::can_build));
+    assert_eq!(
+        backend
+            .calls()
+            .into_iter()
+            .filter(|c| matches!(c, Call::BuildRun { .. }))
+            .collect::<Vec<_>>(),
+        [Call::BuildRun { overwrite: false }]
+    );
+    // Dismissing hides it and hints at the button.
+    act(cx, &model, TarpackModel::dismiss_result);
+    assert_eq!(result_of(cx, &model), None);
+    assert_eq!(hint(cx, &model), Some(FocusHint::CreateArchive));
+    // A partial build says what it left out.
+    let (partial, _fake, _) = start_fixture(cx, TarpackFixture::ResultPartial);
+    build(cx, &partial);
+    settled(cx, &partial);
+    assert_eq!(
+        say(cx, &partial).as_deref(),
+        Some("Created gateway.tar.zst. 2 files were not included because no file was chosen.")
+    );
+}
+
+#[gpui::test]
+fn existing_output_asks_and_confirm_overwrites(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (model, _fake, out, _) = real_ready(cx, dir.path());
+    fs::write(&out, b"old archive").expect("write");
+    build(cx, &model);
+    settled(cx, &model);
+    // Nothing was written; the confirmation names the file.
+    assert_eq!(fs::read(&out).expect("read"), b"old archive");
+    assert_eq!(result_of(cx, &model), None);
+    assert_eq!(say(cx, &model), None, "asking announces nothing");
+    assert_eq!(
+        read(cx, &model, |m| m.confirming_overwrite().map(String::from)),
+        Some(display(&out))
+    );
+    assert_eq!(text::overwrite_title(&display(&out)), "Replace a.tar?");
+    assert!(
+        !read(cx, &model, TarpackModel::can_build),
+        "locked while asking"
+    );
+    assert!(!read(cx, &model, TarpackModel::building));
+    assert_eq!(hint(cx, &model), None);
+    // Replace builds again, with overwrite.
+    act(cx, &model, TarpackModel::confirm_overwrite);
+    assert!(read(cx, &model, TarpackModel::building));
+    assert_eq!(
+        read(cx, &model, |m| m.confirming_overwrite().map(String::from)),
+        None
+    );
+    settled(cx, &model);
+    assert!(matches!(result_of(cx, &model), Some(BuildOutcome::Ok(_))));
+    assert_ne!(fs::read(&out).expect("read"), b"old archive");
+    assert!(fs::metadata(&out).expect("meta").len() > 300_000);
+    assert_eq!(hint(cx, &model), Some(FocusHint::CreateArchive));
+}
+
+#[gpui::test]
+fn replace_asks_once_with_the_fixture(cx: &mut TestAppContext) {
+    let (model, _fake, backend) = start_fixture(cx, TarpackFixture::Replace);
+    build(cx, &model);
+    settled(cx, &model);
+    assert_eq!(
+        read(cx, &model, |m| m.confirming_overwrite().map(String::from)).as_deref(),
+        Some(OUTPUT_PATH)
+    );
+    assert_eq!(
+        text::overwrite_body(OUTPUT_PATH),
+        "A file with this name already exists in C:\\Releases. Replacing it can't be undone."
+    );
+    // The drop overlay says why it is off.
+    assert_eq!(hooks_target(cx, &model), disabled(DROP_BLOCKED_BY_DIALOG));
+    act(cx, &model, TarpackModel::confirm_overwrite);
+    settled(cx, &model);
+    assert!(matches!(result_of(cx, &model), Some(BuildOutcome::Ok(_))));
+    assert_eq!(
+        backend
+            .calls()
+            .into_iter()
+            .filter(|c| matches!(c, Call::BuildRun { .. }))
+            .collect::<Vec<_>>(),
+        [
+            Call::BuildRun { overwrite: false },
+            Call::BuildRun { overwrite: true }
+        ]
+    );
+    // Confirming with nothing to confirm does nothing.
+    act(cx, &model, TarpackModel::confirm_overwrite);
+    cx.run_until_parked();
+    assert!(!read(cx, &model, TarpackModel::building));
+}
+
+#[gpui::test]
+fn cancel_overwrite_writes_nothing(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (model, _fake, out, _) = real_ready(cx, dir.path());
+    fs::write(&out, b"old archive").expect("write");
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(read(cx, &model, |m| m.confirming_overwrite().is_some()));
+    act(cx, &model, TarpackModel::cancel_overwrite);
+    cx.run_until_parked();
+    assert_eq!(
+        fs::read(&out).expect("read"),
+        b"old archive",
+        "bytes unchanged"
+    );
+    assert_eq!(
+        read(cx, &model, |m| m.confirming_overwrite().map(String::from)),
+        None
+    );
+    assert_eq!(result_of(cx, &model), None);
+    assert!(!read(cx, &model, TarpackModel::building));
+    assert!(read(cx, &model, TarpackModel::can_build), "unlocked again");
+    assert_eq!(hint(cx, &model), Some(FocusHint::CreateArchiveAfterDialog));
+    // No temp file was left behind.
+    let names: Vec<_> = fs::read_dir(dir.path().join("out"))
+        .expect("dir")
+        .map(|e| e.expect("entry").file_name())
+        .collect();
+    assert_eq!(names, [std::ffi::OsString::from("a.tar")]);
+}
+
+#[gpui::test]
+fn changed_on_disk_during_build_marks_changed(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (model, _fake, out, manifest) = real_ready(cx, dir.path());
+    fs::write(&manifest, format!("{ONE_FILE}\n# edited\n")).expect("write");
+    let before = generation(cx, &model);
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(read(cx, &model, TarpackModel::changed_on_disk));
+    assert_eq!(result_of(cx, &model), None, "no result");
+    assert!(!out.exists(), "nothing was written");
+    assert_eq!(say(cx, &model).as_deref(), Some(text::CHANGED_ON_DISK));
+    assert_eq!(generation(cx, &model), before + 1);
+    // Announced once.
+    build(cx, &model);
+    settled(cx, &model);
+    assert_eq!(generation(cx, &model), before + 1);
+}
+
+#[gpui::test]
+fn build_error_is_result_with_message(cx: &mut TestAppContext) {
+    let (model, _fake, backend) = start_fixture(cx, TarpackFixture::Ready);
+    // The write fails after it has reported progress: the progress stops and
+    // the error is the result.
+    backend.script_build(
+        vec![
+            Progress {
+                phase: BuildPhase::Writing,
+                entry_id: Some("gateway-bin".to_string()),
+                bytes_done: 10,
+                bytes_total: 100,
+            },
+            Progress {
+                phase: BuildPhase::Verifying,
+                entry_id: Some("gateway-bin".to_string()),
+                bytes_done: 50,
+                bytes_total: 100,
+            },
+        ],
+        None,
+        Vec::new(),
+    );
+    backend.fail_build(TarpackError::for_entry(
+        TarpackErrorKind::SourceMissing,
+        "C:\\Builds\\gateway\\gateway-conf is gone",
+        "gateway-conf",
+    ));
+    build(cx, &model);
+    settled(cx, &model);
+    let Some(BuildOutcome::Err(e)) = result_of(cx, &model) else {
+        panic!("a failure");
+    };
+    assert_eq!(e.kind, TarpackErrorKind::SourceMissing);
+    assert_eq!(
+        e.message, "C:\\Builds\\gateway\\gateway-conf is gone",
+        "the detail"
+    );
+    let source = entries(cx, &model)
+        .into_iter()
+        .find(|e| e.view.id == "gateway-conf")
+        .map(|e| e.view.source)
+        .expect("entry");
+    assert_eq!(
+        say(cx, &model).unwrap_or_default(),
+        format!("{source} is no longer at its assigned location.")
+    );
+    assert!(
+        read(cx, &model, TarpackModel::can_build),
+        "free to try again"
+    );
+    assert_eq!(
+        read(cx, &model, |m| m.progress().cloned()),
+        None,
+        "the progress stopped"
+    );
+    // An error from the checks before the write is a result too.
+    let (model, _fake, backend) = start_fixture(cx, TarpackFixture::Ready);
+    backend.fail_next(err(TarpackErrorKind::NoOutput));
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(matches!(
+        result_of(cx, &model),
+        Some(BuildOutcome::Err(TarpackError {
+            kind: TarpackErrorKind::NoOutput,
+            ..
+        }))
+    ));
+    assert_eq!(
+        say(cx, &model).as_deref(),
+        Some("Choose where to save the archive.")
+    );
+}
+
+#[gpui::test]
+fn build_with_errors_reports_left_out(cx: &mut TestAppContext) {
+    // A canBuild session that has errors builds with no dialog; the failed
+    // entry is left out and the announcement says so.
+    let (model, _fake, backend) = start_fixture(cx, TarpackFixture::Errors);
+    assert!(read(cx, &model, TarpackModel::can_build));
+    build(cx, &model);
+    settled(cx, &model);
+    assert_eq!(
+        read(cx, &model, |m| m.confirming_overwrite().map(String::from)),
+        None
+    );
+    let Some(BuildOutcome::Ok(summary)) = result_of(cx, &model) else {
+        panic!("a result");
+    };
+    assert_eq!(summary.left_out.len(), 1);
+    assert_eq!(summary.error_count, 2);
+    assert_eq!(summary.built_ids.len(), 4);
+    assert_eq!(
+        say(cx, &model).as_deref(),
+        Some("Created gateway.tar.zst. 1 file was left out because of errors.")
+    );
+    assert_eq!(
+        backend
+            .calls()
+            .into_iter()
+            .filter(|c| matches!(c, Call::BuildRun { .. }))
+            .collect::<Vec<_>>(),
+        [Call::BuildRun { overwrite: false }],
+        "built once"
+    );
+}
+
+#[gpui::test]
+fn output_and_format_errors_show_the_banner(cx: &mut TestAppContext) {
+    let (model, fake, backend) = start_fixture(cx, TarpackFixture::Ready);
+    backend.fail_next(err(TarpackErrorKind::Io));
+    fake.answer_save(pick(Path::new("/o/x.tar.zst")));
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for(cx, |cx| error_of(cx, &model).is_some());
+    assert_eq!(
+        error_of(cx, &model).expect("banner").copy(),
+        "A file could not be read or written."
+    );
+    assert_eq!(
+        session_of(cx, &model).output_path.as_deref(),
+        Some(OUTPUT_PATH),
+        "the output is unchanged"
+    );
+    act(cx, &model, TarpackModel::dismiss_error);
+    backend.fail_next(err(TarpackErrorKind::NoManifest));
+    act(cx, &model, |m, cx| m.set_format(ArchiveFormat::Tar, cx));
+    wait_for(cx, |cx| error_of(cx, &model).is_some());
+    assert_eq!(
+        error_of(cx, &model).expect("banner").copy(),
+        "Open a manifest first."
+    );
+    assert_eq!(session_of(cx, &model).format, ArchiveFormat::TarZst);
+}
+
+#[test]
+fn format_labels_match_today() {
+    // FormatPicker.test.tsx: options in the given order with the session's
+    // extensions.
+    let options = fm_tarpack::session::ArchiveFormatOption::all();
+    let labels: Vec<_> = options.iter().map(text::format_option_label).collect();
+    assert_eq!(
+        labels,
+        [
+            "tar (.tar)",
+            "gzip (.tar.gz)",
+            "zstd (.tar.zst)",
+            "xz (.tar.xz)"
+        ]
+    );
+    assert_eq!(
+        text::format_filter_name(&options[2]),
+        "zstd archive (.tar.zst)"
+    );
+    assert_eq!(
+        text::format_changed_notice(ArchiveFormat::TarXz),
+        "Format changed to xz to match the file name."
+    );
+}
+
+#[gpui::test]
+fn panicked_build_aborts_and_reports(cx: &mut TestAppContext) {
+    let (model, _fake, backend) = start_fixture(cx, TarpackFixture::Ready);
+    backend.panic_in_build();
+    build(cx, &model);
+    settled(cx, &model);
+    let Some(BuildOutcome::Err(e)) = result_of(cx, &model) else {
+        panic!("a failure");
+    };
+    assert_eq!(e.kind, TarpackErrorKind::Io);
+    assert!(
+        e.message.starts_with("the build stopped unexpectedly"),
+        "{}",
+        e.message
+    );
+    assert!(e.message.contains("the build exploded"), "{}", e.message);
+    let calls = backend.calls();
+    assert!(calls.contains(&Call::AbortBuild));
+    assert!(!calls.contains(&Call::FinishBuild));
+    assert!(!read(cx, &model, TarpackModel::building));
+    assert!(read(cx, &model, TarpackModel::can_build));
+    assert!(say(cx, &model).is_some());
+}
+
+#[gpui::test]
+fn a_panic_in_the_checks_or_the_end_aborts_too(cx: &mut TestAppContext) {
+    for command in [Command::BeginBuild, Command::FinishBuild] {
+        let (model, _fake, backend) = start_fixture(cx, TarpackFixture::Ready);
+        backend.panic_on(command);
+        build(cx, &model);
+        settled(cx, &model);
+        let Some(BuildOutcome::Err(e)) = result_of(cx, &model) else {
+            panic!("{command:?}: a failure");
+        };
+        assert!(
+            e.message.starts_with("the build stopped unexpectedly"),
+            "{command:?}"
+        );
+        assert!(backend.calls().contains(&Call::AbortBuild), "{command:?}");
+        assert!(!read(cx, &model, TarpackModel::building));
+        // The session is fetched again: the backend's state is unknown.
+        wait_for(cx, |_| session_fetches(&backend) >= 2);
+    }
+}
+
+// ---- the result: reveal and copy ----
+
+#[gpui::test]
+fn reveal_uses_held_path(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (model, fake, out, _) = real_ready(cx, dir.path());
+    // A name that is not valid Unicode cannot round-trip through a display
+    // string: the held path is what is revealed.
+    #[cfg(unix)]
+    let odd = {
+        use std::os::unix::ffi::OsStrExt as _;
+        let odd = dir
+            .path()
+            .join("out")
+            .join(std::ffi::OsStr::from_bytes(b"o\xffd.tar"));
+        fake.answer_save(pick(&odd));
+        act(cx, &model, TarpackModel::choose_output);
+        wait_for(cx, |cx| {
+            session_of(cx, &model)
+                .output_path
+                .is_some_and(|p| p.contains('\u{fffd}'))
+        });
+        drop(out);
+        odd
+    };
+    #[cfg(not(unix))]
+    let odd = out;
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(matches!(result_of(cx, &model), Some(BuildOutcome::Ok(_))));
+    act(cx, &model, TarpackModel::reveal_output);
+    wait_for(cx, |_| {
+        fake.calls()
+            .iter()
+            .any(|c| matches!(c, PlatformCall::Reveal(_)))
+    });
+    assert_eq!(
+        fake.calls().last(),
+        Some(&PlatformCall::Reveal(odd.clone())),
+        "the exact path, not a display string"
+    );
+    assert!(odd.is_file());
+    assert!(error_of(cx, &model).is_none());
+}
+
+#[gpui::test]
+fn reveal_failure_shows_opener_failed(cx: &mut TestAppContext) {
+    let (model, fake, _) = start_fixture(cx, TarpackFixture::Result);
+    build(cx, &model);
+    settled(cx, &model);
+    fake.answer_open(Err(OpenError {
+        detail: "Explorer is not running".to_string(),
+    }));
+    act(cx, &model, TarpackModel::reveal_output);
+    wait_for(cx, |cx| error_of(cx, &model).is_some());
+    let error = error_of(cx, &model).expect("banner");
+    assert_eq!(error.copy(), "Windows could not open it.");
+    assert_eq!(error.detail(), "Explorer is not running");
+    assert_eq!(
+        fake.calls(),
+        [PlatformCall::Reveal(PathBuf::from(OUTPUT_PATH))]
+    );
+}
+
+#[gpui::test]
+fn reveal_before_any_build_is_no_output(cx: &mut TestAppContext) {
+    let (model, fake, _) = start_fixture(cx, TarpackFixture::Ready);
+    act(cx, &model, TarpackModel::reveal_output);
+    wait_for(cx, |cx| error_of(cx, &model).is_some());
+    assert_eq!(fake.calls(), Vec::<PlatformCall>::new());
+    assert_eq!(
+        error_of(cx, &model).expect("banner").copy(),
+        "Choose where to save the archive."
+    );
+}
+
+#[gpui::test]
+fn copy_report_copies_report_text(cx: &mut TestAppContext) {
+    let (model, fake, _) = start_fixture(cx, TarpackFixture::ResultPartial);
+    act(cx, &model, TarpackModel::copy_report);
+    assert_eq!(fake.calls(), Vec::<PlatformCall>::new(), "no result yet");
+    build(cx, &model);
+    settled(cx, &model);
+    let Some(BuildOutcome::Ok(summary)) = result_of(cx, &model) else {
+        panic!("a result");
+    };
+    act(cx, &model, TarpackModel::copy_report);
+    act(cx, &model, TarpackModel::copy_sha256);
+    let report = text::report_text(&summary);
+    assert!(report.starts_with("Created gateway.tar.zst with 2 files not included"));
+    assert_eq!(
+        fake.calls(),
+        [
+            PlatformCall::CopyText(report),
+            PlatformCall::CopyText(summary.sha256_hex.clone()),
+        ]
+    );
+}
+
+#[gpui::test]
+fn extraction_command_only_in_dev_mode(cx: &mut TestAppContext) {
+    cx.update(DevMode::init);
+    let (model, fake, _) = start_fixture(cx, TarpackFixture::DevResult);
+    let command = |cx: &mut TestAppContext| {
+        cx.read(|cx| model.read(cx).extraction_command(cx).map(String::from))
+    };
+    assert_eq!(command(cx), None, "no result yet");
+    build(cx, &model);
+    settled(cx, &model);
+    assert_eq!(command(cx), None, "developer mode is off");
+    act(cx, &model, TarpackModel::copy_extraction_command);
+    assert_eq!(fake.calls(), Vec::<PlatformCall>::new());
+    cx.update(DevMode::toggle);
+    assert_eq!(
+        command(cx).as_deref(),
+        Some("tar --zstd --no-overwrite-dir -xpPf gateway.tar.zst")
+    );
+    act(cx, &model, TarpackModel::copy_extraction_command);
+    assert_eq!(
+        fake.calls(),
+        [PlatformCall::CopyText(
+            "tar --zstd --no-overwrite-dir -xpPf gateway.tar.zst".to_string()
+        )]
+    );
+}
+
+#[gpui::test]
+fn dev_mode_off_hides_extraction_command(cx: &mut TestAppContext) {
+    cx.update(DevMode::init);
+    let (model, fake, _) = start_fixture(cx, TarpackFixture::DevResult);
+    build(cx, &model);
+    settled(cx, &model);
+    cx.update(DevMode::toggle);
+    let redraws: Rc<RefCell<usize>> = Rc::default();
+    let counter = redraws.clone();
+    cx.update(|cx| {
+        cx.observe(&model, move |_, _| *counter.borrow_mut() += 1)
+            .detach();
+    });
+    cx.update(DevMode::toggle);
+    cx.run_until_parked();
+    assert_eq!(*redraws.borrow(), 1, "the model redraws at once");
+    assert_eq!(
+        cx.read(|cx| model.read(cx).extraction_command(cx).map(String::from)),
+        None
+    );
+    act(cx, &model, TarpackModel::copy_extraction_command);
+    assert_eq!(fake.calls(), Vec::<PlatformCall>::new());
+}
+
+// ---- shortcuts ----
+
+#[gpui::test]
+fn shortcuts_gating_matches_today(cx: &mut TestAppContext) {
+    use Shortcut::{Build, Edit, Escape, Open, Reload, ShowErrors};
+    cx.update(DevMode::init);
+    let all = [Open, Reload, Edit, Build, ShowErrors, Escape];
+    let row = |cx: &mut TestAppContext, model: &Entity<TarpackModel>| {
+        all.map(|s| shortcut_on(cx, model, s))
+    };
+    // No manifest: only Open (Ctrl+O works with or without a manifest).
+    let (empty, _, _) = start_fixture(cx, TarpackFixture::Empty);
+    assert_eq!(row(cx, &empty), [true, false, false, false, false, false]);
+    cx.update(DevMode::toggle);
+    assert_eq!(
+        row(cx, &empty),
+        [true, false, false, false, false, false],
+        "Ctrl+E needs a manifest even in developer mode"
+    );
+    cx.update(DevMode::toggle);
+    // A manifest nothing is assigned to: reload, not build; no errors.
+    let (loaded, _, _) = start_fixture(cx, TarpackFixture::Loaded);
+    assert_eq!(row(cx, &loaded), [true, true, false, false, false, false]);
+    cx.update(DevMode::toggle);
+    assert_eq!(
+        row(cx, &loaded),
+        [true, true, true, false, false, false],
+        "Ctrl+E edits in developer mode only"
+    );
+    cx.update(DevMode::toggle);
+    // Ready, with errors: a canBuild session that has errors builds, with
+    // no dialog; F8 needs errors.
+    let (errors, _, _) = start_fixture(cx, TarpackFixture::Errors);
+    assert_eq!(row(cx, &errors), [true, true, false, true, true, false]);
+    let (ready, _, _) = start_fixture(cx, TarpackFixture::Ready);
+    assert_eq!(row(cx, &ready), [true, true, false, true, false, false]);
+    // A running build: everything is off, the reload chords included.
+    let (building, _, backend) = start_fixture(cx, TarpackFixture::Building);
+    build(cx, &building);
+    assert_eq!(row(cx, &building), [false; 6]);
+    cx.update(DevMode::toggle);
+    assert_eq!(row(cx, &building), [false; 6]);
+    cx.update(DevMode::toggle);
+    wait_for(cx, |cx| read(cx, &building, |m| m.progress().is_some()));
+    let calls = backend.calls().len();
+    for s in all {
+        run_shortcut(cx, &building, s);
+    }
+    cx.run_until_parked();
+    assert_eq!(
+        backend
+            .calls()
+            .iter()
+            .skip(calls)
+            .filter(|c| matches!(c, Call::Reload | Call::BeginBuild))
+            .count(),
+        0
+    );
+    backend.release_build();
+    settled(cx, &building);
+    assert_eq!(
+        row(cx, &building),
+        [true, true, false, true, false, true],
+        "a result shows"
+    );
+    // The replace dialog open: everything is off.
+    let (replace, _, _) = start_fixture(cx, TarpackFixture::Replace);
+    build(cx, &replace);
+    settled(cx, &replace);
+    assert_eq!(row(cx, &replace), [false; 6]);
+    act(cx, &replace, TarpackModel::cancel_overwrite);
+    assert_eq!(row(cx, &replace), [true, true, false, true, false, false]);
+}
+
+#[gpui::test]
+fn shortcuts_run_what_they_gate(cx: &mut TestAppContext) {
+    cx.update(DevMode::init);
+    cx.update(DevMode::toggle);
+    let (model, fake, backend) = start_fixture(cx, TarpackFixture::Errors);
+    run_shortcut(cx, &model, Shortcut::Reload);
+    wait_for(cx, |_| backend.calls().contains(&Call::Reload));
+    run_shortcut(cx, &model, Shortcut::Edit);
+    wait_for(cx, |_| {
+        fake.calls()
+            .iter()
+            .any(|c| matches!(c, PlatformCall::OpenWithSystem(_)))
+    });
+    act(cx, &model, |m, cx| m.set_errors_expanded(false, cx));
+    run_shortcut(cx, &model, Shortcut::ShowErrors);
+    assert!(read(cx, &model, TarpackModel::errors_expanded));
+    assert_eq!(hint(cx, &model), Some(FocusHint::Report));
+    run_shortcut(cx, &model, Shortcut::Build);
+    settled(cx, &model);
+    assert!(backend.calls().contains(&Call::BeginBuild));
+    assert!(result_of(cx, &model).is_some());
+    fake.answer_pick(pick(Path::new("/m/other.toml")));
+    run_shortcut(cx, &model, Shortcut::Open);
+    wait_for(cx, |_| {
+        backend.calls().iter().any(|c| matches!(c, Call::Open(_)))
+    });
+}
+
+#[gpui::test]
+fn escape_dismisses_drop_result_then_build_result(cx: &mut TestAppContext) {
+    let (model, _fake, _) = start_fixture(cx, TarpackFixture::Ready);
+    build(cx, &model);
+    settled(cx, &model);
+    dropped(cx, &model, &["C:\\x\\gateway"]);
+    idle(cx, &model);
+    assert!(drop_lines_of(cx, &model).is_some() && result_of(cx, &model).is_some());
+    act(cx, &model, |m, cx| m.set_errors_expanded(true, cx));
+    run_shortcut(cx, &model, Shortcut::Escape);
+    assert!(drop_lines_of(cx, &model).is_none(), "the drop result first");
+    assert!(result_of(cx, &model).is_some());
+    assert_eq!(hint(cx, &model), Some(FocusHint::AfterResult));
+    run_shortcut(cx, &model, Shortcut::Escape);
+    assert!(result_of(cx, &model).is_none(), "then the build result");
+    assert_eq!(hint(cx, &model), Some(FocusHint::CreateArchive));
+    assert!(
+        read(cx, &model, TarpackModel::errors_expanded),
+        "never collapses the error report"
+    );
+    assert!(!shortcut_on(cx, &model, Shortcut::Escape), "nothing left");
+    run_shortcut(cx, &model, Shortcut::Escape);
+    assert_eq!(hint(cx, &model), None);
+}
+
+#[gpui::test]
+fn escape_ignored_while_shortcuts_open(cx: &mut TestAppContext) {
+    let (model, _fake, _) = start_fixture(cx, TarpackFixture::Result);
+    build(cx, &model);
+    settled(cx, &model);
+    act(cx, &model, |m, _| m.set_shortcuts_open(true));
+    assert!(!shortcut_on(cx, &model, Shortcut::Escape));
+    run_shortcut(cx, &model, Shortcut::Escape);
+    assert!(result_of(cx, &model).is_some(), "the popover took the key");
+    act(cx, &model, |m, _| m.set_shortcuts_open(false));
+    assert!(shortcut_on(cx, &model, Shortcut::Escape));
+    run_shortcut(cx, &model, Shortcut::Escape);
+    assert!(result_of(cx, &model).is_none());
+}
+
+#[gpui::test]
+fn reload_clears_the_build_result(cx: &mut TestAppContext) {
+    let (model, _fake, _) = start_fixture(cx, TarpackFixture::Result);
+    build(cx, &model);
+    settled(cx, &model);
+    let _ = hint(cx, &model);
+    act(cx, &model, TarpackModel::reload);
+    wait_for(cx, |cx| result_of(cx, &model).is_none());
+    assert_eq!(
+        hint(cx, &model),
+        Some(FocusHint::Reload),
+        "focus was in the result"
+    );
+}
+
+// ---- activating ----
+
+#[gpui::test]
+fn activated_keeps_running_build_and_result(cx: &mut TestAppContext) {
+    let backend = FixtureTarpack::from_fixture(TarpackFixture::Building);
+    let (model, _fake) = start(cx, &backend);
+    idle(cx, &model);
+    build(cx, &model);
+    wait_for(cx, |cx| read(cx, &model, |m| m.progress().is_some()));
+    act(cx, &model, TarpackModel::activated);
+    cx.run_until_parked();
+    assert!(
+        read(cx, &model, TarpackModel::building),
+        "the build continues"
+    );
+    assert!(read(cx, &model, |m| m.progress().is_some()));
+    backend.release_build();
+    // The result lands while the tool is not current: it is kept.
+    settled(cx, &model);
+    assert!(result_of(cx, &model).is_some());
+    act(cx, &model, TarpackModel::activated);
+    idle(cx, &model);
+    assert!(result_of(cx, &model).is_some(), "kept until dismissed");
+    assert_eq!(say(cx, &model), None, "the announcement is forgotten");
+}
+
+#[gpui::test]
+fn activated_clears_notice_and_confirmation(cx: &mut TestAppContext) {
+    let (model, fake, backend) = start_fixture(cx, TarpackFixture::Replace);
+    fake.answer_save(pick(Path::new("/o/a.tar.xz")));
+    act(cx, &model, TarpackModel::choose_output);
+    wait_for(cx, |cx| read(cx, &model, |m| m.format_notice().is_some()));
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(read(cx, &model, |m| m.confirming_overwrite().is_some()));
+    act(cx, &model, TarpackModel::activated);
+    assert!(read(cx, &model, |m| m.confirming_overwrite().is_none()));
+    assert!(read(cx, &model, |m| m.format_notice().is_none()));
+    assert_eq!(say(cx, &model), None);
+    assert!(
+        read(cx, &model, TarpackModel::can_build),
+        "nothing is blocked"
+    );
+    idle(cx, &model);
+    assert_eq!(
+        backend
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, Call::BuildRun { overwrite: true }))
+            .count(),
+        0,
+        "nothing was replaced"
+    );
+}
+
+// ---- fixtures ----
+
+#[gpui::test]
+fn fixtures_build_each_build_state(cx: &mut TestAppContext) {
+    use TarpackFixture as F;
+    // tarpack-buildbar and tarpack-shortcuts are states of the manifest side.
+    let (bar, _, _) = start_fixture(cx, F::BuildBar);
+    assert!(read(cx, &bar, TarpackModel::can_build));
+    assert_eq!(read(cx, &bar, TarpackModel::build_reason), None);
+    let (shortcuts, _, _) = start_fixture(cx, F::Shortcuts);
+    assert_eq!(
+        read(cx, &shortcuts, TarpackModel::build_reason).as_deref(),
+        Some("Add at least one file to build an archive")
+    );
+
+    // tarpack-building: progress at once, then held; release finishes it.
+    let (building, _, backend) = start_fixture(cx, F::Building);
+    build(cx, &building);
+    wait_for(cx, |cx| {
+        read(cx, &building, |m| {
+            m.progress().is_some_and(|p| p.bytes_done > 0)
+        })
+    });
+    assert_eq!(
+        read(cx, &building, |m| m
+            .progress()
+            .map(|p| text::progress_percent(Some(p)))),
+        Some(42)
+    );
+    assert!(read(cx, &building, TarpackModel::building));
+    backend.release_build();
+    settled(cx, &building);
+    assert!(matches!(
+        result_of(cx, &building),
+        Some(BuildOutcome::Ok(_))
+    ));
+
+    // tarpack-replace: the first answer is OutputExists.
+    let (replace, _, _) = start_fixture(cx, F::Replace);
+    build(cx, &replace);
+    settled(cx, &replace);
+    assert_eq!(
+        read(cx, &replace, |m| m.confirming_overwrite().map(String::from)).as_deref(),
+        Some(OUTPUT_PATH)
+    );
+    assert_eq!(result_of(cx, &replace), None);
+
+    // tarpack-result, -result-partial, -dev-result: full and partial summaries.
+    for (fixture, built, not_included, normalized) in [
+        (F::Result, 5, 0, 1),
+        (F::DevResult, 5, 0, 1),
+        (F::ResultPartial, 3, 2, 1),
+    ] {
+        let (model, _, _) = start_fixture(cx, fixture);
+        build(cx, &model);
+        settled(cx, &model);
+        let Some(BuildOutcome::Ok(s)) = result_of(cx, &model) else {
+            panic!("{fixture:?}: a result");
+        };
+        assert_eq!(
+            (
+                s.built_ids.len(),
+                s.not_loaded.len(),
+                s.normalized_entries.len()
+            ),
+            (built, not_included, normalized),
+            "{fixture:?}"
+        );
+        assert_eq!(s.path, OUTPUT_PATH);
+        assert_eq!(s.format, ArchiveFormat::TarZst);
+        assert_eq!(s.sha256_hex.len(), 64);
+        assert_eq!(
+            s.extract_command,
+            "tar --zstd --no-overwrite-dir -xpPf gateway.tar.zst"
+        );
+    }
+    // tarpack-dev: the ready state; developer mode is the scenario's.
+    let (dev, _, _) = start_fixture(cx, F::Dev);
+    assert!(read(cx, &dev, TarpackModel::can_build));
+}
+
+#[gpui::test]
+fn open_recent_past_the_end_is_recent_changed(cx: &mut TestAppContext) {
+    let backend = FixtureTarpack::loaded();
+    let (model, _fake) = start(cx, &backend);
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, |m| m.recent().len()), 3);
+    // The backend's list is shorter than the copy the model shows.
+    backend.set_recent(&[MANIFEST_PATH]);
+    act(cx, &model, |m, cx| m.open_recent(2, cx));
+    idle(cx, &model);
+    wait_for(cx, |cx| error_of(cx, &model).is_some());
+    assert_eq!(error_of(cx, &model), Some(ViewError::RecentChanged));
+    assert_eq!(read(cx, &model, |m| m.recent().to_vec()), [MANIFEST_PATH]);
+    assert_eq!(manifest_path(cx, &model).as_deref(), Some(MANIFEST_PATH));
+
+    // The real backend: no such position is a decline, not an error.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_manifest(dir.path(), "a.toml", GATEWAY);
+    let mut real_backend = real(dir.path());
+    real_backend.open(&a).expect("open");
+    assert_eq!(real_backend.open_recent(5, "x").expect("no error"), None);
 }

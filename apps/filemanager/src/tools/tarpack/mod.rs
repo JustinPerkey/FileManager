@@ -1,6 +1,6 @@
-//! Tar Packager: the model (manifest side; part B adds the build side), its
-//! backend, its copy and (for tests and the harness) its fixtures. The view is
-//! the ui-implementer's; `view/` holds a plain stand-in until it replaces it.
+//! Tar Packager: the model (manifest and build sides), its backend, its copy
+//! and (for tests and the harness) its fixtures. The view is the
+//! ui-implementer's; `view/` holds a plain stand-in until it replaces it.
 
 pub mod backend;
 #[cfg(any(test, feature = "shoot"))]

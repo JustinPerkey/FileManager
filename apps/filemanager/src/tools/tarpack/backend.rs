@@ -29,7 +29,7 @@ pub trait DropWork: Send + 'static {
 
 /// A build's write. [`TarpackBackend::begin_build`] makes it, the model runs
 /// it on a thread, and [`TarpackBackend::finish_build`] takes it back with its
-/// result. Part B drives it.
+/// result.
 pub trait BuildWork: Send + 'static {
     /// Writes the archive. `progress` gets the raw events.
     fn run(&mut self, overwrite: bool, progress: &mut dyn FnMut(Progress));
@@ -58,11 +58,11 @@ pub trait TarpackBackend: Send + 'static {
     /// [`TarpackBackend::recent_manifests`], by its stored path, but only if
     /// that entry's display string is still `expected_display`: the model's
     /// copy of the list may be older than the backend's. `Ok(None)` when it
-    /// is not (nothing was opened): the model refreshes its list.
+    /// is not, or when there is no such position (nothing was opened): the
+    /// model refreshes its list.
     ///
     /// # Errors
-    /// `ManifestUnreadable` when there is no such position or the file cannot
-    /// be read.
+    /// `ManifestUnreadable` when the file cannot be read.
     fn open_recent(
         &mut self,
         index: usize,
@@ -114,31 +114,36 @@ pub trait TarpackBackend: Send + 'static {
         work: Box<dyn DropWork>,
     ) -> Result<Option<DroppedAssignment>, TarpackError>;
 
-    /// Sets the output (part B).
+    /// The output set for the next build, as the stored path (a save dialog
+    /// starts in its folder). `None` when nothing is loaded or none is set.
+    fn output_path(&self) -> Option<PathBuf>;
+
+    /// Sets the output. A name with a known archive suffix switches the
+    /// format; the path ends with the extension of the resulting format.
     ///
     /// # Errors
     /// `NoManifest` or `Io`.
     fn set_output(&mut self, path: &Path) -> Result<TarpackSession, TarpackError>;
 
-    /// Sets the archive format (part B).
+    /// Sets the archive format.
     ///
     /// # Errors
     /// `NoManifest`.
     fn set_format(&mut self, format: ArchiveFormat) -> Result<TarpackSession, TarpackError>;
 
-    /// Checks everything a build needs and marks it running (part B).
+    /// Checks everything a build needs and marks it running.
     ///
     /// # Errors
     /// See `Core::begin_build`.
     fn begin_build(&mut self) -> Result<Box<dyn BuildWork>, TarpackError>;
 
-    /// Ends a build whose work has run (part B).
+    /// Ends a build whose work has run.
     ///
     /// # Errors
     /// The build's own error.
     fn finish_build(&mut self, work: Box<dyn BuildWork>) -> Result<BuildSummary, TarpackError>;
 
-    /// Releases the session after a build that never reported back (part B).
+    /// Releases the session after a build that never reported back.
     fn abort_build(&mut self);
 
     /// The loaded manifest's path, for the watcher.
@@ -150,7 +155,7 @@ pub trait TarpackBackend: Send + 'static {
     /// `NoManifest`.
     fn manifest_path_for_open(&self) -> Result<PathBuf, TarpackError>;
 
-    /// The path the last successful build wrote (part B).
+    /// The path the last successful build wrote, as the stored path.
     ///
     /// # Errors
     /// `NoOutput`.
@@ -245,17 +250,9 @@ impl TarpackBackend for RealTarpack {
         index: usize,
         expected_display: &str,
     ) -> Result<Option<TarpackSession>, TarpackError> {
-        let path = self
-            .core
-            .recent_paths()
-            .into_iter()
-            .nth(index)
-            .ok_or_else(|| {
-                TarpackError::new(
-                    TarpackErrorKind::ManifestUnreadable,
-                    "that manifest is no longer in the recent list",
-                )
-            })?;
+        let Some(path) = self.core.recent_paths().into_iter().nth(index) else {
+            return Ok(None);
+        };
         let shown = self.core.recent_manifests();
         if shown.get(index).map(String::as_str) != Some(expected_display) {
             return Ok(None);
@@ -310,6 +307,10 @@ impl TarpackBackend for RealTarpack {
                 session: self.core.snapshot(),
                 outcome,
             }))
+    }
+
+    fn output_path(&self) -> Option<PathBuf> {
+        self.core.output_path()
     }
 
     fn set_output(&mut self, path: &Path) -> Result<TarpackSession, TarpackError> {

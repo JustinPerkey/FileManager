@@ -652,6 +652,24 @@ fn set_output_appends_or_switches_format() {
 }
 
 #[test]
+fn output_path_is_the_stored_path() {
+    let env = Env::new();
+    let m = env.write("m.toml", TWO_FILES);
+    let mut core = env.core();
+    assert_eq!(core.output_path(), None, "nothing loaded");
+    core.open(&m).unwrap();
+    assert_eq!(core.output_path(), None, "no output yet");
+    core.set_output(&env.out("typed.tar.xz")).unwrap();
+    assert_eq!(core.output_path(), Some(env.out("typed.tar.xz")));
+    core.set_format(ArchiveFormat::TarGz).unwrap();
+    assert_eq!(
+        core.output_path(),
+        Some(env.out("typed.tar.gz")),
+        "the format's extension, as the snapshot shows it"
+    );
+}
+
+#[test]
 fn format_restored_per_manifest() {
     let env = Env::new();
     let m1 = env.write("one.toml", TWO_FILES);

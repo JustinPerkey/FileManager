@@ -16,9 +16,9 @@ are stubs). The Database Manager (`dbmanager`) is in progress: crate only
 
 A GPUI app is being built beside the Tauri shell in `apps/filemanager` (package
 `filemanager-gpui`); the Tauri exe still ships. The Pipeline's and the Schedule
-Creator's model, backend trait, copy and fixtures are ported there, and the Tar
-Packager's manifest side (backend trait, model, copy, fixtures; the build side
-is part B) (their views are still placeholders). It
+Creator's model, backend trait, copy and fixtures are ported there, and so are
+the Tar Packager's, manifest and build sides (their views are still
+placeholders). It
 moves the UI to GPUI with the gpui-component widgets; a later cutover milestone
 deletes `apps/desktop` and renames the package and binary to `filemanager`.
 
@@ -167,9 +167,8 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               manual image). src/bin/filemanager-shoot.rs is its binary
                               (required-features = shoot); never in the release exe
   src/tools/                  registry (ToolId, ToolSlot, ToolHooks, build) and one
-                              module per tool (Pipeline and Schedule have their real models; Tar
-                              Packager has its manifest-side model, backend,
-                              text, fixtures; build side pending), each with a view/
+                              module per tool (Pipeline, Schedule and Tar Packager have their real
+                              models, backends, text and fixtures), each with a view/
                               placeholder; tools never import each other
   src/tools/schedule/         same shape as pipeline/ (ScheduleBackend over fm_schedule's
                               Core; RealSchedule, ScheduleModel, text.rs, fixtures.rs,
