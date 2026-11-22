@@ -44,10 +44,13 @@ pub enum Backend {
     Fixture(FixtureId),
 }
 
-/// Names one of a tool's fixture backends.
+/// Names one of a tool's fixture backends; each tool's milestone adds a
+/// variant.
 #[cfg(any(test, feature = "shoot"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FixtureId(pub &'static str);
+pub enum FixtureId {
+    Pipeline(pipeline::fixtures::PipelineFixture),
+}
 
 /// The backend choice for every tool, installed as a global by
 /// [`crate::run_with`]. A tool's `slot` reads it with [`BackendSet::get`]. Each

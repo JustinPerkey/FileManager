@@ -85,7 +85,7 @@ functions; the UI imports them from here.
 State, all private, read through methods:
 
 ```rust
-pub enum ViewError { Pipeline(PipelineError), Unexpected { message: String } }
+pub enum ViewError { Pipeline(PipelineError), Unexpected { message: String }, Dialog { detail: String } } // Dialog: copy = app::text::PICK_FAILED
 pub enum Pending { Step { id: StepId, via_next: bool }, All }
 pub enum StepStatus { Running, NotImplemented, Failed, Passed, Problems(u32), Waiting, NotRun }
 
@@ -99,6 +99,7 @@ impl PipelineModel {
     pub fn clear_directory(&mut self, cx);
     pub fn busy(&self) -> bool;                              // a step runs (this model's or session.running) or run-all
     pub fn running(&self) -> Option<StepId>;
+    pub fn running_all(&self) -> bool;                       // a Run all is in progress
     pub fn via_next(&self) -> Option<StepId>;                // the step "Run next" started (only that button is busy)
     pub fn run_reason(&self) -> Option<&'static str>;
     pub fn can_run(&self) -> bool;
@@ -111,6 +112,7 @@ impl PipelineModel {
     pub fn pending(&self) -> Option<(&Pending, &str)>;       // with the folder named in the confirmation
     pub fn confirm(&mut self, cx);  pub fn cancel(&mut self, cx);
     pub fn announcement(&self) -> Option<&str>;              // the latest outcome sentence
+    pub fn announcement_generation(&self) -> u64;            // bumped on every announcement, so a repeated sentence is distinguishable
     pub fn take_focus_hint(&mut self) -> Option<FocusHint>; // cleared on read; Step(id) | RunNext: where today's view moves focus after a run
 }
 ```
@@ -129,8 +131,8 @@ Emit `cx.notify()` on every change. Behaviour to port (each is a case in
   with an error is shown via the snapshot's `directory.error`; the
   announcement says its message. `browse` opens
   `OpenSpec { kind: Folder, start_dir: <the chosen folder, if any>, .. }`.
-  A pick `Err` becomes `ViewError::Unexpected` with the `PickError` copy from
-  `fm_app`'s `app::text` and its detail. A cancelled pick changes nothing.
+  A pick `Err` becomes `ViewError::Dialog { detail }`, whose copy is
+  `fm_app`'s `app::text::PICK_FAILED`, with the detail shown as Details. A cancelled pick changes nothing.
 - Running: `request_*` refuse silently when `!can_run()`. A step with
   confirm copy (or "Run all" when any step has one) sets `pending` with the
   folder **display path shown at that moment**; `confirm` runs exactly that
@@ -144,8 +146,11 @@ Emit `cx.notify()` on every change. Behaviour to port (each is a case in
   "Stopped at <title>.". A single run announces "<title>: <status label>.".
   the focus hint after a "Run next" run is `RunNext` when another step can run
   next, otherwise `Step(id)`.
-- Any command failing in an unexpected way (a panicked job) is
-  `ViewError::Unexpected`. Each new error increments `error_generation` (the
+- **Panics, two cases** (as the Tauri app does). A panicked **step job**
+  (`StepJob::run` on its thread) is recorded as that step's result,
+  `Finished { result: Err(StepFailed "the step stopped unexpectedly: …") }`,
+  with **no banner**. A panicked or stopped **Worker call** (any backend
+  method) is `ViewError::Unexpected`, the banner. Each new error increments `error_generation` (the
   view re-shows a banner for a repeated error).
 - Pipeline has no drop target, no unsaved work.
 
@@ -160,12 +165,22 @@ directory and step statuses as plain text) until the UI task replaces
 `view/`.
 
 **`src/tools/pipeline/fixtures.rs`** (`#[cfg(any(test, feature = "shoot"))]`):
-`FixturePipeline` with constructors for each screenshot state of `mock.js`:
-`empty()`, `chosen()` (a valid folder with N subfolders, nothing run),
-`bad()` (directory error), `ran()` (first steps passed, one with problems,
-one not implemented), and step jobs whose result and duration are
-configurable (`running` needs a step that takes long enough to capture,
-e.g. 30 s, released when the app quits). Add them to `BackendSet` as
+`PipelineFixture`, six variants mirroring `mock.js` (as built; the first
+draft's `ran()` "first steps passed, one with problems, one not
+implemented" was impossible under the real ordering rule, since a later
+step cannot run before an earlier one passes):
+
+- `Empty`: no folder chosen (`pipeline-empty`).
+- `Chosen`: a valid folder with 12 subfolders, nothing run; a step ends
+  Not implemented, like the real stubs (`pipeline-chosen`, `pipeline-runall`,
+  and `pipeline-ran` after Run next).
+- `Bad`: a folder with an error (`pipeline-bad`).
+- `Ran`: Verify already finished as Not implemented (`pipeline-ran` without
+  clicking).
+- `Demo`: Verify passed, and the batch step found two problems (the manual's
+  demo state).
+- `Slow`: `Chosen` whose steps take 30 s (`pipeline-running`), held by a
+  `StepGate` and released when the app quits. Add them to `BackendSet` as
 `FixtureId::Pipeline(PipelineFixture)`. Paths in fixtures are fake display
 strings (`C:\Builds\gateway`), never touched on disk.
 
@@ -243,7 +258,8 @@ noted):
   `focus_hint_after_run_next`, `focus_hint_is_cleared_on_read` (two "Run next" runs give two hints).
 - `begin_error_is_a_banner_and_step_failure_is_not`,
   `repeated_error_bumps_generation`, `dismiss_error_clears_it`,
-  `panicked_step_is_unexpected_failure`.
+  `panicked_step_is_recorded_as_step_failed` (no banner) and
+  `panicked_worker_call_is_unexpected`.
 - `activated_clears_transient_state_and_keeps_running_step`.
 - `real_backend_runs_verify_in_temp_dir` (`RealPipeline`, temp dir with two
   subfolders; the stub hook gives "Not implemented").
