@@ -816,7 +816,12 @@ fn unexpected_failure_in_a_run_refreshes_the_session(cx: &mut TestAppContext) {
         m.error(),
         Some(ViewError::Unexpected { .. })
     )));
-    // The session is the backend's, fetched again: the step is not running.
+    // The session is the backend's, fetched again: it holds the result the
+    // backend recorded (a stale snapshot would show NotRun).
+    assert_eq!(
+        status(cx, &model, StepId::Verify),
+        StepStatus::NotImplemented
+    );
     assert!(read(cx, &model, |m| !m.busy()
         && m.session().is_some_and(|s| s.running.is_none())));
 }
