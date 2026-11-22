@@ -29,7 +29,7 @@ pass); steps that change files ask first.
 ### Model API (`apps/filemanager/src/tools/pipeline/model.rs`, M5)
 
 ```rust
-pub enum ViewError { Pipeline(PipelineError), Unexpected { message: String } }
+pub enum ViewError { Pipeline(PipelineError), Unexpected { message: String }, Dialog { detail: String } }
 pub enum Pending { Step { id: StepId, via_next: bool }, All }
 pub enum StepStatus { Running, NotImplemented, Failed, Passed, Problems(u32), Waiting, NotRun }
 impl PipelineModel {
@@ -37,7 +37,8 @@ impl PipelineModel {
     pub fn loading(&self) -> bool;  pub fn load_failed(&self) -> bool;  pub fn retry_load(&mut self, cx);
     pub fn error(&self) -> Option<&ViewError>;  pub fn error_generation(&self) -> u64;  pub fn dismiss_error(&mut self, cx);
     pub fn set_directory_text(&mut self, typed: &str, cx);  pub fn browse(&mut self, cx);  pub fn clear_directory(&mut self, cx);
-    pub fn busy(&self) -> bool;  pub fn running(&self) -> Option<StepId>;  pub fn via_next(&self) -> Option<StepId>;
+    pub fn busy(&self) -> bool;  pub fn running(&self) -> Option<StepId>;  pub fn running_all(&self) -> bool;
+    pub fn via_next(&self) -> Option<StepId>;
     pub fn run_reason(&self) -> Option<&'static str>;  pub fn can_run(&self) -> bool;
     pub fn next_step(&self) -> Option<StepId>;  pub fn all_passed(&self) -> bool;
     pub fn step_status(&self, id: StepId) -> StepStatus;
@@ -45,7 +46,8 @@ impl PipelineModel {
     pub fn pending(&self) -> Option<(&Pending, &str)>;     // and the folder named in the confirmation
     pub fn confirm(&mut self, cx);  pub fn cancel(&mut self, cx);
     pub fn announcement(&self) -> Option<&str>;            // not rendered (see below)
-    pub fn focus_hint(&self) -> Option<FocusHint>;         // Step(id) | RunNext
+    pub fn announcement_generation(&self) -> u64;           // not rendered
+    pub fn take_focus_hint(&mut self) -> Option<FocusHint>; // Step(id) | RunNext; cleared on read
 }
 ```
 
@@ -56,10 +58,13 @@ status labels, run reasons, "Run next: <title>", "Run all…", "Run",
 lock line "Runs after <title> passes.", every error message. Use them; do
 not write copy in the view.
 
-**Focus hints.** The planner was asked (request R5) to make hints
-consumable: `take_focus_hint(&mut self) -> Option<FocusHint>`. Use it if it
-exists; otherwise act on `focus_hint()` only when it differs from the last
-value acted on, and report the gap in the PR.
+**Focus hints.** `take_focus_hint(&mut self)` is consumable (request R5,
+built in M5). The model sets a hint only at the **end** of a run. So the
+view also moves focus itself **when `running()` becomes a step**: focus that
+step's row, since the Run button it came from is now disabled and focus must
+not fall to the window. This is what today's view does with its `active`
+effect. The error copy for `ViewError::Dialog` is `PICK_FAILED`, through
+`ViewError`'s message method; the view does not choose copy.
 
 Announcements (`announcement()`) were visually hidden live regions; they are
 **not rendered**.
@@ -160,19 +165,29 @@ None here; U6 critiques the screenshots.
 `tools/pipeline/view/tests.rs` (`#[gpui::test]`, fixture backend,
 `FakePlatform`; wiring, not pixels):
 
-- `renders_each_fixture_state` (`empty`, `chosen`, `bad`, `ran`: the
-  expected selectors exist; the error line shows for `bad`).
+- `renders_each_fixture_state` (`Empty`, `Chosen`, `Bad`, `Ran`, `Demo`,
+  `Slow` mid-run: the expected tags exist; the error line shows for `Bad`;
+  `Demo` shows Passed and "2 problems").
 - `enter_commits_typed_folder`, `blur_commits_and_escape_reverts`.
 - `browse_button_calls_platform_pick`.
 - `run_next_click_and_keyboard_run_step`,
   `confirming_step_opens_dialog_and_cancel_runs_nothing`.
 - `run_buttons_disabled_with_reason`.
 - `error_banner_reshows_on_new_generation`, `retry_after_load_failure`.
-- `focus_follows_hint_after_run_next`.
+- `focus_follows_hint_after_run_next`, `focus_moves_to_step_when_it_starts_running`
+  (with `Slow`: when `running()` becomes Verify, its row has focus).
 
-Ledger: settle every `PipelineView.test.tsx` row M5 marked U (rendering,
-labels, focus placement) to these tests, or `dropped: <reason>` for
-aria-live and aria-describedby rows.
+Ledger: settle every `PipelineView.test.tsx` row M5 marked U to these
+tests, or `dropped: <reason>` for aria-live and aria-describedby rows. They
+include the UI halves of these cases (M5 ported the model halves):
+
+- step-list rendering (titles, descriptions, statuses, locked steps);
+- the subfolder count note;
+- the folder's invalid state (error line and input border);
+- result rendering (problems list, failed and not-implemented details);
+- the "Runs after <title> passes." lock line.
+
+Add a named view test for each that a test above does not already cover.
 
 ## States covered
 

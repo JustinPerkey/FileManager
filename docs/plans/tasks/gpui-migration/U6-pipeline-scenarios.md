@@ -32,7 +32,9 @@ pub fn scenarios() -> Vec<Scenario>;   // from scenarios/mod.rs
 
 `AppSetup` carries the `FakePlatform` and a `BackendSet` with
 `FixtureId::Pipeline(PipelineFixture)`; `apps/filemanager/src/tools/pipeline/fixtures.rs`
-(M5) has `FixturePipeline::{empty, chosen, bad, ran}` and configurable step
+(M5) has `PipelineFixture::{Empty, Chosen, Bad, Ran, Demo, Slow}` (`Ran`:
+Verify already finished as Not implemented; `Demo`: Verify passed, the batch
+step found two problems; `Slow`: `Chosen` with 30 s steps) and configurable step
 jobs (result and duration). Run:
 `cargo run -p filemanager-gpui --features shoot --bin filemanager-shoot -- --out shots [--only pipeline-] [--dark]`
 on Windows at 100% display scale (or read the CI `screenshots` artifact).
@@ -43,12 +45,12 @@ Debug selectors (U5): `pipeline-run-next`, `pipeline-run-all`,
 
 | Scenario | Fixture | Steps | Today's image shows |
 |---|---|---|---|
-| `pipeline-empty` | `empty()` | `WaitIdle` | no folder; the run bar's reason "Choose a folder." |
-| `pipeline-chosen` | `chosen()` (`C:\Deliveries\2026-10`, 12 subfolders) | `WaitIdle` | folder set, nothing run, steps 2–4 locked |
-| `pipeline-bad` | `bad()` (`C:\Deliveries\2026-13`, not a folder) | `WaitIdle` | the field error and red input border |
-| `pipeline-runall` | `chosen()` | `Click("pipeline-run-all")`, `WaitIdle` | the Run all confirmation over the scrim |
-| `pipeline-running` | `chosen()`, step 1 takes 30 s | `Click("pipeline-run-next")`, `Wait(600)` | Run next busy, step 1 Running |
-| `pipeline-ran` | `chosen()`, step 1 answers Not implemented at once | `Click("pipeline-run-next")`, `WaitIdle` | step 1 "Not implemented", later steps still locked |
+| `pipeline-empty` | `Empty` | `WaitIdle` | no folder; the run bar's reason "Choose a folder." |
+| `pipeline-chosen` | `Chosen` (`C:\Deliveries\2026-10`, 12 subfolders) | `WaitIdle` | folder set, nothing run, steps 2–4 locked |
+| `pipeline-bad` | `Bad` (`C:\Deliveries\2026-13`, not a folder) | `WaitIdle` | the field error and red input border |
+| `pipeline-runall` | `Chosen` | `Click("pipeline-run-all")`, `WaitIdle` | the Run all confirmation over the scrim |
+| `pipeline-running` | `Slow` | `Click("pipeline-run-next")`, `Wait(600)` | Run next busy, step 1 Running |
+| `pipeline-ran` | `Chosen` (step 1 answers Not implemented) | `Click("pipeline-run-next")`, `Wait(200)` (the fixture's doc: Worker jobs are not awaited by `WaitIdle`), or `Ran` with only `WaitIdle` | step 1 "Not implemented", later steps still locked |
 
 **Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
 harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
