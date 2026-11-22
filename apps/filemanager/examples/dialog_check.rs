@@ -6,8 +6,7 @@
 //! Opens a window (the dialogs' owner). By default it then shows, in turn, an
 //! open dialog filtered to `*.toml`, a folder picker and a save dialog for
 //! `.tar.gz`, and quits. With `--click` the window instead holds one Browse
-//! button that opens an open dialog on every click (for the double-click
-//! check); close the window to finish. Each result is written with `{:?}` to
+//! button that requests two open dialogs on every click (for the one-dialog check); close the window to finish. Each result is written with `{:?}` to
 //! `dialog-check.txt` in `<folder>`, so a lone surrogate shows as `\u{d800}`.
 
 #[cfg(windows)]
@@ -27,8 +26,8 @@ mod check {
 
     const REPORT: &str = "dialog-check.txt";
 
-    /// The owner window. With a button (`--click`), every click requests an
-    /// open dialog.
+    /// The owner window. With a button (`--click`), every click requests two
+    /// open dialogs back to back.
     struct Owner {
         browse: Option<Browse>,
     }
@@ -58,12 +57,16 @@ mod check {
                     .on_click(move |_, _window, cx: &mut App| {
                         clicks.set(clicks.get() + 1);
                         let n = clicks.get();
-                        let report = report.clone();
-                        let task = platform(cx).pick(spec.clone(), cx);
-                        cx.spawn(async move |_cx| {
-                            append(&report, &format!("click {n}: {:?}\n", task.await));
-                        })
-                        .detach();
+                        // Two requests from one click: the second must be refused
+                        // at once, whatever the machine's speed.
+                        for part in ["a", "b"] {
+                            let report = report.clone();
+                            let task = platform(cx).pick(spec.clone(), cx);
+                            cx.spawn(async move |_cx| {
+                                append(&report, &format!("click {n}{part}: {:?}\n", task.await));
+                            })
+                            .detach();
+                        }
                     }),
             )
         }

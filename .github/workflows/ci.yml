@@ -69,7 +69,7 @@ jobs:
           # Cargo.lock still holds rfd while apps/desktop exists (tauri-plugin-dialog);
           # only the filemanager-gpui graph matters.
           set -uo pipefail
-          out=$(cargo tree --locked -p filemanager-gpui -i rfd --target all 2>&1)
+          out=$(cargo tree --locked -p filemanager-gpui -i rfd --target all 2>&1) || true
           echo "$out"
           if ! grep -q "did not match any packages" <<<"$out"; then
             echo "::error::rfd is in the filemanager-gpui dependency graph (or cargo tree failed)"; exit 1

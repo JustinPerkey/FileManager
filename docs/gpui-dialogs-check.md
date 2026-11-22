@@ -70,9 +70,10 @@ Remove-Item C:\check\dialog-check.txt
 cargo run -p filemanager-gpui --example dialog_check -- C:\check --click
 ```
 
-The window shows a Browse button. Double-click it quickly.
+The window shows a Browse button. Click it once (each click requests two
+dialogs back to back; a quick double-click by hand tests the same rule).
 
 Pass: exactly one dialog opens, and the window stays disabled until it closes.
 Cancel the dialog and close the window. `dialog-check.txt` holds
-`click 2: Ok(None)` (the second click was refused at once) and then
-`click 1: Ok(None)`.
+`click 1b: Ok(None)` (the second request was refused at once) and then
+`click 1a: Ok(None)`.
