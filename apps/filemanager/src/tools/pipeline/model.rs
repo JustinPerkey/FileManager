@@ -290,6 +290,12 @@ impl PipelineModel {
     }
 
     fn load(&mut self, cx: &mut Context<Self>) {
+        self.fetch(true, cx);
+    }
+
+    /// Fetches the session again; a success clears the banner only when
+    /// `clear_error`.
+    fn fetch(&mut self, clear_error: bool, cx: &mut Context<Self>) {
         let task = self.worker.run(|b| b.session(), cx);
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -297,7 +303,9 @@ impl PipelineModel {
                 Ok(session) => {
                     m.session = Some(session);
                     m.load_failed = false;
-                    m.error = None;
+                    if clear_error {
+                        m.error = None;
+                    }
                     cx.notify();
                 }
                 Err(e) => {
@@ -314,6 +322,13 @@ impl PipelineModel {
         self.error = Some(error);
         self.error_generation += 1;
         cx.notify();
+    }
+
+    /// An unexpected failure in a run: the backend's state is unknown, so the
+    /// session is fetched again (and the banner kept).
+    fn fail_and_refresh(&mut self, error: ViewError, cx: &mut Context<Self>) {
+        self.fail(error, cx);
+        self.fetch(false, cx);
     }
 
     fn announce(&mut self, sentence: String, cx: &mut Context<Self>) {
@@ -339,7 +354,7 @@ impl PipelineModel {
             .map(|d| d.path.as_str());
         let unchanged = match (&path, current) {
             (None, None) => true,
-            (Some(p), Some(c)) => p.to_string_lossy() == c,
+            (Some(p), Some(c)) => p.to_str() == Some(c),
             _ => false,
         };
         if !unchanged {
@@ -464,6 +479,16 @@ impl PipelineModel {
         else {
             return;
         };
+        if let Pending::Step { id, .. } = what {
+            let unlocked = self
+                .session
+                .as_ref()
+                .and_then(|s| s.steps.iter().find(|v| v.id == id))
+                .is_some_and(|v| v.unlocked);
+            if !unlocked {
+                return;
+            }
+        }
         let needs_confirm = match what {
             Pending::All => text::STEP_IDS
                 .iter()
@@ -496,6 +521,11 @@ impl PipelineModel {
     fn execute(&mut self, what: Pending, folder: String, cx: &mut Context<Self>) {
         match what {
             Pending::Step { id, via_next } => {
+                // Set now, not in the task: until the task first runs, a
+                // second request must already see the model busy.
+                self.active = Some(id);
+                self.via_next = via_next.then_some(id);
+                cx.notify();
                 cx.spawn(async move |this, cx| run_single(this, id, folder, via_next, cx).await)
                     .detach();
             }
@@ -526,7 +556,9 @@ async fn run_one(
         .ok()?;
     let session = run_begun(this, id, begin.await, cx).await;
     this.update(cx, |m, cx| {
-        m.active = None;
+        if m.active == Some(id) {
+            m.active = None;
+        }
         if let Some(session) = &session {
             m.session = Some(session.clone());
             m.error = None;
@@ -555,7 +587,8 @@ async fn run_begun(
             return None;
         }
         Err(e) => {
-            this.update(cx, |m, cx| m.fail(e.into(), cx)).ok()?;
+            this.update(cx, |m, cx| m.fail_and_refresh(e.into(), cx))
+                .ok()?;
             return None;
         }
     };
@@ -580,7 +613,8 @@ async fn run_begun(
     match finish.await {
         Ok(session) => Some(session),
         Err(e) => {
-            this.update(cx, |m, cx| m.fail(e.into(), cx)).ok()?;
+            this.update(cx, |m, cx| m.fail_and_refresh(e.into(), cx))
+                .ok()?;
             None
         }
     }
@@ -593,13 +627,6 @@ async fn run_single(
     via_next: bool,
     cx: &mut AsyncApp,
 ) {
-    if via_next {
-        this.update(cx, |m, cx| {
-            m.via_next = Some(id);
-            cx.notify();
-        })
-        .ok();
-    }
     let session = run_one(&this, id, folder, cx).await;
     this.update(cx, |m, cx| {
         m.via_next = None;

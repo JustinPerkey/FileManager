@@ -12,7 +12,9 @@ decides which side its test belongs to and updates the row.
 
 Counting rule: one row per match of
 `grep -cE "^\s*(it|test)(\.each)?\(" <file>`, so the number of rows in a
-file's table equals that count. The file counts sum to 302.
+file's table equals that count. The file counts sum to 309. A milestone may split a case into a model half
+(`done`) and a view half (a further `U` row), so a table can hold more rows than
+its heading's count.
 
 
 ## `App.test.tsx` (1)
@@ -85,6 +87,16 @@ file's table equals that count. The file counts sum to 302.
 | without developer mode, Edit in editor and the extraction command are hidden | M7a or U |  | open |
 | the shortcuts list names Ctrl+E only in developer mode | M7a or U |  | open |
 
+## `app/useAnnouncer.test.tsx` (5)
+
+| Case | Owner | New test | Status |
+|---|---|---|---|
+| the first state is empty and announce is stable | U |  | open |
+| announce commits the clear before the frame and the text after it | U |  | open |
+| a second announce before the frame replaces the pending text | U |  | open |
+| unmounting cancels the frame | U |  | open |
+| a repeat from an async continuation is cleared in the DOM before the text returns | U |  | open |
+
 ## `lib/pipeline.test.ts` (1)
 
 | Case | Owner | New test | Status |
@@ -132,12 +144,16 @@ file's table equals that count. The file counts sum to 302.
 | Case | Owner | New test | Status |
 |---|---|---|---|
 | cleanPath trims and drops Explorer's quotes | M5 | `tools::pipeline::tests::clean_path_trims_and_unquotes` | done |
-| lists the four steps in order and blocks running without a folder | M5 | `tools::pipeline::tests::run_reason_and_can_run`, `text_covers_every_error_kind_and_step` (the list's rendering and its axe check are U) | done |
-| browsing sets the folder and shows its subfolder count | M5 | `tools::pipeline::tests::browse_uses_folder_spec_and_cancel_changes_nothing`, `typed_folder_sets_directory` (showing the count is U) | done |
+| lists the four steps in order and blocks running without a folder | M5 | `tools::pipeline::tests::run_reason_and_can_run`, `text_covers_every_error_kind_and_step` | done |
+| lists the four steps in order and blocks running without a folder (view: the list's rendering and its axe check) | U | the view's test | open |
+| browsing sets the folder and shows its subfolder count | M5 | `tools::pipeline::tests::browse_uses_folder_spec_and_cancel_changes_nothing`, `typed_folder_sets_directory` | done |
+| browsing shows the subfolder count (view) | U | `text::subfolders` | open |
 | after run next, focus returns to run next for the following step | M5 | `tools::pipeline::tests::focus_hint_after_run_next` (moving focus is U, from `take_focus_hint`) | done |
 | a step started from its own button does not show run next as busy | M5 | `tools::pipeline::tests::run_next_busy_only_for_its_step` | done |
-| a typed bad path is shown with its error | M5 | `tools::pipeline::tests::bad_folder_shows_slot_error_and_announces` (aria-invalid and description wiring are U) | done |
-| the check step runs without confirming and shows its result | M5 | `tools::pipeline::tests::step_without_confirm_runs_immediately` (rendering the result is U) | done |
+| a typed bad path is shown with its error | M5 | `tools::pipeline::tests::bad_folder_shows_slot_error_and_announces` | done |
+| a typed bad path is marked aria-invalid and described by its error (view) | U | the view's test | open |
+| the check step runs without confirming and shows its result | M5 | `tools::pipeline::tests::step_without_confirm_runs_immediately` | done |
+| the check step's result is rendered (view) | U | the view's test | open |
 | issues are listed with their subfolder | U | rendering of `StepIssue`s from the session (the model passes them through); the view's test | open |
 | the batch step asks first, and cancelling runs nothing | M5 | `tools::pipeline::tests::step_with_confirm_waits_and_uses_the_confirmed_folder`, `cancel_runs_nothing` | done |
 | run all goes in order and stops at the first step that does not pass | M5 | `tools::pipeline::tests::run_all_confirms_once_and_stops_at_first_failure`, `run_all_all_passed_announces` | done |
@@ -146,12 +162,13 @@ file's table equals that count. The file counts sum to 302.
 | a step started before the view mounted is shown and followed until it ends | M5 | dropped: the orphan polling (a GPUI model outlives its view and lands the result itself); kept behaviour: `tools::pipeline::tests::activated_clears_transient_state_and_keeps_running_step` | dropped |
 | results, problems, failures and the confirmation have no axe violations | U | the view's accessibility check | open |
 | a failed poll is reported once and retried | M5 | dropped: the orphan polling; a failed refresh is the banner (`load_failure_shows_retry_and_retry_loads`) | dropped |
-| later steps are locked until the one before passes | M5 | `tools::pipeline::tests::step_status_covers_every_case` (`Waiting`; the "Runs after" text and the disabled button are U) | done |
+| later steps are locked until the one before passes | M5 | `tools::pipeline::tests::step_status_covers_every_case` (`Waiting`), `locked_step_is_refused_without_the_view` | done |
+| later steps show "Runs after <title> passes." and a disabled Run button (view) | U | `text::runs_after` | open |
 | run next step walks through the steps one at a time | M5 | `tools::pipeline::tests::focus_hint_after_run_next` (walks every step with `request_next`) | done |
 | when every step has passed, run next is disabled and says why | M5 | `tools::pipeline::tests::run_all_all_passed_announces` (`all_passed`, no run reason; the description wiring is U) | done |
 | a repeated step result is re-announced even when the frame fires before React renders | M5 | `tools::pipeline::tests::repeated_result_bumps_announcement_generation` (the view re-announces on `announcement_generation`; the announcer hook is U) | done |
 
-## `tools/schedule/ScheduleView.test.tsx` (19)
+## `tools/schedule/ScheduleView.test.tsx` (20)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
@@ -174,6 +191,7 @@ file's table equals that count. The file counts sum to 302.
 | drops are ignored while the confirmation is open | M6 or U |  | open |
 | a late response from an older command is ignored | M6 or U |  | open |
 | a typed path's error is announced | M6 or U |  | open |
+| the same error from a second typed path is re-announced even when the frame fires before React renders | M6 or U |  | open |
 
 ## `tools/tarpack/BuildBar.test.tsx` (15)
 
@@ -412,12 +430,13 @@ file's table equals that count. The file counts sum to 302.
 | focus that is elsewhere when a build settles stays there | M7b or U |  | open |
 | row keys do nothing during a build, and work again after it | M7b or U |  | open |
 
-## `tools/tarpack/TarpackView.errors.test.tsx` (10)
+## `tools/tarpack/TarpackView.errors.test.tsx` (11)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
 | restore announces %s | M7a or U |  | open |
 | open and reload announce, repeat on same count, and clear announces No errors | M7a or U |  | open |
+| a repeated sentence is re-announced even when the frame fires before React renders | M7a or U |  | open |
 | report re-expands after reload even if collapsed; no focus stolen | M7a or U |  | open |
 | showErrors expands and focuses the report body; no-op without errors | M7a or U |  | open |
 | showErrors does nothing with zero errors | M7a or U |  | open |

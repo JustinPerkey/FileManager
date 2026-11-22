@@ -113,6 +113,7 @@ struct Flaky {
     inner: FixturePipeline,
     panic_session: bool,
     panic_set_directory: bool,
+    panic_finish: bool,
 }
 
 impl PipelineBackend for Flaky {
@@ -135,7 +136,9 @@ impl PipelineBackend for Flaky {
     }
 
     fn finish_step(&mut self, step: StepId, finished: Finished) -> PipelineSession {
-        self.inner.finish_step(step, finished)
+        let session = self.inner.finish_step(step, finished);
+        assert!(!self.panic_finish, "finish_step exploded");
+        session
     }
 }
 
@@ -278,6 +281,7 @@ fn load_failure_shows_retry_and_retry_loads(cx: &mut TestAppContext) {
         inner: FixturePipeline::chosen(),
         panic_session: true,
         panic_set_directory: false,
+        panic_finish: false,
     };
     let (model, _) = start_boxed(cx, Box::new(flaky));
     idle(cx, &model);
@@ -751,12 +755,79 @@ fn repeated_result_bumps_announcement_generation(cx: &mut TestAppContext) {
     assert!(read(cx, &model, PipelineModel::announcement_generation) > first);
 }
 
+#[gpui::test]
+fn locked_step_is_refused_without_the_view(cx: &mut TestAppContext) {
+    let (model, _) = start(cx, FixturePipeline::chosen().all_pass());
+    idle(cx, &model);
+    for id in [StepId::RunBatch, StepId::Schedule, StepId::Tarpack] {
+        act(cx, &model, |m, cx| m.request_step(id, cx));
+        assert!(read(cx, &model, |m| m.pending().is_none() && !m.busy()));
+        idle(cx, &model);
+        assert!(read(cx, &model, |m| m.error().is_none()));
+        assert_eq!(status(cx, &model, id), StepStatus::Waiting);
+    }
+}
+
+#[gpui::test]
+fn second_request_in_the_same_frame_does_not_start_a_second_run(cx: &mut TestAppContext) {
+    let gate = StepGate::new();
+    let held = FixturePipeline::chosen()
+        .all_pass()
+        .with_gate(&gate, Duration::from_secs(20));
+    let (model, _) = start(cx, held);
+    idle(cx, &model);
+    // No park between the calls.
+    act(cx, &model, |m, cx| {
+        m.request_step(StepId::Verify, cx);
+        assert!(m.busy(), "busy at once");
+        m.request_step(StepId::Verify, cx);
+        m.request_next(cx);
+    });
+    for _ in 0..3 {
+        cx.run_until_parked();
+        assert!(read(cx, &model, |m| m.busy() && m.error().is_none()));
+        assert_eq!(
+            read(cx, &model, PipelineModel::running),
+            Some(StepId::Verify)
+        );
+    }
+    gate.open();
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.error().is_none()));
+    assert_eq!(status(cx, &model, StepId::Verify), StepStatus::Passed);
+    assert_eq!(
+        read(cx, &model, PipelineModel::next_step),
+        Some(StepId::RunBatch)
+    );
+}
+
+#[gpui::test]
+fn unexpected_failure_in_a_run_refreshes_the_session(cx: &mut TestAppContext) {
+    let flaky = Flaky {
+        inner: FixturePipeline::chosen(),
+        panic_session: false,
+        panic_set_directory: false,
+        panic_finish: true,
+    };
+    let (model, _) = start_boxed(cx, Box::new(flaky));
+    idle(cx, &model);
+    run_step(cx, &model, StepId::Verify);
+    assert!(read(cx, &model, |m| matches!(
+        m.error(),
+        Some(ViewError::Unexpected { .. })
+    )));
+    // The session is the backend's, fetched again: the step is not running.
+    assert!(read(cx, &model, |m| !m.busy()
+        && m.session().is_some_and(|s| s.running.is_none())));
+}
+
 // ---- errors ----
 
 #[gpui::test]
 fn begin_error_is_a_banner_and_step_failure_is_not(cx: &mut TestAppContext) {
-    let (model, _) = start(cx, FixturePipeline::chosen());
+    let (model, _) = start(cx, FixturePipeline::chosen().all_pass());
     idle(cx, &model);
+    run_step(cx, &model, StepId::Verify);
     // The confirmation names a folder; the step runs on exactly that one, so a
     // folder changed in the meantime refuses it.
     act(cx, &model, |m, cx| m.request_step(StepId::RunBatch, cx));
@@ -775,15 +846,6 @@ fn begin_error_is_a_banner_and_step_failure_is_not(cx: &mut TestAppContext) {
     );
     assert!(read(cx, &model, |m| !m.busy()));
     assert_eq!(status(cx, &model, StepId::RunBatch), StepStatus::Waiting);
-
-    // A step that is locked: refused by the backend, also a banner.
-    act(cx, &model, PipelineModel::dismiss_error);
-    run_step(cx, &model, StepId::Schedule);
-    let kind = read(cx, &model, |m| match m.error() {
-        Some(ViewError::Pipeline(e)) => Some(e.kind),
-        _ => None,
-    });
-    assert_eq!(kind, Some(PipelineErrorKind::PreviousStepNotPassed));
 
     // A step that fails is recorded in the session, not a banner.
     let failing = FixturePipeline::chosen()
@@ -848,7 +910,7 @@ fn dismiss_error_clears_it(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn panicked_step_is_unexpected_failure(cx: &mut TestAppContext) {
+fn panicked_step_job_is_recorded_as_failed_without_a_banner(cx: &mut TestAppContext) {
     let backend = FixturePipeline::chosen().with_behavior(StepId::Verify, Behavior::Panic);
     let (model, _) = start(cx, backend);
     idle(cx, &model);
@@ -875,6 +937,7 @@ fn panicking_backend_call_is_unexpected(cx: &mut TestAppContext) {
         inner: FixturePipeline::empty(),
         panic_session: false,
         panic_set_directory: true,
+        panic_finish: false,
     };
     let (model, _) = start_boxed(cx, Box::new(flaky));
     idle(cx, &model);
