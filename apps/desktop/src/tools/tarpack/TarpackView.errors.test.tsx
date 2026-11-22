@@ -82,19 +82,27 @@ test("a repeated sentence is re-announced even when the frame fires before React
   await waitFor(() => expect(announcer()).toHaveTextContent("2 files will be left out"));
   vi.mocked(tp.reloadManifest).mockResolvedValue(failed);
   const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const prevAct = g.IS_REACT_ACT_ENVIRONMENT;
   const realRaf = globalThis.requestAnimationFrame;
   const realCaf = globalThis.cancelAnimationFrame;
   // The frame fires in a microtask: after the announce() call, before React's scheduler (a macrotask) renders.
-  const cancelled = new Set<number>();
-  let next = 1;
+  // Stub ids start far above jsdom's, so a cancel of a real frame never hits a stub frame.
+  const pending = new Map<number, FrameRequestCallback>();
+  let next = 1_000_000;
   globalThis.requestAnimationFrame = (cb) => {
     const id = next++;
+    pending.set(id, cb);
     queueMicrotask(() => {
-      if (!cancelled.has(id)) cb(0);
+      const fn = pending.get(id);
+      pending.delete(id);
+      fn?.(0);
     });
     return id;
   };
-  globalThis.cancelAnimationFrame = (id) => void cancelled.add(id);
+  globalThis.cancelAnimationFrame = (id) => {
+    if (pending.has(id)) pending.delete(id);
+    else realCaf.call(globalThis, id);
+  };
   const seen: string[] = [];
   const obs = new MutationObserver(() => seen.push(announcer().textContent ?? ""));
   try {
@@ -102,6 +110,8 @@ test("a repeated sentence is re-announced even when the frame fires before React
     obs.observe(announcer(), { childList: true, characterData: true, subtree: true });
     const reload = screen.getByRole("button", { name: "Reload" });
     reload.click();
+    await waitFor(() => expect(tp.reloadManifest).toHaveBeenCalled());
+    // Settle: the command resolves, React renders, the frames fire (all within a few ticks).
     await new Promise((r) => setTimeout(r, 50));
     obs.disconnect();
     expect(seen).toContain("");
@@ -109,7 +119,7 @@ test("a repeated sentence is re-announced even when the frame fires before React
     expect(seen.indexOf("")).toBeLessThan(seen.length - 1);
   } finally {
     obs.disconnect();
-    g.IS_REACT_ACT_ENVIRONMENT = true;
+    g.IS_REACT_ACT_ENVIRONMENT = prevAct;
     globalThis.requestAnimationFrame = realRaf;
     globalThis.cancelAnimationFrame = realCaf;
   }
