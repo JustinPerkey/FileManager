@@ -36,6 +36,8 @@ fn backend_for(cx: &App) -> Box<dyn PipelineBackend> {
         Backend::Fixture(crate::tools::FixtureId::Pipeline(fixture)) => {
             Box::new(fixtures::FixturePipeline::from_fixture(fixture))
         }
+        #[cfg(any(test, feature = "shoot"))]
+        Backend::Fixture(_) => Box::new(fixtures::FixturePipeline::empty()),
     }
 }
 
