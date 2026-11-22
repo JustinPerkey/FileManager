@@ -4,8 +4,8 @@
 //! **Timing** (the harness's `Step::WaitIdle` is a short fixed settle, not idle
 //! detection). Every method answers synchronously, so every state a scenario
 //! shows resolves inside the settle and no `Step::Wait` is needed. `apply`
-//! answers at once too: from [`ScheduleFixture::Ready`] it ends
-//! `MergeNotImplemented`, like the real stub (`schedule-notimpl`).
+//! answers at once too: by default it ends `ParseNotImplemented` (the parse
+//! hook is the real stub that fails first; `schedule-notimpl`).
 
 use std::path::{Path, PathBuf};
 
@@ -41,8 +41,8 @@ pub struct FixtureSchedule {
 
 fn not_implemented() -> ScheduleError {
     ScheduleError::new(
-        ScheduleErrorKind::MergeNotImplemented,
-        "merging is not implemented yet",
+        ScheduleErrorKind::ParseNotImplemented,
+        "schedule parsing is not implemented yet",
     )
 }
 
@@ -75,7 +75,7 @@ fn check(path: &Path) -> FileSlot {
 }
 
 impl FixtureSchedule {
-    /// No files; Add ends `MergeNotImplemented`.
+    /// No files; Add ends `ParseNotImplemented`.
     #[must_use]
     pub fn empty() -> Self {
         Self {

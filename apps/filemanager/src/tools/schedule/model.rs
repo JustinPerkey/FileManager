@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use fm_schedule::session::{ApplySummary, ScheduleError, ScheduleSession};
+use fm_schedule::session::{ApplySummary, ScheduleError, ScheduleErrorKind, ScheduleSession};
 use gpui::Context;
 
 use crate::app::path::clean_path;
@@ -206,6 +206,13 @@ impl ScheduleModel {
         self.result.as_ref()
     }
 
+    /// Hides the result banner. The last applied pair is kept.
+    pub fn dismiss_result(&mut self, cx: &mut Context<Self>) {
+        if self.result.take().is_some() {
+            cx.notify();
+        }
+    }
+
     /// The current pair of files is the one last applied: the confirmation
     /// warns of duplicate entries.
     #[must_use]
@@ -281,6 +288,10 @@ impl ScheduleModel {
     /// Fetches the session; a success clears the banner only when
     /// `clear_error`.
     fn fetch(&mut self, clear_error: bool, cx: &mut Context<Self>) {
+        // The worker answers in order, so this fetch can land after an apply
+        // queued before it: an error that apply reported meanwhile is newer
+        // than this fetch and must stay.
+        let generation = self.error_generation;
         let task = self.worker.run(|b| b.session(), cx);
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -288,7 +299,7 @@ impl ScheduleModel {
                 Ok(session) => {
                     m.session = Some(session);
                     m.load_failed = false;
-                    if clear_error {
+                    if clear_error && m.error_generation == generation {
                         m.error = None;
                     }
                     cx.notify();
@@ -317,7 +328,9 @@ impl ScheduleModel {
 
     // ---- the files ----
 
-    fn current_path(&self, slot: Slot) -> Option<&str> {
+    /// The display path of `slot`'s file, as the session holds it.
+    #[must_use]
+    pub fn file_path(&self, slot: Slot) -> Option<&str> {
         let s = self.session.as_ref()?;
         match slot {
             Slot::Text => s.text.as_ref(),
@@ -334,7 +347,7 @@ impl ScheduleModel {
             return;
         }
         let path = clean_path(typed);
-        let unchanged = match (&path, self.current_path(slot)) {
+        let unchanged = match (&path, self.file_path(slot)) {
             (None, None) => true,
             (Some(p), Some(c)) => p.to_str() == Some(c),
             _ => false,
@@ -352,7 +365,7 @@ impl ScheduleModel {
             return;
         }
         let start_dir = self
-            .current_path(slot)
+            .file_path(slot)
             .and_then(|p| PathBuf::from(p).parent().map(PathBuf::from))
             .filter(|d| !d.as_os_str().is_empty());
         let kind = match slot {
@@ -369,8 +382,12 @@ impl ScheduleModel {
         cx.spawn(async move |this, cx| {
             let result = pick.await;
             this.update(cx, |m, cx| match result {
-                Ok(Some(path)) => m.choose(slot, Some(path), Announce::Nothing, cx),
-                Ok(None) => {}
+                // A confirmation or update may have started while the dialog
+                // was open: the files are fixed then.
+                Ok(Some(path)) if !m.locked() => {
+                    m.choose(slot, Some(path), Announce::Nothing, cx);
+                }
+                Ok(Some(_) | None) => {}
                 Err(PickError::Failed { detail }) => m.fail(ViewError::Dialog { detail }, cx),
             })
             .ok();
@@ -494,8 +511,6 @@ impl ScheduleModel {
         self.applying = true;
         self.result = None;
         self.error = None;
-        // A session command issued before this one must not land on it.
-        self.command_seq += 1;
         cx.notify();
         let sent = pair.clone();
         let task = self.worker.run(move |b| b.apply(&sent.0, &sent.1), cx);
@@ -521,7 +536,15 @@ impl ScheduleModel {
                 self.applied = Some(pair);
             }
             // The banner is an alert, so a failure is not also announced.
-            Ok(Err(e)) => self.fail(ViewError::Schedule(e), cx),
+            Ok(Err(e)) => {
+                // The files changed under the confirmation: show what the
+                // backend holds now.
+                let changed = e.kind == ScheduleErrorKind::FilesChanged;
+                self.fail(ViewError::Schedule(e), cx);
+                if changed {
+                    self.fetch(false, cx);
+                }
+            }
             Err(e) => {
                 self.fail(e.into(), cx);
                 self.fetch(false, cx);

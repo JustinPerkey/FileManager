@@ -2,6 +2,7 @@
 
 use gpui::{div, Context, Entity, IntoElement, ParentElement as _, Render, Window};
 
+use super::model::Slot;
 use super::ScheduleModel;
 
 pub struct ScheduleView {
@@ -18,16 +19,16 @@ impl ScheduleView {
 impl Render for ScheduleView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let model = self.model.read(cx);
-        let files = model.session().map_or_else(String::new, |s| {
-            let path = |f: &Option<fm_schedule::session::FileSlot>| {
-                f.as_ref().map_or("none", |f| f.path.as_str()).to_string()
-            };
+        let path = |slot| model.file_path(slot).unwrap_or("none");
+        let files = if model.session().is_some() {
             format!(
                 "Schedule file: {}. XML file: {}.",
-                path(&s.text),
-                path(&s.xml)
+                path(Slot::Text),
+                path(Slot::Xml)
             )
-        });
+        } else {
+            String::new()
+        };
         div().child(format!("{} {files}", super::text::TITLE))
     }
 }

@@ -173,25 +173,31 @@ its heading's count.
 | Case | Owner | New test | Status |
 |---|---|---|---|
 | cleanPath trims and drops Explorer's quotes | M6 | `tools::schedule::tests::typed_paths_set_slots` (quotes and blanks; `app::path::clean_path` is also covered by `tools::pipeline::tests::clean_path_trims_and_unquotes`) | done |
-| empty state: two labelled fields, Add disabled with a reason | M6 | `tools::schedule::tests::apply_reason_and_can_apply` (the reason; the labelled fields and the axe check are U) | done |
-| a typed path is set on Enter, cleaned of quotes | M6 | `tools::schedule::tests::typed_paths_set_slots` (cleaned of quotes; the Enter key is U) | done |
-| a typed path is set when leaving the field, and not resent unchanged | M6 | `tools::schedule::tests::typed_paths_set_slots` (an unchanged path sends nothing; blur is U) | done |
+| empty state: two labelled fields, Add disabled with a reason | M6 | `tools::schedule::tests::apply_reason_and_can_apply` | done |
+| empty state: two labelled fields, heading and axe check (view half) | U | view: heading, labelled fields, axe | open |
+| a typed path is set on Enter, cleaned of quotes | M6 | `tools::schedule::tests::typed_paths_set_slots` (cleaned of quotes) | done |
+| a typed path is set on Enter: the Enter key (view half) | U | view: Enter commits the draft | open |
+| a typed path is set when leaving the field, and not resent unchanged | M6 | `tools::schedule::tests::typed_paths_set_slots` (an unchanged path sends nothing) | done |
+| a typed path is set when leaving the field: blur (view half) | U | view: blur commits the draft | open |
 | emptying a field clears the file | M6 | `tools::schedule::tests::typed_paths_set_slots` (empty clears) | done |
 | Escape restores the field | U | view: the draft is view state | open |
-| a bad path stays in the field, marked invalid with its error | M6 | `tools::schedule::tests::fixtures_build_each_screenshot_state` (`bad`: the slot keeps the path and its error; invalid marking is U) | done |
+| a bad path stays in the field, marked invalid with its error | M6 | `tools::schedule::tests::fixtures_build_each_screenshot_state` (`bad`: the slot keeps the path and its error) | done |
+| a bad path stays in the field: invalid marking and description (view half) | U | view: aria-invalid, error text | open |
 | Browse opens the dialog with the right filters | M6 | `tools::schedule::tests::browse_passes_todays_filters`, `browse_sets_slot_and_cancel_does_nothing` | done |
 | dropping files sets them and announces what was set | M6 | `tools::schedule::tests::drop_sets_slots_and_announces` | done |
 | an ambiguous drop is reported | M6 | `tools::schedule::tests::ambiguous_drop_is_error` | done |
-| adding confirms first, then reports the backup and moves focus to it | M6 | `tools::schedule::tests::apply_confirms_with_shown_paths_and_applies_exactly_those`, `result_sentence_after_apply`, `same_pair_twice_warns_duplicate` (focus hint `Outcome`; moving focus is U) | done |
+| adding confirms first, then reports the backup and moves focus to it | M6 | `tools::schedule::tests::apply_confirms_with_shown_paths_and_applies_exactly_those`, `result_sentence_after_apply`, `same_pair_twice_warns_duplicate` (focus hint `Outcome`) | done |
+| adding confirms first: focus moves to the outcome banner (view half) | U | view: moves focus on the `FocusHint`; backup line | open |
 | cancelling the confirmation writes nothing | M6 | `tools::schedule::tests::cancel_applies_nothing` | done |
 | a parse error from Add names the line and takes focus | M6 | `tools::schedule::tests::text_covers_every_error_kind` (the line copy), `apply_error_is_banner_and_session_kept` (focus hint `Outcome`) | done |
 | the stub hooks say they are not implemented | M6 | `tools::schedule::tests::real_stub_hooks_change_nothing`, `apply_error_is_banner_and_session_kept` | done |
-| an unknown rejection claims nothing about the files | M6 | `tools::schedule::tests::loads_session_and_retries_after_failure` (`Unexpected` copy; a panicking call) | done |
+| an unknown rejection claims nothing about the files | M6 | `tools::schedule::tests::unexpected_command_failure_refetches_the_session`, `unexpected_apply_failure_refetches_the_session` (`Unexpected` copy, nothing claimed about the files) | done |
 | a failed first load can be retried | M6 | `tools::schedule::tests::loads_session_and_retries_after_failure` | done |
 | drops are ignored while the confirmation is open | M6 | `tools::schedule::tests::drop_target_enabled_and_disabled_reasons` | done |
 | a late response from an older command is ignored | M6 | `tools::schedule::tests::only_newest_command_applies` | done |
 | a typed path's error is announced | M6 | `tools::schedule::tests::typed_path_error_is_announced` | done |
-| the same error from a second typed path is re-announced even when the frame fires before React renders | M6 | `tools::schedule::tests::typed_path_error_is_announced` (`announcement_generation` bumps; the announcer hook is U) | done |
+| the same error from a second typed path is re-announced even when the frame fires before React renders | M6 | `tools::schedule::tests::typed_path_error_is_announced` (`announcement_generation` bumps) | done |
+| the same error from a second typed path: the announcer hook (view half) | U | view: re-announces on `announcement_generation` | open |
 
 ## `tools/tarpack/BuildBar.test.tsx` (15)
 

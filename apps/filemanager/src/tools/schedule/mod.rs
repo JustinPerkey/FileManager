@@ -64,7 +64,7 @@ fn backend_for(cx: &App) -> Box<dyn ScheduleBackend> {
             Box::new(fixtures::FixtureSchedule::from_fixture(fixture))
         }
         #[cfg(any(test, feature = "shoot"))]
-        Backend::Fixture(_) => Box::new(fixtures::FixtureSchedule::empty()),
+        Backend::Fixture(other) => panic!("not a Schedule fixture: {other:?}"),
     }
 }
 

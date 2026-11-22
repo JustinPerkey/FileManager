@@ -4,6 +4,7 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -131,20 +132,27 @@ fn apply_confirmed(cx: &mut TestAppContext, model: &Entity<ScheduleModel>) {
 
 type Calls = Arc<Mutex<Vec<(String, String)>>>;
 
-/// Records what `apply` was called with; panics where told to.
+/// Records what `apply` was called with, counts `session` calls, and panics
+/// where told to (each flag once).
 struct Spy {
     inner: FixtureSchedule,
     applied: Calls,
+    sessions: Arc<AtomicUsize>,
     panic_session: bool,
+    panic_set_xml: bool,
+    panic_apply: bool,
 }
 
 impl Spy {
     fn new(inner: FixtureSchedule) -> (Self, Calls) {
-        let applied = Arc::new(Mutex::new(Vec::new()));
+        let applied = Calls::default();
         let spy = Spy {
             inner,
             applied: applied.clone(),
+            sessions: Arc::default(),
             panic_session: false,
+            panic_set_xml: false,
+            panic_apply: false,
         };
         (spy, applied)
     }
@@ -152,6 +160,7 @@ impl Spy {
 
 impl ScheduleBackend for Spy {
     fn session(&mut self) -> ScheduleSession {
+        self.sessions.fetch_add(1, Ordering::SeqCst);
         assert!(!std::mem::take(&mut self.panic_session), "session exploded");
         self.inner.session()
     }
@@ -159,7 +168,10 @@ impl ScheduleBackend for Spy {
         self.inner.set_text(path)
     }
     fn set_xml(&mut self, path: Option<PathBuf>) -> ScheduleSession {
-        self.inner.set_xml(path)
+        // Changes the state, then fails: the model cannot know what holds.
+        let session = self.inner.set_xml(path);
+        assert!(!std::mem::take(&mut self.panic_set_xml), "set_xml exploded");
+        session
     }
     fn set_dropped(&mut self, paths: Vec<PathBuf>) -> Result<ScheduleSession, ScheduleError> {
         self.inner.set_dropped(paths)
@@ -169,6 +181,7 @@ impl ScheduleBackend for Spy {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push((t.to_string(), x.to_string()));
+        assert!(!std::mem::take(&mut self.panic_apply), "apply exploded");
         self.inner.apply(t, x)
     }
 }
@@ -304,6 +317,28 @@ fn text_matches_ts_sources() {
         assert!(view.contains(needle), "{ours:?} is not in the TS view");
     }
     let flat = &view;
+    for (needle, ours) in [
+        (">Loading<", text::LOADING),
+        (">Files<", text::FILES_LEGEND),
+        ("<summary>Details</summary>", text::DETAILS),
+        (text::BACKUP_PREFIX.trim_end(), text::BACKUP_PREFIX),
+        (
+            "`Update ${fileName(confirmed[1])}?`",
+            "the confirmation title",
+        ),
+    ] {
+        assert!(flat.contains(needle), "{ours:?} is not in the TS view");
+    }
+    assert_eq!(text::confirm_title("C:\\a\\b.xml"), "Update b.xml?");
+    let body = text::confirm_body("T", "X");
+    assert_eq!(
+        (body.text_path.as_str(), body.xml_path.as_str()),
+        ("T", "X")
+    );
+    for piece in [body.before, body.between, body.after] {
+        let piece = piece.trim().trim_start_matches('.').trim();
+        assert!(flat.contains(piece), "{piece:?} is not in the TS view");
+    }
     assert!(flat.contains(text::INTRO), "intro");
     assert!(flat.contains("A backup copy of the XML file is saved next to it first."));
     assert!(flat.contains("The schedule in"));
@@ -619,12 +654,16 @@ fn apply_error_is_banner_and_session_kept(cx: &mut TestAppContext) {
         // Nothing is announced: the banner is an alert.
         assert!(read(cx, &model, |m| m.announcement().is_none()));
     }
-    // The default fixture ends like the real stubs, and says nothing changed.
+    // The default fixture ends like the real parse stub, and says nothing changed.
     let (model, _) = start(cx, FixtureSchedule::ready());
     idle(cx, &model);
     apply_confirmed(cx, &model);
     let copy = read(cx, &model, |m| m.error().map(ViewError::copy)).expect("banner");
     assert!(copy.contains("Nothing was changed."), "{copy}");
+    assert_eq!(
+        copy,
+        "Reading schedule files is not implemented yet. Nothing was changed."
+    );
 }
 
 #[gpui::test]
@@ -738,28 +777,54 @@ fn activated_clears_transient_state(cx: &mut TestAppContext) {
     let (model, fake) = start(cx, FixtureSchedule::ready().with_outcome(Ok(summary(1))));
     idle(cx, &model);
     apply_confirmed(cx, &model);
+    // The apply left a focus hint, which is unread.
     fake.answer_pick(Err(PickError::Failed {
         detail: "x".to_string(),
     }));
     act(cx, &model, |m, cx| m.browse(Slot::Xml, cx));
     idle(cx, &model);
-    act(cx, &model, ScheduleModel::request_apply);
     assert!(read(cx, &model, |m| m.result().is_some()
         && m.error().is_some()
-        && m.pending().is_some()
         && m.announcement().is_some()
         && m.already_applied()));
-
     act(cx, &model, ScheduleModel::activated);
     idle(cx, &model);
     assert!(read(cx, &model, |m| m.result().is_none()
         && m.error().is_none()
-        && m.pending().is_none()
         && m.announcement().is_none()
         && !m.already_applied()));
-    assert_eq!(hint(cx, &model), None);
+    assert_eq!(hint(cx, &model), None, "the hint is forgotten");
     // The session is kept.
     assert_eq!(path_of(cx, &model, Slot::Text).as_deref(), Some(TEXT));
+
+    // An open confirmation closes.
+    act(cx, &model, ScheduleModel::request_apply);
+    assert!(read(cx, &model, |m| m.pending().is_some()));
+    act(cx, &model, ScheduleModel::activated);
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.pending().is_none()));
+}
+
+#[gpui::test]
+fn activated_during_apply_keeps_the_apply_error(cx: &mut TestAppContext) {
+    for panic_apply in [false, true] {
+        let (mut spy, _) = Spy::new(FixtureSchedule::ready());
+        spy.panic_apply = panic_apply;
+        let (model, _) = start_boxed(cx, Box::new(spy));
+        idle(cx, &model);
+        act(cx, &model, ScheduleModel::request_apply);
+        act(cx, &model, ScheduleModel::confirm);
+        // The refresh queues behind the apply and lands after it.
+        act(cx, &model, ScheduleModel::activated);
+        idle(cx, &model);
+        let error = read(cx, &model, |m| m.error().cloned()).expect("the apply's error");
+        assert_eq!(
+            matches!(error, ViewError::Unexpected { .. }),
+            panic_apply,
+            "{error:?}"
+        );
+        assert_eq!(hint(cx, &model), Some(FocusHint::Outcome));
+    }
 }
 
 // ---- the real backend ----
@@ -849,6 +914,61 @@ fn real_stub_hooks_change_nothing(cx: &mut TestAppContext) {
     );
 }
 
+#[gpui::test]
+fn dismiss_result_hides_it_and_keeps_the_applied_pair(cx: &mut TestAppContext) {
+    let (model, _) = start(cx, FixtureSchedule::ready().with_outcome(Ok(summary(1))));
+    idle(cx, &model);
+    act(cx, &model, ScheduleModel::dismiss_result);
+    apply_confirmed(cx, &model);
+    assert!(read(cx, &model, |m| m.result().is_some()));
+    act(cx, &model, ScheduleModel::dismiss_result);
+    assert!(read(cx, &model, |m| m.result().is_none() && m.already_applied()));
+}
+
+#[gpui::test]
+fn unexpected_command_failure_refetches_the_session(cx: &mut TestAppContext) {
+    let (mut spy, _) = Spy::new(FixtureSchedule::empty());
+    spy.panic_set_xml = true;
+    let sessions = spy.sessions.clone();
+    let (model, _) = start_boxed(cx, Box::new(spy));
+    idle(cx, &model);
+    assert_eq!(sessions.load(Ordering::SeqCst), 1);
+    typed(cx, &model, Slot::Xml, XML);
+    let error = read(cx, &model, |m| m.error().cloned()).expect("a banner");
+    assert_eq!(error.copy(), text::UNEXPECTED);
+    assert!(error.detail().contains("set_xml exploded"));
+    // The backend did take the file; the refetch shows it, and the banner stays.
+    assert_eq!(sessions.load(Ordering::SeqCst), 2);
+    assert_eq!(path_of(cx, &model, Slot::Xml).as_deref(), Some(XML));
+    assert!(read(cx, &model, |m| m.error().is_some()));
+}
+
+#[gpui::test]
+fn unexpected_apply_failure_refetches_the_session(cx: &mut TestAppContext) {
+    let (mut spy, _) = Spy::new(FixtureSchedule::ready());
+    spy.panic_apply = true;
+    let sessions = spy.sessions.clone();
+    let (model, _) = start_boxed(cx, Box::new(spy));
+    idle(cx, &model);
+    apply_confirmed(cx, &model);
+    let error = read(cx, &model, |m| m.error().cloned()).expect("a banner");
+    assert_eq!(error.copy(), text::UNEXPECTED);
+    assert!(error.detail().contains("apply exploded"));
+    assert_eq!(sessions.load(Ordering::SeqCst), 2);
+    assert!(read(cx, &model, |m| m.result().is_none() && !m.applying()));
+}
+
+#[gpui::test]
+fn files_changed_on_apply_refetches_the_session(cx: &mut TestAppContext) {
+    let (spy, _) =
+        Spy::new(FixtureSchedule::ready().with_outcome(Err(err(ScheduleErrorKind::FilesChanged))));
+    let sessions = spy.sessions.clone();
+    let (model, _) = start_boxed(cx, Box::new(spy));
+    idle(cx, &model);
+    apply_confirmed(cx, &model);
+    assert_eq!(sessions.load(Ordering::SeqCst), 2);
+}
+
 // ---- fixtures ----
 
 #[gpui::test]
@@ -864,6 +984,27 @@ fn fixtures_build_each_screenshot_state(cx: &mut TestAppContext) {
         let s = read(cx, &model, |m| m.session().cloned()).expect("session");
         assert_eq!(slot_ok(s.text.clone()), text_ok, "{fixture:?}");
         assert_eq!(s.can_apply, can, "{fixture:?}");
+        // Every fixture's apply ends like the real parse stub.
+        let mut backend = FixtureSchedule::from_fixture(fixture);
+        let expected = s.text.as_ref().zip(s.xml.as_ref());
+        let (t, x) = expected.map_or((TEXT, XML), |(t, x)| (t.path.as_str(), x.path.as_str()));
+        if can {
+            let kind = backend.apply(t, x).expect_err("a stub").kind;
+            assert_eq!(kind, ScheduleErrorKind::ParseNotImplemented, "{fixture:?}");
+        }
+    }
+    let default_kind = |mut b: FixtureSchedule| {
+        // Both slots set, so the outcome is what answers.
+        b.set_text(Some(PathBuf::from(TEXT)));
+        b.set_xml(Some(PathBuf::from(XML)));
+        b.apply(TEXT, XML).expect_err("a stub").kind
+    };
+    for b in [
+        FixtureSchedule::empty(),
+        FixtureSchedule::ready(),
+        FixtureSchedule::bad(),
+    ] {
+        assert_eq!(default_kind(b), ScheduleErrorKind::ParseNotImplemented);
     }
     // `bad`: the error names the problem.
     let (model, _) = start(cx, FixtureSchedule::bad());
@@ -880,7 +1021,7 @@ fn fixtures_build_each_screenshot_state(cx: &mut TestAppContext) {
         Some(text::REASON_FIX_PATHS)
     );
 
-    // `confirm` is reached from `ready`, and Update ends in the stub error.
+    // `confirm` is reached from `ready`, and Update ends in the parse stub's error.
     let (model, _) = start(cx, FixtureSchedule::ready());
     idle(cx, &model);
     act(cx, &model, ScheduleModel::request_apply);
@@ -891,5 +1032,5 @@ fn fixtures_build_each_screenshot_state(cx: &mut TestAppContext) {
         Some(ViewError::Schedule(e)) => Some(e.kind),
         _ => None,
     });
-    assert_eq!(kind, Some(ScheduleErrorKind::MergeNotImplemented));
+    assert_eq!(kind, Some(ScheduleErrorKind::ParseNotImplemented));
 }
