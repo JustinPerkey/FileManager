@@ -5,7 +5,6 @@
 //! chrome as its only child.
 
 use std::path::PathBuf;
-use std::time::Instant;
 
 use gpui::{
     canvas, div, AnyView, App, AppContext as _, Context, DispatchPhase, DragMoveEvent, Entity,
@@ -19,12 +18,12 @@ use crate::app::drop::DropTarget;
 use crate::app::guard::{self, CloseRequest};
 use crate::app::text;
 use crate::app::view;
-use crate::platform::path_loss::Coalescer;
+use crate::platform::path_loss::{Coalescer, Signal};
 use crate::tools::{self, ToolId, ToolSlot};
 
 /// The channel the path-loss logger signals on, as a GPUI global. `run`
 /// sets it; the shell drains it. Tests set their own.
-pub struct PathLossFeed(pub async_channel::Receiver<()>);
+pub struct PathLossFeed(pub async_channel::Receiver<Signal>);
 
 impl Global for PathLossFeed {}
 
@@ -33,6 +32,8 @@ impl Global for PathLossFeed {}
 pub enum ShellNotice {
     /// A dropped item's name is not valid Unicode, so the OS drop skipped it.
     DroppedNamesUnreadable,
+    /// GPUI could not read a dropped item's name at all, so it skipped it.
+    DroppedItemsUnreadable,
 }
 
 impl ShellNotice {
@@ -41,6 +42,7 @@ impl ShellNotice {
     pub fn message(self) -> &'static str {
         match self {
             ShellNotice::DroppedNamesUnreadable => text::DROPPED_NAMES_UNREADABLE,
+            ShellNotice::DroppedItemsUnreadable => text::DROPPED_ITEMS_UNREADABLE,
         }
     }
 }
@@ -85,10 +87,10 @@ impl Shell {
             coalescer: Coalescer::default(),
             notice: None,
             close_request: None,
-            _path_loss: feed.map(|rx: async_channel::Receiver<()>| {
+            _path_loss: feed.map(|rx: async_channel::Receiver<Signal>| {
                 cx.spawn(async move |this: gpui::WeakEntity<Shell>, cx| {
-                    while rx.recv().await.is_ok() {
-                        let alive = this.update(cx, Shell::path_loss_signal);
+                    while let Ok(signal) = rx.recv().await {
+                        let alive = this.update(cx, |shell, cx| shell.path_loss_signal(signal, cx));
                         if alive.is_err() {
                             break;
                         }
@@ -212,22 +214,18 @@ impl Shell {
     }
 
     /// What the current tool's target is right now. While a modal layer
-    /// (dialog or sheet) is open a drop is refused, so an existing target
-    /// reads as disabled with the reason.
+    /// (dialog or sheet) is open a drop is refused, so whatever the tool
+    /// reports reads as disabled with the reason.
     fn current_target(&self, window: &mut Window, cx: &mut App) -> DropTarget {
-        let target = self
-            .tools
-            .iter()
-            .find(|s| s.id == self.current)
-            .map_or(DropTarget::None, |s| s.hooks.drop_target(cx));
-        if target != DropTarget::None
-            && (window.has_active_dialog(cx) || window.has_active_sheet(cx))
-        {
+        if window.has_active_dialog(cx) || window.has_active_sheet(cx) {
             return DropTarget::Disabled {
                 reason: text::DROP_BLOCKED_BY_DIALOG.into(),
             };
         }
-        target
+        self.tools
+            .iter()
+            .find(|s| s.id == self.current)
+            .map_or(DropTarget::None, |s| s.hooks.drop_target(cx))
     }
 
     fn refresh_drag_over(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -258,7 +256,7 @@ impl Shell {
     fn drag_left(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.file_drag {
             self.file_drag = false;
-            self.coalescer.drag_ended(Instant::now());
+            self.coalescer.drag_ended(cx.background_executor().now());
         }
         self.drag_paths.clear();
         self.refresh_drag_over(window, cx);
@@ -278,9 +276,13 @@ impl Shell {
         }
     }
 
-    fn path_loss_signal(&mut self, cx: &mut Context<Self>) {
-        if self.coalescer.signal(Instant::now()) {
-            self.notice = Some(ShellNotice::DroppedNamesUnreadable);
+    fn path_loss_signal(&mut self, signal: Signal, cx: &mut Context<Self>) {
+        let now = cx.background_executor().now();
+        if let Some(kind) = self.coalescer.signal(signal, now) {
+            self.notice = Some(match kind {
+                Signal::NonUnicodeName => ShellNotice::DroppedNamesUnreadable,
+                Signal::UnreadableName => ShellNotice::DroppedItemsUnreadable,
+            });
             cx.notify();
         }
     }
@@ -613,37 +615,151 @@ mod tests {
         assert_eq!(states[0].borrow().dropped, [vec![path]]);
     }
 
-    #[gpui::test]
-    fn path_loss_shows_one_notice_per_drag(cx: &mut TestAppContext) {
+    use crate::platform::path_loss::Signal;
+
+    const NON_UNICODE: Signal = Signal::NonUnicodeName;
+    const UNREADABLE: Signal = Signal::UnreadableName;
+
+    fn feed(cx: &mut TestAppContext) -> async_channel::Sender<Signal> {
         let (tx, rx) = async_channel::unbounded();
         cx.update(|cx| cx.set_global(PathLossFeed(rx)));
-        let (shell, cx) = open(cx, tools::build);
-        let notice = |cx: &mut gpui::VisualTestContext| shell.read_with(cx, |s, _| s.notice());
-        assert_eq!(notice(cx), None);
+        tx
+    }
+
+    fn notice(shell: &Entity<Shell>, cx: &mut gpui::VisualTestContext) -> Option<ShellNotice> {
+        shell.read_with(cx, |s, _| s.notice())
+    }
+
+    fn enter(cx: &mut gpui::VisualTestContext) {
         cx.simulate_event(FileDropEvent::Entered {
             position: inside(),
             paths: external(&["C:\\drop\\a.txt"]),
         });
+    }
+
+    fn send(tx: &async_channel::Sender<Signal>, signal: Signal, cx: &mut gpui::VisualTestContext) {
+        tx.try_send(signal).expect("open channel");
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn path_loss_outside_a_drag_is_ignored(cx: &mut TestAppContext) {
+        let tx = feed(cx);
+        let (shell, cx) = open(cx, tools::build);
+        send(&tx, NON_UNICODE, cx);
+        send(&tx, UNREADABLE, cx);
+        assert_eq!(notice(&shell, cx), None, "a paste logs the same text");
+    }
+
+    #[gpui::test]
+    fn path_loss_during_drag_shows_one_notice(cx: &mut TestAppContext) {
+        let tx = feed(cx);
+        let (shell, cx) = open(cx, tools::build);
+        enter(cx);
         for _ in 0..3 {
-            tx.try_send(()).expect("open channel");
+            tx.try_send(NON_UNICODE).expect("open channel");
         }
         cx.run_until_parked();
-        assert_eq!(notice(cx), Some(ShellNotice::DroppedNamesUnreadable));
+        assert_eq!(
+            notice(&shell, cx),
+            Some(ShellNotice::DroppedNamesUnreadable)
+        );
         shell.update(cx, Shell::dismiss_notice);
-        assert_eq!(notice(cx), None);
-        // Later signals of the same drag do not bring it back.
-        tx.try_send(()).expect("open channel");
-        cx.run_until_parked();
-        assert_eq!(notice(cx), None, "one notice per drag");
+        send(&tx, NON_UNICODE, cx);
+        assert_eq!(notice(&shell, cx), None, "one notice per drag");
         cx.simulate_event(FileDropEvent::Submit { position: inside() });
-        // The next drag raises it again.
-        cx.simulate_event(FileDropEvent::Entered {
-            position: inside(),
-            paths: external(&["C:\\drop\\b.txt"]),
-        });
-        tx.try_send(()).expect("open channel");
-        cx.run_until_parked();
-        assert_eq!(notice(cx), Some(ShellNotice::DroppedNamesUnreadable));
+        enter(cx);
+        send(&tx, NON_UNICODE, cx);
+        assert_eq!(
+            notice(&shell, cx),
+            Some(ShellNotice::DroppedNamesUnreadable),
+            "the next drag raises it again"
+        );
+    }
+
+    #[gpui::test]
+    fn path_loss_within_1s_after_drag_counts(cx: &mut TestAppContext) {
+        let tx = feed(cx);
+        let (shell, cx) = open(cx, tools::build);
+        enter(cx);
+        cx.simulate_event(FileDropEvent::Submit { position: inside() });
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(900));
+        send(&tx, NON_UNICODE, cx);
+        assert_eq!(
+            notice(&shell, cx),
+            Some(ShellNotice::DroppedNamesUnreadable)
+        );
+    }
+
+    #[gpui::test]
+    fn path_loss_after_1s_is_ignored(cx: &mut TestAppContext) {
+        let tx = feed(cx);
+        let (shell, cx) = open(cx, tools::build);
+        enter(cx);
+        cx.simulate_event(FileDropEvent::Exited);
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(1100));
+        send(&tx, NON_UNICODE, cx);
+        assert_eq!(notice(&shell, cx), None);
+    }
+
+    #[gpui::test]
+    fn unreadable_name_shows_its_own_notice(cx: &mut TestAppContext) {
+        let tx = feed(cx);
+        let (shell, cx) = open(cx, tools::build);
+        enter(cx);
+        send(&tx, UNREADABLE, cx);
+        let shown = notice(&shell, cx);
+        assert_eq!(shown, Some(ShellNotice::DroppedItemsUnreadable));
+        assert_eq!(
+            shown.map(ShellNotice::message),
+            Some("Some dropped items could not be read. Drop them again, or use Browse.")
+        );
+    }
+
+    #[gpui::test]
+    fn non_unicode_notice_wins_when_both_arrive(cx: &mut TestAppContext) {
+        let tx = feed(cx);
+        let (shell, cx) = open(cx, tools::build);
+        enter(cx);
+        send(&tx, UNREADABLE, cx);
+        send(&tx, NON_UNICODE, cx);
+        assert_eq!(
+            notice(&shell, cx),
+            Some(ShellNotice::DroppedNamesUnreadable)
+        );
+        let tx2 = tx.clone();
+        shell.update(cx, Shell::dismiss_notice);
+        send(&tx2, UNREADABLE, cx);
+        assert_eq!(notice(&shell, cx), None, "the other kind does not return");
+    }
+
+    #[gpui::test]
+    fn drop_refused_while_dialog_open(cx: &mut TestAppContext) {
+        let (states, build) = test_support::probes();
+        let (shell, cx) = open(cx, build);
+        states[0].borrow_mut().target = enabled();
+        open_dialog(cx);
+        enter(cx);
+        assert_eq!(
+            shell.read_with(cx, |s, _| s.drag_over().cloned()),
+            Some(DropTarget::Disabled {
+                reason: "Close the open dialog first.".into()
+            })
+        );
+        // Whatever the tool reports.
+        states[0].borrow_mut().target = DropTarget::None;
+        cx.simulate_event(FileDropEvent::Pending { position: inside() });
+        assert_eq!(
+            shell.read_with(cx, |s, _| s.drag_over().cloned()),
+            Some(DropTarget::Disabled {
+                reason: "Close the open dialog first.".into()
+            })
+        );
+        cx.simulate_event(FileDropEvent::Submit { position: inside() });
+        assert_eq!(states[0].borrow().dropped.len(), 0);
+        assert_eq!(shell.read_with(cx, |s, _| s.drag_over().cloned()), None);
     }
 
     fn open_dialog(cx: &mut gpui::VisualTestContext) {
@@ -658,8 +774,7 @@ mod tests {
     /// suppressed.
     #[gpui::test]
     fn dialog_open_drag_exit_clears_and_resets(cx: &mut TestAppContext) {
-        let (tx, rx) = async_channel::unbounded();
-        cx.update(|cx| cx.set_global(PathLossFeed(rx)));
+        let tx = feed(cx);
         let (states, build) = test_support::probes();
         let (shell, cx) = open(cx, build);
         states[0].borrow_mut().target = enabled();
@@ -672,7 +787,7 @@ mod tests {
             shell.read_with(cx, |s, _| s.drag_over().cloned()),
             Some(DropTarget::Disabled { .. })
         ));
-        tx.try_send(()).expect("open channel");
+        tx.try_send(NON_UNICODE).expect("open channel");
         cx.run_until_parked();
         assert!(shell.read_with(cx, |s, _| s.notice()).is_some());
         shell.update(cx, Shell::dismiss_notice);
@@ -683,7 +798,7 @@ mod tests {
             position: inside(),
             paths: external(&["C:\\drop\\b.txt"]),
         });
-        tx.try_send(()).expect("open channel");
+        tx.try_send(NON_UNICODE).expect("open channel");
         cx.run_until_parked();
         assert!(shell.read_with(cx, |s, _| s.notice()).is_some());
         assert_eq!(states[0].borrow().dropped.len(), 0);
@@ -691,8 +806,7 @@ mod tests {
 
     #[gpui::test]
     fn dialog_open_drop_is_refused_and_ends_the_drag(cx: &mut TestAppContext) {
-        let (tx, rx) = async_channel::unbounded();
-        cx.update(|cx| cx.set_global(PathLossFeed(rx)));
+        let tx = feed(cx);
         let (states, build) = test_support::probes();
         let (shell, cx) = open(cx, build);
         states[0].borrow_mut().target = enabled();
@@ -706,7 +820,7 @@ mod tests {
             position: inside(),
             paths: external(&["C:\\drop\\b.txt"]),
         });
-        tx.try_send(()).expect("open channel");
+        tx.try_send(NON_UNICODE).expect("open channel");
         cx.run_until_parked();
         assert!(shell.read_with(cx, |s, _| s.notice()).is_some());
     }
