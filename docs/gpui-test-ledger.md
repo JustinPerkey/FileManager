@@ -12,7 +12,7 @@ decides which side its test belongs to and updates the row.
 
 Counting rule: one row per match of
 `grep -cE "^\s*(it|test)(\.each)?\(" <file>`, so the number of rows in a
-file's table equals that count. The file counts sum to 301.
+file's table equals that count. The file counts sum to 302.
 
 
 ## `App.test.tsx` (1)
@@ -127,28 +127,29 @@ file's table equals that count. The file counts sum to 301.
 | type-size tokens exist on :root | U |  | open |
 | every tarpack.css selector is scoped under .tarpack, and only the overlays have a shadow | U |  | open |
 
-## `tools/pipeline/PipelineView.test.tsx` (18)
+## `tools/pipeline/PipelineView.test.tsx` (19)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| cleanPath trims and drops Explorer's quotes | M5 or U |  | open |
-| lists the four steps in order and blocks running without a folder | M5 or U |  | open |
-| browsing sets the folder and shows its subfolder count | M5 or U |  | open |
-| after run next, focus returns to run next for the following step | M5 or U |  | open |
-| a step started from its own button does not show run next as busy | M5 or U |  | open |
-| a typed bad path is shown with its error | M5 or U |  | open |
-| the check step runs without confirming and shows its result | M5 or U |  | open |
-| issues are listed with their subfolder | M5 or U |  | open |
-| the batch step asks first, and cancelling runs nothing | M5 or U |  | open |
-| run all goes in order and stops at the first step that does not pass | M5 or U |  | open |
-| a step that cannot start shows an error banner | M5 or U |  | open |
-| focus moves to the step while it runs, not to the page | M5 or U |  | open |
-| a step started before the view mounted is shown and followed until it ends | M5 or U |  | open |
-| results, problems, failures and the confirmation have no axe violations | M5 or U |  | open |
-| a failed poll is reported once and retried | M5 or U |  | open |
-| later steps are locked until the one before passes | M5 or U |  | open |
-| run next step walks through the steps one at a time | M5 or U |  | open |
-| when every step has passed, run next is disabled and says why | M5 or U |  | open |
+| cleanPath trims and drops Explorer's quotes | M5 | `tools::pipeline::tests::clean_path_trims_and_unquotes` | done |
+| lists the four steps in order and blocks running without a folder | M5 | `tools::pipeline::tests::run_reason_and_can_run`, `text_covers_every_error_kind_and_step` (the list's rendering and its axe check are U) | done |
+| browsing sets the folder and shows its subfolder count | M5 | `tools::pipeline::tests::browse_uses_folder_spec_and_cancel_changes_nothing`, `typed_folder_sets_directory` (showing the count is U) | done |
+| after run next, focus returns to run next for the following step | M5 | `tools::pipeline::tests::focus_hint_after_run_next` (moving focus is U, from `take_focus_hint`) | done |
+| a step started from its own button does not show run next as busy | M5 | `tools::pipeline::tests::run_next_busy_only_for_its_step` | done |
+| a typed bad path is shown with its error | M5 | `tools::pipeline::tests::bad_folder_shows_slot_error_and_announces` (aria-invalid and description wiring are U) | done |
+| the check step runs without confirming and shows its result | M5 | `tools::pipeline::tests::step_without_confirm_runs_immediately` (rendering the result is U) | done |
+| issues are listed with their subfolder | U | rendering of `StepIssue`s from the session (the model passes them through); the view's test | open |
+| the batch step asks first, and cancelling runs nothing | M5 | `tools::pipeline::tests::step_with_confirm_waits_and_uses_the_confirmed_folder`, `cancel_runs_nothing` | done |
+| run all goes in order and stops at the first step that does not pass | M5 | `tools::pipeline::tests::run_all_confirms_once_and_stops_at_first_failure`, `run_all_all_passed_announces` | done |
+| a step that cannot start shows an error banner | M5 | `tools::pipeline::tests::begin_error_is_a_banner_and_step_failure_is_not` (the banner's rendering is U) | done |
+| focus moves to the step while it runs, not to the page | U | focus placement: the view moves focus to the step when `running()` becomes it | open |
+| a step started before the view mounted is shown and followed until it ends | M5 | dropped: the orphan polling (a GPUI model outlives its view and lands the result itself); kept behaviour: `tools::pipeline::tests::activated_clears_transient_state_and_keeps_running_step` | dropped |
+| results, problems, failures and the confirmation have no axe violations | U | the view's accessibility check | open |
+| a failed poll is reported once and retried | M5 | dropped: the orphan polling; a failed refresh is the banner (`load_failure_shows_retry_and_retry_loads`) | dropped |
+| later steps are locked until the one before passes | M5 | `tools::pipeline::tests::step_status_covers_every_case` (`Waiting`; the "Runs after" text and the disabled button are U) | done |
+| run next step walks through the steps one at a time | M5 | `tools::pipeline::tests::focus_hint_after_run_next` (walks every step with `request_next`) | done |
+| when every step has passed, run next is disabled and says why | M5 | `tools::pipeline::tests::run_all_all_passed_announces` (`all_passed`, no run reason; the description wiring is U) | done |
+| a repeated step result is re-announced even when the frame fires before React renders | M5 | `tools::pipeline::tests::repeated_result_bumps_announcement_generation` (the view re-announces on `announcement_generation`; the announcer hook is U) | done |
 
 ## `tools/schedule/ScheduleView.test.tsx` (19)
 

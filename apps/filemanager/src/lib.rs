@@ -6,7 +6,6 @@
 // unused dependency; these lines go once the tools use the crates.
 use fm_core as _;
 use fm_dbmanager as _;
-use fm_pipeline as _;
 use fm_schedule as _;
 use fm_tarpack as _;
 
