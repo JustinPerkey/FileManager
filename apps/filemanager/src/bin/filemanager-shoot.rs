@@ -6,50 +6,17 @@
 //!
 //! The binary runs each scenario in its own child process (itself, with the
 //! hidden `--child <name>` flag), so scenarios share no state and GPUI's
-//! one-run-per-process limit does not matter. It prints one line per scenario
+//! one-run-per-process limit does not matter. A child that runs longer than
+//! 60 s is killed (`FAIL <name>: timed out after 60 s`) and the rest still run. It prints one line per scenario
 //! (`ok <name>` or `FAIL <name>: <reason>`) and exits non-zero if any failed.
 
-use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
+use fm_app::shoot::cli::{parse, run_children, Args, CHILD_TIMEOUT};
 use fm_app::shoot::{run_scenario, scenarios};
-
-struct Args {
-    out: PathBuf,
-    only: Option<Vec<String>>,
-    prefix: String,
-    dark: bool,
-    child: Option<String>,
-}
 
 const USAGE: &str =
     "usage: filemanager-shoot --out <dir> [--only <name>,...] [--prefix <p>] [--dark]";
-
-fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
-    let mut parsed = Args {
-        out: PathBuf::new(),
-        only: None,
-        prefix: String::new(),
-        dark: false,
-        child: None,
-    };
-    let mut out = None;
-    while let Some(arg) = args.next() {
-        let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
-        match arg.as_str() {
-            "--out" => out = Some(PathBuf::from(value("--out")?)),
-            "--only" => {
-                parsed.only = Some(value("--only")?.split(',').map(str::to_owned).collect());
-            }
-            "--prefix" => parsed.prefix = value("--prefix")?,
-            "--dark" => parsed.dark = true,
-            "--child" => parsed.child = Some(value("--child")?),
-            other => return Err(format!("unknown argument {other}")),
-        }
-    }
-    parsed.out = out.ok_or("--out is required")?;
-    Ok(parsed)
-}
 
 fn main() -> ExitCode {
     let args = match parse(std::env::args().skip(1)) {
@@ -88,33 +55,23 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let mut failed = false;
-    for name in selected {
-        let mut cmd = Command::new(&exe);
-        cmd.arg("--child")
-            .arg(name)
-            .arg("--out")
-            .arg(&args.out)
-            .arg("--prefix")
-            .arg(&args.prefix);
-        if args.dark {
-            cmd.arg("--dark");
-        }
-        match cmd.status() {
-            Ok(status) if status.success() => {}
-            Ok(status) => {
-                // The child prints its own FAIL line; a crash prints none.
-                if status.code() != Some(1) {
-                    println!("FAIL {name}: the scenario process ended with {status}");
-                }
-                failed = true;
+    let (failed, _) = run_children(
+        &selected,
+        args.child_timeout.unwrap_or(CHILD_TIMEOUT),
+        |name| {
+            let mut cmd = Command::new(&exe);
+            cmd.arg("--child")
+                .arg(name)
+                .arg("--out")
+                .arg(&args.out)
+                .arg("--prefix")
+                .arg(&args.prefix);
+            if args.dark {
+                cmd.arg("--dark");
             }
-            Err(e) => {
-                println!("FAIL {name}: could not start the scenario process: {e}");
-                failed = true;
-            }
-        }
-    }
+            cmd
+        },
+    );
     if failed {
         ExitCode::FAILURE
     } else {

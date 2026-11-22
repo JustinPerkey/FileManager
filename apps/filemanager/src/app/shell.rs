@@ -16,6 +16,7 @@ use gpui_component::WindowExt as _;
 
 use crate::app::drop::DropTarget;
 use crate::app::guard::{self, CloseRequest};
+use crate::app::probe;
 use crate::app::text;
 use crate::app::view;
 use crate::platform::path_loss::{Coalescer, Signal};
@@ -297,7 +298,7 @@ impl Render for Shell {
         // capture-phase mouse-up, exactly once, wherever the pointer is.
         let weak = cx.entity().downgrade();
         let tracker = canvas(
-            |_, _, _| (),
+            |_, _, _| probe::begin_frame(),
             move |_, (), window, _cx| {
                 let on_exit = weak.clone();
                 window.on_mouse_event(move |event: &FileDropEvent, phase, window, cx| {

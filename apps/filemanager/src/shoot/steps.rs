@@ -32,7 +32,7 @@ pub fn shell_of(handle: AnyWindowHandle, cx: &mut App) -> Result<Entity<Shell>, 
 pub fn center_of(selector: &str) -> Result<Point<Pixels>, String> {
     probe::bounds(selector)
         .map(|b| b.center())
-        .ok_or_else(|| format!("selector not found: {selector}"))
+        .ok_or_else(|| format!("tag not found: {selector}"))
 }
 
 fn paths(list: &[&str]) -> ExternalPaths {

@@ -65,6 +65,13 @@ jobs:
           if grep -q "test-support" <<<"$out"; then
             echo "::error::gpui test-support is enabled outside dev-dependencies"; echo "$out"; exit 1
           fi
+          # Negative control: with the harness feature the same command must see test-support.
+          shoot=$(cargo tree --locked -p filemanager-gpui --features shoot -e features,normal,build --target x86_64-pc-windows-msvc -i gpui-pre 2>&1) || { echo "$shoot"; exit 1; }
+          echo "--- with --features shoot ---"
+          echo "$shoot"
+          if ! grep -q "test-support" <<<"$shoot"; then
+            echo "::error::cargo tree did not see test-support with --features shoot; the check cannot detect it"; exit 1
+          fi
 
       - name: rfd must not reach the GPUI app
         shell: bash
@@ -146,7 +153,7 @@ jobs:
       - name: Screenshots (the harness twice, compared)
         shell: pwsh
         run: |
-          # Dev profile: GPUI records debug selectors only in debug builds.
+          # Dev profile on purpose: it reuses the artifacts of the test build above.
           cargo build -p filemanager-gpui --features shoot --bin filemanager-shoot --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force shots | Out-Null
@@ -169,6 +176,11 @@ jobs:
           $lines | ForEach-Object { Write-Host $_ }
           # A scenario that fails to run does fail the job.
           if ($failed) { Write-Error "a screenshot scenario failed"; exit 1 }
+          # Negative control: an unknown scenario must make the harness exit non-zero.
+          & target\debug\filemanager-shoot.exe --out shots\none --only no-such
+          Write-Host "exit code for --only no-such: $LASTEXITCODE"
+          if ($LASTEXITCODE -eq 0) { Write-Error "the harness exited 0 for an unknown scenario"; exit 1 }
+          $global:LASTEXITCODE = 0
       - uses: actions/upload-artifact@v4
         if: always()
         with:
