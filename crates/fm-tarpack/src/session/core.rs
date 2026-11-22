@@ -228,6 +228,14 @@ impl Core {
             .map(Path::to_path_buf)
     }
 
+    /// The output set for the next build, as the path that was stored (a
+    /// save dialog starts in its folder without parsing a display string).
+    /// `None` when nothing is loaded or no output is set.
+    #[must_use]
+    pub fn output_path(&self) -> Option<PathBuf> {
+        self.loaded.as_ref()?.output.clone()
+    }
+
     /// The loaded manifest's path, for the watcher and the editor.
     #[must_use]
     pub fn manifest_path(&self) -> Option<&Path> {

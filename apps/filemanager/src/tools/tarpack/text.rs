@@ -4,16 +4,22 @@
 //! sentences in `TarpackView.tsx`). Pure functions and constants: the views
 //! render them, the model announces them.
 //!
-//! The build side's strings (the build bar, progress, results, the report)
-//! come with part B.
+//! The build side's strings (the build bar, progress, results, the report, the
+//! overwrite dialog, the shortcuts help) are at the end: `BuildBar.tsx`,
+//! `BuildProgress.tsx`, `BuildResult.tsx`, `BuildReport.tsx`, `FormatPicker.tsx`,
+//! `reportText.ts`, `ShortcutsHelp.tsx`, `pathParts.ts` and the build
+//! sentences of `TarpackView.tsx`.
 
 use std::fmt::Write as _;
 
+use fm_tarpack::archive::{BuildPhase, BuildSummary, Progress};
+use fm_tarpack::format::ArchiveFormat;
 use fm_tarpack::manifest::{Diagnostic, EntryFailure};
 use fm_tarpack::session::{
-    SessionEntry, SessionManifest, TarpackError, TarpackErrorKind, TarpackSession,
+    ArchiveFormatOption, BuildBlockedReason, SessionEntry, SessionManifest, TarpackError,
+    TarpackErrorKind, TarpackSession,
 };
-use fm_tarpack::sources::{Ambiguity, DropOutcome, UnmatchedReason};
+use fm_tarpack::sources::{Ambiguity, DropOutcome, EntryStatus, UnmatchedReason};
 
 use super::model::Origin;
 
@@ -262,7 +268,8 @@ pub const REASON_NO_FILES: &str = "This manifest lists no files";
 pub const REASON_BUILDING: &str = "A build is running";
 pub const REASON_PENDING: &str = "Still matching the last drop";
 
-/// What blocks a drop apart from the manifest. Part B sets these.
+/// What blocks a drop apart from the manifest: the model sets it while a
+/// build runs or its overwrite confirmation is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropBlocker {
     /// A build runs.
@@ -641,3 +648,633 @@ pub fn line_text(l: &DropLine) -> String {
 pub fn drop_result_text(lines: &[DropLine]) -> String {
     lines.iter().map(line_text).collect::<Vec<_>>().join(" ")
 }
+
+// ---- display paths ----
+
+fn is_sep(c: char) -> bool {
+    c == '\\' || c == '/'
+}
+
+/// The characters of the drive (`C:\`, `C:/`, `C:`) or UNC
+/// (`\\server\share\`) prefix of a display path.
+fn prefix_length(cps: &[char]) -> usize {
+    if let [letter, ':', rest @ ..] = cps {
+        if letter.is_ascii_alphabetic() {
+            return if rest.first().copied().is_some_and(is_sep) {
+                3
+            } else {
+                2
+            };
+        }
+    }
+    if let ['\\', '\\', rest @ ..] = cps {
+        let name = |from: usize| rest[from..].iter().take_while(|c| !is_sep(**c)).count();
+        let server = name(0);
+        if server > 0 && rest.get(server).copied().is_some_and(is_sep) {
+            let share = name(server + 1);
+            if share > 0 {
+                let end = server + 1 + share;
+                let trailing = usize::from(rest.get(end).copied().is_some_and(is_sep));
+                return 2 + end + trailing;
+            }
+        }
+    }
+    0
+}
+
+/// The index of the last separator of a display path that is not inside its
+/// drive or UNC prefix.
+fn last_separator(cps: &[char], from: usize) -> Option<usize> {
+    (from..cps.len()).rev().find(|i| is_sep(cps[*i]))
+}
+
+/// The file name of a display path: what follows the last separator.
+#[must_use]
+pub fn file_name(path: &str) -> String {
+    let cps: Vec<char> = path.chars().collect();
+    let start = cps.iter().rposition(|c| is_sep(*c)).map_or(0, |i| i + 1);
+    cps[start..].iter().collect()
+}
+
+/// The folder of a display path: everything before the last separator,
+/// keeping the separator when only a drive or UNC-share prefix remains.
+/// `None` when there is no separator. For display only.
+#[must_use]
+pub fn display_folder(path: &str) -> Option<String> {
+    let cps: Vec<char> = path.chars().collect();
+    let pre = prefix_length(&cps);
+    let from = if pre > 0 && is_sep(cps[pre - 1]) {
+        pre - 1
+    } else {
+        pre
+    };
+    let sep = last_separator(&cps, from)?;
+    let end = if sep < pre.max(1) { sep + 1 } else { sep };
+    Some(cps[..end].iter().collect())
+}
+
+// ---- the build bar ----
+
+pub const OUTPUT_LABEL: &str = "Output:";
+pub const OUTPUT_NOT_CHOSEN: &str = "not chosen";
+pub const CHOOSE_OUTPUT: &str = "Choose\u{2026}";
+pub const CREATE_ARCHIVE: &str = "Create archive";
+/// The Show errors button's label (the same words as the errors section's
+/// toggle when collapsed).
+pub const SHOW_ERRORS: &str = "Show errors";
+pub const SHOW_ERRORS_HINT: &str = "Shortcut: F8";
+pub const CREATE_ARCHIVE_HINT: &str = "Shortcut: Ctrl+Enter";
+pub const OPEN_HINT: &str = "Shortcut: Ctrl+O";
+
+fn plural64(n: u64, one: &'static str, many: &'static str) -> &'static str {
+    if n == 1 {
+        one
+    } else {
+        many
+    }
+}
+
+fn count_of(n: usize) -> u64 {
+    u64::try_from(n).unwrap_or(u64::MAX)
+}
+
+/// Why Create archive is disabled; `None` when it is not
+/// (`BuildBar.tsx` `reasonText`).
+#[must_use]
+pub fn build_reason(s: &TarpackSession) -> Option<String> {
+    Some(match s.build_blocked_reason? {
+        BuildBlockedReason::NoManifest => REASON_NO_MANIFEST.to_string(),
+        BuildBlockedReason::NoEntries => match &s.manifest {
+            Some(m) if m.entries_withheld => {
+                "No files can be built until the manifest errors are fixed".to_string()
+            }
+            Some(m) if !m.failed_entries.is_empty() => {
+                "Every file in the manifest has errors".to_string()
+            }
+            _ => REASON_NO_FILES.to_string(),
+        },
+        BuildBlockedReason::EntriesNotReady => {
+            let n = s.manifest.as_ref().map_or(0, |m| {
+                m.entries
+                    .iter()
+                    .filter(|e| e.status == EntryStatus::Missing)
+                    .count()
+            });
+            format!(
+                "{n} chosen {} missing from disk",
+                plural(n, "file is", "files are")
+            )
+        }
+        BuildBlockedReason::NothingLoaded => {
+            "Add at least one file to build an archive".to_string()
+        }
+        BuildBlockedReason::NoOutput => "Choose where to save the archive".to_string(),
+    })
+}
+
+/// The note under the bar about files that will be left out of the build
+/// (`BuildBar.tsx` `leftOutNote`).
+#[must_use]
+pub fn left_out_note(s: &TarpackSession) -> Option<String> {
+    let m = s.manifest.as_ref()?;
+    if m.entries.is_empty() {
+        return None;
+    }
+    let not_loaded = m
+        .entries
+        .iter()
+        .filter(|e| e.status == EntryStatus::Unassigned)
+        .count();
+    if s.ready_count > 0 && not_loaded > 0 && m.error_count == 0 {
+        return Some(format!(
+            "Partial archive: {} of {} {}; {not_loaded} without a file will be left out",
+            s.ready_count,
+            s.total_count,
+            plural(s.total_count as usize, "file", "files")
+        ));
+    }
+    if m.error_count == 0 {
+        return None;
+    }
+    let n = m.failed_entries.len();
+    if n > 0 {
+        return Some(format!(
+            "{n} {} will be left out; errors will be listed after the build",
+            plural(n, "file", "files")
+        ));
+    }
+    let e = m.errors.len();
+    Some(format!(
+        "Builds with {e} manifest {}",
+        plural(e, "error", "errors")
+    ))
+}
+
+// ---- the format picker ----
+
+pub const FORMAT_LABEL: &str = "Format";
+
+/// The short display name of a format; the extension always comes from the
+/// session.
+#[must_use]
+pub fn format_name(format: ArchiveFormat) -> &'static str {
+    match format {
+        ArchiveFormat::Tar => "tar",
+        ArchiveFormat::TarGz => "gzip",
+        ArchiveFormat::TarZst => "zstd",
+        ArchiveFormat::TarXz => "xz",
+    }
+}
+
+/// A picker option: "zstd (.tar.zst)".
+#[must_use]
+pub fn format_option_label(option: &ArchiveFormatOption) -> String {
+    format!("{} ({})", format_name(option.format), option.extension)
+}
+
+/// The save dialog's filter name: "zstd archive (.tar.zst)".
+#[must_use]
+pub fn format_filter_name(option: &ArchiveFormatOption) -> String {
+    format!(
+        "{} archive ({})",
+        format_name(option.format),
+        option.extension
+    )
+}
+
+/// Announced in the bar's live region when the chosen file name switched the
+/// format.
+#[must_use]
+pub fn format_changed_notice(format: ArchiveFormat) -> String {
+    format!(
+        "Format changed to {} to match the file name.",
+        format_name(format)
+    )
+}
+
+// ---- progress ----
+
+/// The progress bar's accessible name.
+pub const BUILDING_ARCHIVE: &str = "Building archive";
+/// The label of the last moment of verifying.
+pub const FINISHING: &str = "Finishing\u{2026}";
+/// Announced while the archive is verified.
+pub const VERIFYING_ANNOUNCEMENT: &str = "Verifying the archive";
+
+/// The step number of a phase: 1 of 2 or 2 of 2.
+#[must_use]
+pub fn progress_step(phase: BuildPhase) -> u8 {
+    match phase {
+        BuildPhase::Writing => 1,
+        BuildPhase::Verifying => 2,
+    }
+}
+
+/// The verb of a phase.
+#[must_use]
+pub fn phase_word(phase: BuildPhase) -> &'static str {
+    match phase {
+        BuildPhase::Writing => "Writing",
+        BuildPhase::Verifying => "Verifying",
+    }
+}
+
+/// How far a phase is: 0 to 1 (an event with no total counts as done).
+#[must_use]
+pub fn progress_fraction(p: Option<&Progress>) -> f32 {
+    let Some(p) = p else { return 0.0 };
+    if p.bytes_total == 0 {
+        return 1.0;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a bar's width does not need 24 bits of precision"
+    )]
+    let fraction = p.bytes_done as f64 / p.bytes_total as f64;
+    #[expect(clippy::cast_possible_truncation, reason = "within 0 to 1")]
+    let fraction = fraction.min(1.0) as f32;
+    fraction
+}
+
+/// The whole percent of [`progress_fraction`], rounded down.
+#[must_use]
+pub fn progress_percent(p: Option<&Progress>) -> u8 {
+    match p {
+        None => 0,
+        Some(p) if p.bytes_total == 0 => 100,
+        Some(p) => {
+            let done = u128::from(p.bytes_done.min(p.bytes_total)) * 100;
+            u8::try_from(done / u128::from(p.bytes_total)).unwrap_or(100)
+        }
+    }
+}
+
+/// The last moment of verifying: the label says "Finishing".
+#[must_use]
+pub fn progress_finishing(p: Option<&Progress>) -> bool {
+    p.is_some_and(|p| p.phase == BuildPhase::Verifying && p.bytes_done >= p.bytes_total)
+}
+
+/// The label above the bar. `file` is the source file to name (the model's
+/// [`super::model::TarpackModel::progress_file`]); the last event of a phase
+/// names none.
+#[must_use]
+pub fn progress_label(p: Option<&Progress>, file: Option<&str>) -> String {
+    if progress_finishing(p) {
+        return FINISHING.to_string();
+    }
+    let phase = p.map_or(BuildPhase::Writing, |p| p.phase);
+    let done = p.is_some_and(|p| p.bytes_done >= p.bytes_total);
+    let mut label = format!(
+        "Step {} of 2 \u{b7} {}",
+        progress_step(phase),
+        phase_word(phase)
+    );
+    if let (Some(file), false) = (file, done) {
+        let _ = write!(label, " {file}");
+    }
+    label
+}
+
+/// The bar's accessible value: "Writing gateway.conf, 42%". `source` is the
+/// file of the current event only, with no remembered name.
+#[must_use]
+pub fn progress_value_text(p: Option<&Progress>, source: Option<&str>) -> String {
+    let phase = p.map_or(BuildPhase::Writing, |p| p.phase);
+    let named = source.map_or_else(String::new, |s| format!(" {s}"));
+    format!("{}{named}, {}%", phase_word(phase), progress_percent(p))
+}
+
+// ---- the overwrite confirmation ----
+
+pub const OVERWRITE_CONFIRM: &str = "Replace";
+pub const OVERWRITE_CANCEL: &str = "Cancel";
+
+/// The dialog's title: "Replace gateway.tar.zst?".
+#[must_use]
+pub fn overwrite_title(output: &str) -> String {
+    format!("Replace {}?", file_name(output))
+}
+
+/// The dialog's body; names the folder when the path has one.
+#[must_use]
+pub fn overwrite_body(output: &str) -> String {
+    match display_folder(output) {
+        Some(folder) => format!(
+            "A file with this name already exists in {folder}. Replacing it can't be undone."
+        ),
+        None => "A file with this name already exists. Replacing it can't be undone.".to_string(),
+    }
+}
+
+// ---- the result ----
+
+pub const RESULT_DISMISS: &str = "Dismiss result";
+pub const SHOW_IN_FOLDER: &str = "Show in folder";
+pub const SHA256_LABEL: &str = "SHA-256";
+pub const EXTRACT_LABEL: &str = "Extract on the target";
+pub const EXTRACT_HINT: &str =
+    "Run this in the folder that holds the file. -P keeps the absolute paths.";
+pub const NORMALIZED_LABEL: &str = "Line endings converted";
+pub const NO_CRLF: &str = "no CRLF found";
+pub const COPY: &str = "Copy";
+pub const COPY_SHA256: &str = "Copy SHA-256";
+pub const COPY_EXTRACTION_COMMAND: &str = "Copy extraction command";
+pub const COPY_REPORT: &str = "Copy report";
+/// What a copy button says for a moment after a copy.
+pub const COPIED: &str = "Copied";
+
+/// A size in bytes, B, KB or MB with one decimal, rounded half up like
+/// `toFixed(1)` (`BuildResult.tsx` `size`).
+#[must_use]
+pub fn file_size(n: u64) -> String {
+    let tenths = |unit: u128| (u128::from(n) * 10 + unit / 2) / unit;
+    if n < 1024 {
+        format!("{n} B")
+    } else if n < 1024 * 1024 {
+        let t = tenths(1024);
+        format!("{}.{} KB", t / 10, t % 10)
+    } else {
+        let t = tenths(1024 * 1024);
+        format!("{}.{} MB", t / 10, t % 10)
+    }
+}
+
+/// The summary's output file name.
+#[must_use]
+pub fn result_file_name(s: &BuildSummary) -> String {
+    file_name(&s.path)
+}
+
+/// The result's heading, also the first line of the copied report.
+#[must_use]
+pub fn result_heading(s: &BuildSummary) -> String {
+    let name = file_name(&s.path);
+    let not_loaded = count_of(s.not_loaded.len());
+    let left_out = count_of(s.left_out.len());
+    let manifest_errors = count_of(s.manifest_errors.len());
+    if s.error_count == 0 && not_loaded > 0 {
+        return format!(
+            "Created {name} with {not_loaded} {} not included",
+            plural64(not_loaded, "file", "files")
+        );
+    }
+    if s.error_count == 0 {
+        return format!("Created {name}");
+    }
+    if left_out > 0 {
+        return format!(
+            "Created {name} with {left_out} {} left out",
+            plural64(left_out, "file", "files")
+        );
+    }
+    format!(
+        "Created {name} with {manifest_errors} {}",
+        plural64(manifest_errors, "manifest error", "manifest errors")
+    )
+}
+
+/// The sentence announced once when a build resolves.
+#[must_use]
+pub fn result_announcement(s: &BuildSummary) -> String {
+    let name = file_name(&s.path);
+    if s.error_count == 0 && s.not_loaded.is_empty() {
+        return format!("Created {name}.");
+    }
+    if s.error_count == 0 {
+        let n = count_of(s.not_loaded.len());
+        return format!(
+            "Created {name}. {n} {} not included because no file was chosen.",
+            plural64(n, "file was", "files were")
+        );
+    }
+    if !s.left_out.is_empty() {
+        let n = count_of(s.left_out.len());
+        return format!(
+            "Created {name}. {n} {} left out because of errors.",
+            plural64(n, "file was", "files were")
+        );
+    }
+    let n = count_of(s.manifest_errors.len());
+    format!(
+        "Created {name} with {n} {}.",
+        plural64(n, "manifest error", "manifest errors")
+    )
+}
+
+/// Whether the build holds everything the manifest lists and has no errors
+/// (the result shows a check, not a warning).
+#[must_use]
+pub fn result_is_clean(s: &BuildSummary) -> bool {
+    s.error_count == 0 && s.not_loaded.is_empty()
+}
+
+/// The lead above the entries that had no file chosen. `None` when none.
+#[must_use]
+pub fn not_loaded_lede(s: &BuildSummary) -> Option<String> {
+    if s.not_loaded.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "The archive holds {} of the manifest's {} files. No file was chosen for:",
+        s.built_ids.len(),
+        s.built_ids.len() + s.left_out.len() + s.not_loaded.len()
+    ))
+}
+
+/// The lead over the report when entries with errors were left out. `None`
+/// when none were.
+#[must_use]
+pub fn left_out_lede(s: &BuildSummary) -> Option<String> {
+    if s.error_count == 0 || s.left_out.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "The archive holds {} of the manifest's {} files. The rest have errors, listed below.",
+        s.built_ids.len(),
+        s.built_ids.len() + s.left_out.len()
+    ))
+}
+
+/// The facts line, with middle dots between its parts: "zstd", "2 files, 1
+/// folder", "2.0 KB (10.0 MB uncompressed)".
+#[must_use]
+pub fn result_facts(s: &BuildSummary) -> String {
+    let mut facts = format!(
+        "{} \u{b7} {} {}, {} {} \u{b7} {}",
+        format_name(s.format),
+        s.files,
+        plural64(s.files, "file", "files"),
+        s.dirs,
+        plural64(s.dirs, "folder", "folders"),
+        file_size(s.bytes)
+    );
+    if s.format != ArchiveFormat::Tar {
+        let _ = write!(facts, " ({} uncompressed)", file_size(s.uncompressed_bytes));
+    }
+    facts
+}
+
+/// The source file name of the entry `id`, else the id (the result lists
+/// entries by file name).
+#[must_use]
+pub fn source_of<'a>(id: &'a str, entries: &'a [SessionEntry]) -> &'a str {
+    entries
+        .iter()
+        .find(|e| e.view.id == id)
+        .map_or(id, |e| e.view.source.as_str())
+}
+
+/// One normalised file's line: "gateway.conf: 42 CRLF replaced".
+#[must_use]
+pub fn normalized_line(source: &str, crlf_replaced: u64) -> String {
+    if crlf_replaced == 0 {
+        format!("{source}: {NO_CRLF}")
+    } else {
+        format!("{source}: {crlf_replaced} CRLF replaced")
+    }
+}
+
+// ---- the report ----
+
+pub const REPORT_LABEL: &str = "Build report";
+
+/// "Left out of the archive (2)".
+#[must_use]
+pub fn report_left_out_heading(n: usize) -> String {
+    format!("Left out of the archive ({n})")
+}
+
+/// "Manifest errors (2)".
+#[must_use]
+pub fn report_errors_heading(n: usize) -> String {
+    format!("Manifest errors ({n})")
+}
+
+/// "Warnings (2)".
+#[must_use]
+pub fn report_warnings_heading(n: usize) -> String {
+    format!("Warnings ({n})")
+}
+
+/// The label of the manifest errors list.
+pub const MANIFEST_ERRORS_LABEL: &str = "Manifest errors";
+
+fn diagnostic_lines(out: &mut Vec<String>, list: &[Diagnostic], indent: &str) {
+    out.extend(
+        list.iter()
+            .map(|d| format!("{indent}{}:{} {}", d.line, d.col, d.message)),
+    );
+}
+
+/// The plain text of the final report, for Copy report. Empty sections are
+/// omitted (`reportText.ts` `reportText`).
+#[must_use]
+pub fn report_text(s: &BuildSummary) -> String {
+    let mut out = vec![result_heading(s)];
+    if !s.not_loaded.is_empty() {
+        out.push(String::new());
+        out.push("Not included (no file chosen):".to_string());
+        out.extend(s.not_loaded.iter().map(|id| format!("  {id}")));
+    }
+    if !s.left_out.is_empty() {
+        out.push(String::new());
+        out.push("Left out of the archive:".to_string());
+        for f in &s.left_out {
+            let name = failure_name(f);
+            let place = match &f.source {
+                Some(source) => format!("source {source}, line {}", f.line),
+                None => format!("line {}", f.line),
+            };
+            out.push(format!("{name} ({place})"));
+            diagnostic_lines(&mut out, &f.errors, "  ");
+        }
+    }
+    if !s.manifest_errors.is_empty() {
+        out.push(String::new());
+        out.push("Manifest errors:".to_string());
+        diagnostic_lines(&mut out, &s.manifest_errors, "  ");
+    }
+    if !s.warnings.is_empty() {
+        out.push(String::new());
+        out.push("Warnings:".to_string());
+        diagnostic_lines(&mut out, &s.warnings, "  ");
+    }
+    out.join("\n")
+}
+
+// ---- the shortcuts help ----
+
+pub const SHORTCUTS_BUTTON: &str = "Keyboard shortcuts";
+pub const SHORTCUTS_TITLE: &str = "Keyboard shortcuts";
+pub const SHORTCUTS_HEADERS: [&str; 3] = ["Keys", "Action", "Active when"];
+/// Between two alternative key combinations.
+pub const SHORTCUTS_OR: &str = "or";
+
+/// One row of the shortcuts list. `keys` are alternatives; each is a chord.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShortcutRow {
+    pub keys: &'static [&'static [&'static str]],
+    pub action: &'static str,
+    pub when: &'static str,
+    /// Listed only in developer mode.
+    pub dev_only: bool,
+}
+
+/// The shortcuts list. The developer-mode chord itself is not in it.
+pub const SHORTCUTS: [ShortcutRow; 9] = [
+    ShortcutRow {
+        keys: &[&["Ctrl", "O"]],
+        action: "Open manifest\u{2026}",
+        when: "Always",
+        dev_only: false,
+    },
+    ShortcutRow {
+        keys: &[&["F5"], &["Ctrl", "R"]],
+        action: "Reload manifest",
+        when: "A manifest is open",
+        dev_only: false,
+    },
+    ShortcutRow {
+        keys: &[&["Ctrl", "E"]],
+        action: "Edit in editor",
+        when: "A manifest is open",
+        dev_only: true,
+    },
+    ShortcutRow {
+        keys: &[&["Ctrl", "Enter"]],
+        action: "Create archive",
+        when: "The archive can be built",
+        dev_only: false,
+    },
+    ShortcutRow {
+        keys: &[&["F8"]],
+        action: "Show errors",
+        when: "The manifest has errors",
+        dev_only: false,
+    },
+    ShortcutRow {
+        keys: &[&["Up"], &["Down"]],
+        action: "Move between files",
+        when: "Focus is in the table",
+        dev_only: false,
+    },
+    ShortcutRow {
+        keys: &[&["Enter"]],
+        action: "Browse\u{2026} for the focused file",
+        when: "A file row is focused",
+        dev_only: false,
+    },
+    ShortcutRow {
+        keys: &[&["Delete"]],
+        action: "Clear the focused file",
+        when: "The row has a file assigned",
+        dev_only: false,
+    },
+    ShortcutRow {
+        keys: &[&["Esc"]],
+        action: "Dismiss the drop or build result",
+        when: "A result is showing",
+        dev_only: false,
+    },
+];

@@ -8,8 +8,17 @@
 //! shows a fixture state needs no `Wait`. The one exception is a drop: its
 //! work runs on a thread of its own (it returns at once unless held with
 //! [`FixtureTarpack::hold_drops`]), so a scenario that drops files should
-//! add a `Step::Wait` of about 200 ms before it looks at the result. The
-//! build half answers with errors until part B adds its fixtures.
+//! add a `Step::Wait` of about 200 ms before it looks at the result.
+//!
+//! **The build.** `begin_build` answers at once, but the write runs on a
+//! thread of its own and `finish_build` on the Worker, so every build
+//! scenario needs a `Step::Wait` after Create archive: about 300 ms for the
+//! states that finish ([`TarpackFixture::Result`], `ResultPartial`, `DevResult`)
+//! and for `Replace` (which answers `OutputExists` and opens the
+//! confirmation), and about 300 ms for [`TarpackFixture::Building`], which
+//! then stays in the building state (progress at 42 %, writing the second
+//! file) for 30 s unless [`FixtureTarpack::release_build`] runs. The harness
+//! has no step for that: a scenario of `Building` captures within the 30 s.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -18,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use fm_tarpack::archive::BuildSummary;
+use fm_tarpack::archive::{BuildPhase, BuildSummary, Progress};
 use fm_tarpack::format::ArchiveFormat;
 use fm_tarpack::manifest::{parse, Diagnostic, ManifestView, ParseReport, Severity};
 use fm_tarpack::session::{
@@ -158,6 +167,32 @@ pub enum TarpackFixture {
     Withheld,
     /// `tarpack-ready`: everything assigned, an output set, can build.
     Ready,
+    /// `tarpack-buildbar`: [`TarpackFixture::Ready`].
+    BuildBar,
+    /// `tarpack-building`: [`TarpackFixture::Ready`]; Create archive starts a
+    /// build that reports progress at once and then holds for 30 s (see the
+    /// module doc for the `Wait`).
+    Building,
+    /// `tarpack-replace`: [`TarpackFixture::Ready`] whose output already
+    /// exists: the first Create archive opens the confirmation, Replace
+    /// builds. Add a `Wait` of about 300 ms after each click.
+    Replace,
+    /// `tarpack-result`: [`TarpackFixture::Ready`]; Create archive succeeds
+    /// with every file built. Add a `Wait` of about 300 ms.
+    Result,
+    /// `tarpack-result-partial`: [`TarpackFixture::Partial`]; Create archive
+    /// succeeds with the entries that had no file left out. Add a `Wait` of
+    /// about 300 ms.
+    ResultPartial,
+    /// `tarpack-dev`: [`TarpackFixture::Ready`]; the scenario turns
+    /// developer mode on.
+    Dev,
+    /// `tarpack-dev-result`: [`TarpackFixture::Result`]; the scenario turns
+    /// developer mode on first. Add a `Wait` of about 300 ms.
+    DevResult,
+    /// `tarpack-shortcuts`: [`TarpackFixture::Loaded`]; the scenario opens
+    /// the shortcuts help.
+    Shortcuts,
 }
 
 /// A closed gate holds a drop's work until opened, so a test can look at the
@@ -198,6 +233,8 @@ pub enum Command {
     Clear,
     BeginDrop,
     FinishDrop,
+    BeginBuild,
+    FinishBuild,
 }
 
 /// One call the model made on the backend.
@@ -213,6 +250,34 @@ pub enum Call {
     Clear(String),
     BeginDrop,
     FinishDrop,
+    SetOutput(PathBuf),
+    SetFormat(ArchiveFormat),
+    BeginBuild,
+    /// The write ran, with this `overwrite` (on the build's thread).
+    BuildRun {
+        overwrite: bool,
+    },
+    FinishBuild,
+    AbortBuild,
+}
+
+/// What the next builds do: the progress they report, where they wait, how
+/// they end.
+#[derive(Clone, Default)]
+struct BuildScript {
+    /// Reported as soon as the write starts.
+    before: Vec<Progress>,
+    /// Held here until opened (or 30 s).
+    hold: Option<Gate>,
+    /// Reported after the hold.
+    after: Vec<Progress>,
+    /// The output exists: a build without `overwrite` fails with
+    /// `OutputExists`.
+    exists: bool,
+    /// The write fails with this error.
+    error: Option<TarpackError>,
+    /// The write panics.
+    panic: bool,
 }
 
 struct State {
@@ -233,6 +298,10 @@ struct State {
     panic_commands: Vec<Command>,
     drop_gate: Option<Gate>,
     drop_outcome: Option<DropOutcome>,
+    build: BuildScript,
+    building: bool,
+    /// The output the last successful build wrote.
+    built: Option<String>,
 }
 
 /// A scripted [`TarpackBackend`] that mirrors the real session's rules
@@ -361,6 +430,9 @@ impl State {
             panic_commands: Vec::new(),
             drop_gate: None,
             drop_outcome: None,
+            build: BuildScript::default(),
+            building: false,
+            built: None,
         }
     }
 
@@ -441,17 +513,29 @@ impl FixtureTarpack {
         use TarpackFixture as F;
         let this = match fixture {
             F::Empty => return Self::empty(),
-            F::Recent | F::Loaded | F::Drag | F::Dropped => return Self::loaded(),
+            F::Recent | F::Loaded | F::Drag | F::Dropped | F::Shortcuts => return Self::loaded(),
             F::Errors => Self::loaded().with_text(&gateway_with_errors()),
             F::Withheld => Self::loaded().with_text(&gateway_withheld()),
-            F::Missing | F::Partial | F::Changed | F::Ready => Self::loaded(),
+            F::Missing
+            | F::Partial
+            | F::ResultPartial
+            | F::Changed
+            | F::Ready
+            | F::BuildBar
+            | F::Building
+            | F::Replace
+            | F::Result
+            | F::Dev
+            | F::DevResult => Self::loaded(),
         };
         let mut s = lock(&this.state);
         s.load(MANIFEST_PATH.to_string());
         let ids = s.ids();
         let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
         match fixture {
-            F::Partial => s.assign_ready(&["gateway-bin", "gateway-conf", "gateway-start"]),
+            F::Partial | F::ResultPartial => {
+                s.assign_ready(&["gateway-bin", "gateway-conf", "gateway-start"]);
+            }
             F::Missing => {
                 s.assign_ready(&ids);
                 s.assigned.insert(
@@ -459,14 +543,43 @@ impl FixtureTarpack {
                     (assigned_path("gateway-conf"), EntryStatus::Missing),
                 );
             }
-            F::Ready | F::Changed | F::Errors => s.assign_ready(&ids),
+            F::Ready
+            | F::Changed
+            | F::Errors
+            | F::BuildBar
+            | F::Building
+            | F::Replace
+            | F::Result
+            | F::Dev
+            | F::DevResult => s.assign_ready(&ids),
             _ => {}
         }
         if matches!(
             fixture,
-            F::Ready | F::Changed | F::Errors | F::Missing | F::Partial
+            F::Ready
+                | F::Changed
+                | F::Errors
+                | F::Missing
+                | F::Partial
+                | F::BuildBar
+                | F::Building
+                | F::Replace
+                | F::Result
+                | F::ResultPartial
+                | F::Dev
+                | F::DevResult
         ) {
             s.output = Some(OUTPUT_PATH.to_string());
+        }
+        match fixture {
+            F::Building => {
+                let ready = ready_ids(&s);
+                s.build.before = progress_before(&ready);
+                s.build.after = progress_after(&ready);
+                s.build.hold = Some(Gate::new());
+            }
+            F::Replace => s.build.exists = true,
+            _ => {}
         }
         drop(s);
         this
@@ -536,6 +649,51 @@ impl FixtureTarpack {
     /// Every drop yields exactly `outcome`, whatever the paths.
     pub fn script_drop(&self, outcome: DropOutcome) {
         lock(&self.state).drop_outcome = Some(outcome);
+    }
+
+    /// The output the next builds write, as the display path the session
+    /// shows (it takes the format's extension).
+    #[must_use]
+    pub fn with_output(self, path: &str) -> Self {
+        {
+            let mut s = lock(&self.state);
+            let format = s.format;
+            s.output = Some(with_format_display(path, format));
+        }
+        self
+    }
+
+    /// The output exists: a build without `overwrite` fails with
+    /// `OutputExists`.
+    pub fn output_exists(&self, exists: bool) {
+        lock(&self.state).build.exists = exists;
+    }
+
+    /// The next builds report `before` as soon as they start, then wait on
+    /// `gate` (at most 30 s), then report `after`.
+    pub fn script_build(&self, before: Vec<Progress>, gate: Option<&Gate>, after: Vec<Progress>) {
+        let mut s = lock(&self.state);
+        s.build.before = before;
+        s.build.hold = gate.cloned();
+        s.build.after = after;
+    }
+
+    /// The next builds fail with `error` after their progress.
+    pub fn fail_build(&self, error: TarpackError) {
+        lock(&self.state).build.error = Some(error);
+    }
+
+    /// The next builds panic on their thread.
+    pub fn panic_in_build(&self) {
+        lock(&self.state).build.panic = true;
+    }
+
+    /// Opens the hold of a [`TarpackFixture::Building`] build (or of
+    /// whatever [`FixtureTarpack::script_build`] set).
+    pub fn release_build(&self) {
+        if let Some(gate) = &lock(&self.state).build.hold {
+            gate.open();
+        }
     }
 
     /// Every call so far, in order.
@@ -609,11 +767,151 @@ impl DropWork for FixtureDropWork {
     }
 }
 
-fn no_build() -> TarpackError {
-    TarpackError::new(
-        TarpackErrorKind::NoOutput,
-        "the fixture cannot build (the build fixtures come with part B)",
+/// The ids of the entries with a ready file, in manifest order.
+fn ready_ids(s: &State) -> Vec<String> {
+    snapshot(s)
+        .manifest
+        .map(|m| m.entries)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.status == EntryStatus::Ready)
+        .map(|e| e.view.id)
+        .collect()
+}
+
+/// The tar stream's size in the fixtures' progress events.
+const TOTAL: u64 = 24_117_200;
+
+fn event(phase: BuildPhase, id: Option<&str>, done: u64) -> Progress {
+    Progress {
+        phase,
+        entry_id: id.map(str::to_string),
+        bytes_done: done,
+        bytes_total: TOTAL,
+    }
+}
+
+/// The events of a write up to 42 %, on the second file.
+fn progress_before(ready: &[String]) -> Vec<Progress> {
+    let first = ready.first().map(String::as_str);
+    let second = ready.get(1).or(ready.first()).map(String::as_str);
+    vec![
+        event(BuildPhase::Writing, first, TOTAL / 10),
+        event(BuildPhase::Writing, second, TOTAL * 42 / 100),
+    ]
+}
+
+/// The events after that: the writing phase's final event, then the verifying
+/// phase from its start to its final event.
+fn progress_after(ready: &[String]) -> Vec<Progress> {
+    let first = ready.first().map(String::as_str);
+    vec![
+        event(BuildPhase::Writing, None, TOTAL),
+        event(BuildPhase::Verifying, first, TOTAL / 20),
+        event(BuildPhase::Verifying, None, TOTAL),
+    ]
+}
+
+/// `path` with the extension of `format` in its file name (a display path,
+/// split at either separator).
+fn with_format_display(path: &str, format: ArchiveFormat) -> String {
+    let split = path.rfind(['\\', '/']).map_or(0, |i| i + 1);
+    let (dir, name) = path.split_at(split);
+    format!(
+        "{dir}{}",
+        format.with_extension(OsStr::new(name)).to_string_lossy()
     )
+}
+
+/// What a fixture build summarises: the ready entries built, the failed
+/// entries left out, the unassigned ones not included.
+fn summary_of(s: &State, output: &str) -> BuildSummary {
+    let session = snapshot(s);
+    let manifest = session.manifest;
+    let entries = manifest
+        .as_ref()
+        .map(|m| m.entries.clone())
+        .unwrap_or_default();
+    let built_ids = ready_ids(s);
+    let files = u64::try_from(built_ids.len()).unwrap_or(u64::MAX);
+    let name = output.rsplit(['\\', '/']).next().unwrap_or(output);
+    BuildSummary {
+        path: output.to_string(),
+        format: s.format,
+        entries: files + 6,
+        files,
+        dirs: 6,
+        bytes: 6_291_874,
+        uncompressed_bytes: TOTAL,
+        sha256_hex: "3b7e1f0c9a4d2e86b51c7f30a9e2d4c8f6a1b0e93d5c7f28a4e6b1d9c3f05a7e".to_string(),
+        extract_command: s.format.extract_command(name),
+        normalized_entries: entries
+            .iter()
+            .filter(|e| e.view.normalize_eol && e.status == EntryStatus::Ready)
+            .map(|e| fm_tarpack::archive::NormalizedEntry {
+                id: e.view.id.clone(),
+                crlf_replaced: 42,
+            })
+            .collect(),
+        built_ids,
+        left_out: manifest
+            .as_ref()
+            .map(|m| m.failed_entries.clone())
+            .unwrap_or_default(),
+        not_loaded: entries
+            .iter()
+            .filter(|e| e.status == EntryStatus::Unassigned)
+            .map(|e| e.view.id.clone())
+            .collect(),
+        manifest_errors: manifest
+            .as_ref()
+            .map(|m| m.errors.clone())
+            .unwrap_or_default(),
+        warnings: manifest
+            .as_ref()
+            .map(|m| m.warnings.clone())
+            .unwrap_or_default(),
+        error_count: manifest.as_ref().map_or(0, |m| m.error_count),
+    }
+}
+
+/// A scripted build's write: reports progress, holds, and ends as scripted.
+struct FixtureBuildWork {
+    script: BuildScript,
+    summary: BuildSummary,
+    state: Arc<Mutex<State>>,
+    result: Option<Result<BuildSummary, TarpackError>>,
+}
+
+impl BuildWork for FixtureBuildWork {
+    fn run(&mut self, overwrite: bool, progress: &mut dyn FnMut(Progress)) {
+        lock(&self.state).calls.push(Call::BuildRun { overwrite });
+        assert!(!self.script.panic, "the build exploded");
+        if self.script.exists && !overwrite {
+            self.result = Some(Err(TarpackError::new(
+                TarpackErrorKind::OutputExists,
+                format!("{} exists", self.summary.path),
+            )));
+            return;
+        }
+        for p in &self.script.before {
+            progress(p.clone());
+        }
+        if let Some(gate) = &self.script.hold {
+            gate.wait(Duration::from_secs(30));
+        }
+        for p in &self.script.after {
+            progress(p.clone());
+        }
+        self.result = Some(match &self.script.error {
+            Some(e) => Err(e.clone()),
+            None => Ok(self.summary.clone()),
+        });
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
 }
 
 impl TarpackBackend for FixtureTarpack {
@@ -648,12 +946,9 @@ impl TarpackBackend for FixtureTarpack {
     ) -> Result<Option<TarpackSession>, TarpackError> {
         let mut s = self.enter(Call::OpenRecent(index), Command::OpenRecent);
         s.failure()?;
-        let path = s.recent.get(index).cloned().ok_or_else(|| {
-            TarpackError::new(
-                TarpackErrorKind::ManifestUnreadable,
-                "that manifest is no longer in the recent list",
-            )
-        })?;
+        let Some(path) = s.recent.get(index).cloned() else {
+            return Ok(None);
+        };
         if path != expected_display {
             return Ok(None);
         }
@@ -762,27 +1057,105 @@ impl TarpackBackend for FixtureTarpack {
         }))
     }
 
+    fn output_path(&self) -> Option<PathBuf> {
+        lock(&self.state).output.as_ref().map(PathBuf::from)
+    }
+
     fn set_output(&mut self, path: &Path) -> Result<TarpackSession, TarpackError> {
         let mut s = lock(&self.state);
-        s.output = Some(display(path));
+        Self::record(&mut s, Call::SetOutput(path.to_path_buf()));
+        s.failure()?;
+        if s.report.is_none() {
+            return Err(TarpackError::new(
+                TarpackErrorKind::NoManifest,
+                "no manifest is loaded",
+            ));
+        }
+        let shown = display(path);
+        let name = shown.rsplit(['\\', '/']).next().unwrap_or_default();
+        if let Some(format) = ArchiveFormat::from_file_name(OsStr::new(name)) {
+            s.format = format;
+        }
+        s.output = Some(with_format_display(&shown, s.format));
         Ok(snapshot(&s))
     }
 
     fn set_format(&mut self, format: ArchiveFormat) -> Result<TarpackSession, TarpackError> {
         let mut s = lock(&self.state);
+        Self::record(&mut s, Call::SetFormat(format));
+        s.failure()?;
+        if s.report.is_none() {
+            return Err(TarpackError::new(
+                TarpackErrorKind::NoManifest,
+                "no manifest is loaded",
+            ));
+        }
         s.format = format;
+        s.output = s.output.take().map(|o| with_format_display(&o, format));
         Ok(snapshot(&s))
     }
 
     fn begin_build(&mut self) -> Result<Box<dyn BuildWork>, TarpackError> {
-        Err(no_build())
+        let mut s = self.enter(Call::BeginBuild, Command::BeginBuild);
+        s.failure()?;
+        let session = snapshot(&s);
+        let blocked = |kind, message: &str| Err(TarpackError::new(kind, message));
+        match session.build_blocked_reason {
+            Some(BuildBlockedReason::NoManifest) => {
+                return blocked(TarpackErrorKind::NoManifest, "no manifest is loaded")
+            }
+            Some(BuildBlockedReason::NoEntries | BuildBlockedReason::NothingLoaded) => {
+                return blocked(TarpackErrorKind::NoEntries, "there is nothing to build")
+            }
+            Some(BuildBlockedReason::EntriesNotReady) => {
+                return blocked(TarpackErrorKind::EntriesNotReady, "a file is missing")
+            }
+            Some(BuildBlockedReason::NoOutput) => {
+                return blocked(TarpackErrorKind::NoOutput, "no output path is set")
+            }
+            None => {}
+        }
+        if s.building {
+            return blocked(
+                TarpackErrorKind::BuildInProgress,
+                "a build is already running",
+            );
+        }
+        let output = s.output.clone().unwrap_or_default();
+        s.building = true;
+        Ok(Box::new(FixtureBuildWork {
+            script: s.build.clone(),
+            summary: summary_of(&s, &output),
+            state: self.state.clone(),
+            result: None,
+        }))
     }
 
-    fn finish_build(&mut self, _work: Box<dyn BuildWork>) -> Result<BuildSummary, TarpackError> {
-        Err(no_build())
+    fn finish_build(&mut self, work: Box<dyn BuildWork>) -> Result<BuildSummary, TarpackError> {
+        let mut s = self.enter(Call::FinishBuild, Command::FinishBuild);
+        s.building = false;
+        let result = work
+            .into_any()
+            .downcast::<FixtureBuildWork>()
+            .ok()
+            .and_then(|w| w.result)
+            .unwrap_or_else(|| {
+                Err(TarpackError::new(
+                    TarpackErrorKind::Io,
+                    "the build never ran",
+                ))
+            });
+        if let Ok(summary) = &result {
+            s.built = Some(summary.path.clone());
+        }
+        result
     }
 
-    fn abort_build(&mut self) {}
+    fn abort_build(&mut self) {
+        let mut s = lock(&self.state);
+        Self::record(&mut s, Call::AbortBuild);
+        s.building = false;
+    }
 
     fn manifest_path(&self) -> Option<PathBuf> {
         // A fixture never watches a file.
@@ -798,9 +1171,15 @@ impl TarpackBackend for FixtureTarpack {
     }
 
     fn reveal_target(&self) -> Result<PathBuf, TarpackError> {
-        Err(TarpackError::new(
-            TarpackErrorKind::NoOutput,
-            "no archive has been built in this session",
-        ))
+        lock(&self.state)
+            .built
+            .as_ref()
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                TarpackError::new(
+                    TarpackErrorKind::NoOutput,
+                    "no archive has been built in this session",
+                )
+            })
     }
 }

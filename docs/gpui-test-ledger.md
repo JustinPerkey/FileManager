@@ -203,42 +203,42 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| disabled reason: %s | M7b or U |  | open |
-| Show errors only with errors, and none when noEntries without errors | M7b or U |  | open |
-| ready with failed entries: enabled, note, Show errors before Create | M7b or U |  | open |
-| plural left-out note | M7b or U |  | open |
-| manifest errors only | M7b or U |  | open |
-| one manifest error | M7b or U |  | open |
-| nothingLoaded with errors shows reason and note | M7b or U |  | open |
-| a partial build is enabled and says how many files are not included | M7b or U |  | open |
-| Choose calls the save dialog with the format's filter, then onChooseOutput | M7b or U |  | open |
-| Choose falls back to the suggested name; cancel does nothing | M7b or U |  | open |
-| no manifest: picker shows tar (.tar) and everything is disabled | M7b or U |  | open |
-| the output path is a MiddlePath with the full path as title | M7b or U |  | open |
-| building (%s): controls disabled, axe clean | M7b or U |  | open |
-| saveFileDialog, onChooseOutput, and onFormatChange rejections go to onError | M7b or U |  | open |
-| while building, Create archive's aria-describedby is omitted | M7b or U |  | open |
+| disabled reason: %s | U | model half: `tools::tarpack::tests::reason_and_left_out_note_cases` (the `build_reason` text, with `can_build`); the disabled button, its description and axe are the view's | open |
+| Show errors only with errors, and none when noEntries without errors | U | model half: `tools::tarpack::tests::shortcuts_gating_matches_today` (`Shortcut::ShowErrors` needs errors); whether the button is drawn is the view's | open |
+| ready with failed entries: enabled, note, Show errors before Create | U | model half: `tools::tarpack::tests::reason_and_left_out_note_cases`, `tools::tarpack::tests::shortcuts_gating_matches_today` (`left_out_note`, `can_build`); the order of the buttons is the view's | open |
+| plural left-out note | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
+| manifest errors only | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
+| one manifest error | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
+| nothingLoaded with errors shows reason and note | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
+| a partial build is enabled and says how many files are not included | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases`, `tools::tarpack::tests::build_refused_unless_can_build` | done |
+| Choose calls the save dialog with the format's filter, then onChooseOutput | M7b | `tools::tarpack::tests::choose_output_passes_format_filter`, `tools::tarpack::tests::choose_output_starts_in_output_folder_with_name`, `tools::tarpack::tests::output_name_changing_format_sets_notice` | done |
+| Choose falls back to the suggested name; cancel does nothing | M7b | `tools::tarpack::tests::choose_output_starts_in_output_folder_with_name`, `tools::tarpack::tests::choose_output_needs_a_manifest_and_a_name`, `tools::tarpack::tests::output_name_changing_format_sets_notice` (the cancel at its end) | done |
+| no manifest: picker shows tar (.tar) and everything is disabled | U | model half: `tools::tarpack::tests::choose_output_needs_a_manifest_and_a_name`, `tools::tarpack::tests::build_refused_unless_can_build`; the picker's display and the disabled controls are the view's | open |
+| the output path is a MiddlePath with the full path as title | U | view: renders `session().output_path`, the full path | open |
+| building (%s): controls disabled, axe clean | U | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui` (every control's method refuses while `building()`); disabled controls and axe are the view's | open |
+| saveFileDialog, onChooseOutput, and onFormatChange rejections go to onError | M7b | `tools::tarpack::tests::output_dialog_failure_is_the_dialog_banner`, `tools::tarpack::tests::output_and_format_errors_show_the_banner` | done |
+| while building, Create archive's aria-describedby is omitted | U | view: draws the reason and the note only while `!building()` | open |
 
 ## `tools/tarpack/BuildReport.test.tsx` (3)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing when everything is empty | M7b or U |  | open |
-| each section is present only when non-empty; entry without id; every error | M7b or U |  | open |
-| warnings only | M7b or U |  | open |
+| renders nothing when everything is empty | U | view (the headings are `text::report_*_heading`) | open |
+| each section is present only when non-empty; entry without id; every error | U | view; the copy is `text::failure_name`, `failure_errors_label` and `report_text` (`tools::tarpack::tests::report_text_matches_today`) | open |
+| warnings only | U | view; the copied form is `tools::tarpack::tests::report_text_matches_today` | open |
 
 ## `tools/tarpack/BuildResult.test.tsx` (8)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| shows every field and copies exact text | M7b or U |  | open |
-| tar shows one size; no normalised list when empty | M7b or U |  | open |
-| success with warnings only shows a collapsed Warnings disclosure | M7b or U |  | open |
-| files left out: heading, lede, report, Copy report | M7b or U |  | open |
-| plural files and manifest-errors-only headings | M7b or U |  | open |
-| Show in folder calls onReveal | M7b or U |  | open |
-| error result uses errorMessage and collapsed details | M7b or U |  | open |
-| a rejected clipboard write says Couldn't copy, never Copied | M7b or U |  | open |
+| shows every field and copies exact text | U | model half: `tools::tarpack::tests::copy_report_copies_report_text`, `tools::tarpack::tests::extraction_command_only_in_dev_mode`, `tools::tarpack::tests::report_text_matches_today` (the facts, sizes and the copied text); drawing the fields is the view's | open |
+| tar shows one size; no normalised list when empty | U | model half: `tools::tarpack::tests::report_text_matches_today` (`result_facts`, `file_size`); view draws it | open |
+| success with warnings only shows a collapsed Warnings disclosure | U | view | open |
+| files left out: heading, lede, report, Copy report | U | model half: `tools::tarpack::tests::report_text_matches_today`, `tools::tarpack::tests::copy_report_copies_report_text` (heading, ledes, copied report); view draws it | open |
+| plural files and manifest-errors-only headings | M7b | `tools::tarpack::tests::report_text_matches_today` | done |
+| Show in folder calls onReveal | M7b | `tools::tarpack::tests::reveal_uses_held_path` (the button calling `reveal_output` is the view's own test) | done |
+| error result uses errorMessage and collapsed details | U | model half: `tools::tarpack::tests::build_error_is_result_with_message` (the sentence and the detail); the collapsed Details are the view's | open |
+| a rejected clipboard write says Couldn't copy, never Copied | M7b | dropped: GPUI's clipboard write reports no failure (`Platform::copy_text` returns nothing); "Copied" is the view's transient note (`text::COPIED`) | dropped |
 
 ## `tools/tarpack/DiagnosticList.test.tsx` (2)
 
@@ -316,17 +316,17 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing for an empty list | M7b or U |  | open |
-| names by id, by index, and shows source and line | M7b or U |  | open |
-| lists every error of a multi-error entry | M7b or U |  | open |
+| renders nothing for an empty list | U | view | open |
+| names by id, by index, and shows source and line | U | view; the copy is `text::failure_name` and the `FAILURE_*` constants (M7a) | open |
+| lists every error of a multi-error entry | U | view; the label is `text::failure_errors_label` (M7a) | open |
 
 ## `tools/tarpack/FormatPicker.test.tsx` (3)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| options in the given order with session extensions; selected value | M7b or U |  | open |
-| keyboard selection calls onChange with the format | M7b or U |  | open |
-| disabled | M7b or U |  | open |
+| options in the given order with session extensions; selected value | U | model half: `tools::tarpack::tests::format_labels_match_today` (`format_option_label`); the picker is the view's | open |
+| keyboard selection calls onChange with the format | U | view calls `set_format` (`tools::tarpack::tests::notice_cleared_by_later_change` drives it) | open |
+| disabled | U | view: disabled while `building()` or with no manifest | open |
 
 ## `tools/tarpack/ManifestErrors.test.tsx` (9)
 
@@ -411,30 +411,32 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| happy path: build(false), result, announcement, Show in folder | M7b or U |  | open |
-| setFormat re-renders the output path from the returned session | M7b or U |  | open |
-| setOutput returning a switched format announces it | M7b or U |  | open |
-| OutputExists then Cancel makes no further call | M7b or U |  | open |
-| OutputExists then Replace calls build(true) | M7b or U |  | open |
-| ManifestChangedOnDisk shows the banner with Reload, not a result | M7b or U |  | open |
-| SourceMissing names the file; without entryId says A file | M7b or U |  | open |
-| %s shows its message and details; axe clean | M7b or U |  | open |
-| progress: two phases, reset, Finishing, then the result | M7b or U |  | open |
-| a rejection mid-verify stops the progress and shows the error | M7b or U |  | open |
-| OpenerFailed from Show in folder is a banner | M7b or U |  | open |
-| Show errors in the bar focuses the error report | M7b or U |  | open |
-| building with errors: no dialog, build(false) once, left-out result and announcement | M7b or U |  | open |
-| a failed %s build announces its errorMessage | M7b or U |  | open |
-| %s announces no error message | M7b or U |  | open |
-| onBuildProgress rejecting: the build still runs, no progressbar, unavailable text | M7b or U |  | open |
-| during a build, header and table controls are disabled; describedby has no dangling ids | M7b or U |  | open |
-| describedby ids all exist while building with errors | M7b or U |  | open |
-| a saveFileDialog rejection from Choose shows the error banner | M7b or U |  | open |
-| setOutput and setFormat rejections show the error banner | M7b or U |  | open |
-| the replace dialog shows a lossy folder as is | M7b or U |  | open |
-| after a build, focus moves to Create archive only if it was lost | M7b or U |  | open |
-| focus that is elsewhere when a build settles stays there | M7b or U |  | open |
-| row keys do nothing during a build, and work again after it | M7b or U |  | open |
+| happy path: build(false), result, announcement, Show in folder | M7b | `tools::tarpack::tests::build_success_sets_result_and_announces`, `tools::tarpack::tests::reveal_uses_held_path` | done |
+| setFormat re-renders the output path from the returned session | M7b | `tools::tarpack::tests::choose_output_passes_format_filter` | done |
+| setOutput returning a switched format announces it | M7b | `tools::tarpack::tests::output_name_changing_format_sets_notice` (`format_notice`, read out by the view's live region) | done |
+| OutputExists then Cancel makes no further call | M7b | `tools::tarpack::tests::cancel_overwrite_writes_nothing` | done |
+| OutputExists then Replace calls build(true) | M7b | `tools::tarpack::tests::existing_output_asks_and_confirm_overwrites`, `tools::tarpack::tests::replace_asks_once_with_the_fixture` | done |
+| ManifestChangedOnDisk shows the banner with Reload, not a result | M7b | `tools::tarpack::tests::changed_on_disk_during_build_marks_changed` (the banner itself is `changed_on_disk`, M7a) | done |
+| SourceMissing names the file; without entryId says A file | M7b | `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::text_covers_every_error_kind` (the named file and the "A file" form) | done |
+| %s shows its message and details; axe clean | U | model half: `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::panicked_build_aborts_and_reports`; the rendering and axe are the view's | open |
+| progress: two phases, reset, Finishing, then the result | M7b | `tools::tarpack::tests::build_runs_off_thread_with_ordered_progress`, `tools::tarpack::tests::progress_names_the_last_file_of_the_phase`, `tools::tarpack::tests::progress_text_matches_today` | done |
+| a rejection mid-verify stops the progress and shows the error | M7b | `tools::tarpack::tests::build_error_is_result_with_message` | done |
+| OpenerFailed from Show in folder is a banner | M7b | `tools::tarpack::tests::reveal_failure_shows_opener_failed` | done |
+| Show errors in the bar focuses the error report | M7b | `tools::tarpack::tests::shortcuts_run_what_they_gate`, `tools::tarpack::tests::show_errors_expands_and_hints_focus` (`FocusHint::Report`) | done |
+| Show errors in the bar focuses the error report (view half) | U | view: moves focus on `FocusHint::Report` | open |
+| building with errors: no dialog, build(false) once, left-out result and announcement | M7b | `tools::tarpack::tests::build_with_errors_reports_left_out` | done |
+| a failed %s build announces its errorMessage | M7b | `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::panicked_build_aborts_and_reports` | done |
+| %s announces no error message | M7b | `tools::tarpack::tests::existing_output_asks_and_confirm_overwrites` (`OutputExists` says nothing), `tools::tarpack::tests::changed_on_disk_during_build_marks_changed` (only the changed-on-disk sentence) | done |
+| onBuildProgress rejecting: the build still runs, no progressbar, unavailable text | M7b | dropped: GPUI's progress channel cannot fail before the job ends (the job owns the sender); the Tauri listen failure has no equivalent. `tools::tarpack::tests::progress_channel_closing_before_result_is_not_a_failure` shows a normal build whose channel closes first has no special state | dropped |
+| during a build, header and table controls are disabled; describedby has no dangling ids | U | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui`; disabled controls and the ids are the view's | open |
+| describedby ids all exist while building with errors | U | view | open |
+| a saveFileDialog rejection from Choose shows the error banner | M7b | `tools::tarpack::tests::output_dialog_failure_is_the_dialog_banner` | done |
+| setOutput and setFormat rejections show the error banner | M7b | `tools::tarpack::tests::output_and_format_errors_show_the_banner` | done |
+| the replace dialog shows a lossy folder as is | M7b | `tools::tarpack::tests::display_paths_split_like_today` (`overwrite_body` over a path with U+FFFD) | done |
+| after a build, focus moves to Create archive only if it was lost | M7b | `tools::tarpack::tests::build_success_sets_result_and_announces`, `tools::tarpack::tests::cancel_overwrite_writes_nothing` (`FocusHint::CreateArchive`, `CreateArchiveAfterDialog`) | done |
+| after a build, focus moves to Create archive only if it was lost (view half) | U | view: moves focus on `FocusHint::CreateArchive` when focus was lost, and always on `CreateArchiveAfterDialog` | open |
+| focus that is elsewhere when a build settles stays there | U | view: acts on the hint only when focus was lost | open |
+| row keys do nothing during a build, and work again after it | U | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui` (`clear` and `browse` refuse while `building()`); the keys are the view's | open |
 
 ## `tools/tarpack/TarpackView.errors.test.tsx` (11)
 
@@ -508,31 +510,32 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| full report: heading, left out, manifest errors, warnings | M7b or U |  | open |
-| empty sections are omitted | M7b or U |  | open |
-| announcements | M7b or U |  | open |
-| a partial build names the files with no source chosen | M7b or U |  | open |
+| full report: heading, left out, manifest errors, warnings | M7b | `tools::tarpack::tests::report_text_matches_today` | done |
+| empty sections are omitted | M7b | `tools::tarpack::tests::report_text_matches_today` | done |
+| announcements | M7b | `tools::tarpack::tests::report_text_matches_today` | done |
+| a partial build names the files with no source chosen | M7b | `tools::tarpack::tests::report_text_matches_today` | done |
 
 ## `tools/tarpack/useTarpackShortcuts.test.tsx` (19)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| Ctrl+O opens the file dialog, with or without a manifest | M7b or U |  | open |
-| F5 and Ctrl+R reload and never reload the webview; inactive without a manifest they are still swallowed | M7b or U |  | open |
-| F5 with no manifest is prevented and does nothing | M7b or U |  | open |
-| Ctrl+E edits in the editor only when a manifest is loaded | M7b or U |  | open |
-| Ctrl+E opens the editor with a manifest | M7b or U |  | open |
-| Ctrl+Enter builds when canBuild, and does nothing when it is false | M7b or U |  | open |
-| Ctrl+Enter builds a canBuild session that has errors, with no dialog | M7b or U |  | open |
-| F8 moves focus to the error report when there are errors, and does nothing otherwise | M7b or U |  | open |
-| Escape dismisses the build result, but never collapses the error report | M7b or U |  | open |
-| shortcuts are ignored while a build is running | M7b or U |  | open |
-| shortcuts are ignored while the replace dialog is open | M7b or U |  | open |
-| buttons carry their shortcut hints | M7b or U |  | open |
-| tab order through the build bar: Choose…, Format, Show errors, Create archive | M7b or U |  | open |
-| %s never reloads the webview and never runs Reload manifest | M7b or U |  | open |
-| reload chords are prevented with no manifest too | M7b or U |  | open |
-| reload chords are prevented during a build | M7b or U |  | open |
-| Escape while the shortcuts popover is open neither dismisses a result nor is prevented | M7b or U |  | open |
-| without developer mode, Ctrl+E is claimed but opens nothing | M7b or U |  | open |
-| Reload clears the build result | M7b or U |  | open |
+| Ctrl+O opens the file dialog, with or without a manifest | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today`, `tools::tarpack::tests::shortcuts_run_what_they_gate` | done |
+| F5 and Ctrl+R reload and never reload the webview; inactive without a manifest they are still swallowed | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` (the gating); the webview-reload guard is dropped: there is no webview to reload | done |
+| F5 with no manifest is prevented and does nothing | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` (does nothing); the prevent-default half is dropped: no webview | done |
+| Ctrl+E edits in the editor only when a manifest is loaded | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` | done |
+| Ctrl+E opens the editor with a manifest | M7b | `tools::tarpack::tests::shortcuts_run_what_they_gate` | done |
+| Ctrl+Enter builds when canBuild, and does nothing when it is false | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today`, `tools::tarpack::tests::build_refused_unless_can_build` | done |
+| Ctrl+Enter builds a canBuild session that has errors, with no dialog | M7b | `tools::tarpack::tests::shortcuts_run_what_they_gate`, `tools::tarpack::tests::build_with_errors_reports_left_out` | done |
+| F8 moves focus to the error report when there are errors, and does nothing otherwise | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today`, `tools::tarpack::tests::shortcuts_run_what_they_gate` | done |
+| Escape dismisses the build result, but never collapses the error report | M7b | `tools::tarpack::tests::escape_dismisses_drop_result_then_build_result` | done |
+| shortcuts are ignored while a build is running | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` | done |
+| shortcuts are ignored while the replace dialog is open | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` | done |
+| buttons carry their shortcut hints | U | view: the hints are `text::SHOW_ERRORS_HINT`, `CREATE_ARCHIVE_HINT`, `OPEN_HINT` | open |
+| tab order through the build bar: Choose…, Format, Show errors, Create archive | U | view | open |
+| %s never reloads the webview and never runs Reload manifest | M7b | dropped: there is no webview to reload; the model's gating is `tools::tarpack::tests::shortcuts_gating_matches_today` | dropped |
+| reload chords are prevented with no manifest too | M7b | dropped: there is no webview to reload; no reload without a manifest is `tools::tarpack::tests::shortcuts_gating_matches_today` | dropped |
+| reload chords are prevented during a build | M7b | dropped: there is no webview to reload; no reload during a build is `tools::tarpack::tests::shortcuts_gating_matches_today` | dropped |
+| Escape while the shortcuts popover is open neither dismisses a result nor is prevented | M7b | `tools::tarpack::tests::escape_ignored_while_shortcuts_open` (not dismissing; letting the key through is the view's binding) | done |
+| without developer mode, Ctrl+E is claimed but opens nothing | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` (opens nothing; the claim is the view's binding) | done |
+| Reload clears the build result | M7b | `tools::tarpack::tests::reload_clears_the_build_result` | done |
+| Open, open recent and create from the example clear the build result (and its Show in folder) | M7b | changed: Load clears the result too (2026-11-22); the Tauri app kept it, so Show in folder could point at the previous manifest's archive. `tools::tarpack::tests::open_clears_build_result`, `open_recent_clears_build_result`, `create_from_example_clears_build_result` | done |

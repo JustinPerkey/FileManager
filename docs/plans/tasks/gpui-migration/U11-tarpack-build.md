@@ -24,14 +24,14 @@ replaced only after the dialog that names it.
 ### Model API (`apps/filemanager/src/tools/tarpack/model.rs`, M7b; plus M7a's)
 
 ```rust
-pub enum BuildOutcome { Ok(BuildSummary), Err(TarpackError) }
+pub enum BuildOutcome { Ok(BuildSummary), Err(TarpackError), Unexpected { detail: String } } // Unexpected: a panicked build; copy text::UNEXPECTED
 pub enum Shortcut { Open, Reload, Edit, Build, ShowErrors, Escape }
 impl TarpackModel {
     pub fn choose_output(&mut self, cx);  pub fn format_notice(&self) -> Option<&str>;
     pub fn set_format(&mut self, format: ArchiveFormat, cx);
     pub fn build_reason(&self) -> Option<String>;  pub fn left_out_note(&self) -> Option<String>;
     pub fn can_build(&self) -> bool;  pub fn building(&self) -> bool;
-    pub fn progress(&self) -> Option<&Progress>;  pub fn progress_unavailable(&self) -> bool;
+    pub fn progress(&self) -> Option<&Progress>;  // no progress_unavailable: removed (M7b follow-up)
     pub fn build(&mut self, cx);
     pub fn confirming_overwrite(&self) -> Option<&str>;   // output display path for the dialog
     pub fn confirm_overwrite(&mut self, cx);  pub fn cancel_overwrite(&mut self, cx);
@@ -85,8 +85,8 @@ items in a wrapping row (8/16 gaps), two groups:
   left-out note (13 px, warn `alert-triangle` before it), or while building
   the progress: phase label 13 px, a row of a 6 px track (`surface_sunken`,
   radius 6) with an `accent` fill of the done fraction and the percent
-  (13 px, tabular, min 4 characters); "progress unavailable" copy when
-  `progress_unavailable` — and **Create archive** (primary, busy while
+  (13 px, tabular, min 4 characters); no "progress unavailable" state (the
+  model has none) — and **Create archive** (primary, busy while
   building, disabled unless `can_build`, shortcut Ctrl+Enter), with **Show
   errors** (shortcut F8) beside it when the manifest has errors.
 
@@ -182,8 +182,19 @@ Ledger: rows M7b marked U in `BuildBar.test.tsx`, `BuildResult.test.tsx`,
 ## States covered
 
 Not buildable (reason), left-out note, ready, building with progress,
-progress unavailable, overwrite confirmation, success, partial success,
+overwrite confirmation, success, partial success,
 failure, developer mode on/off, help open.
+
+**From the M7b review (2026-11-22).** Render `BuildOutcome::Unexpected` as the
+error result with `text::UNEXPECTED` and its detail as Details. There is no
+"Couldn't copy" state: GPUI's clipboard write reports no failure; the
+"Copied" confirmation stays. A build result disappears when a manifest is
+opened or created, as well as on Reload (the model clears it).
+
+**Manual check due (M7a re-review, 2026-11-22).** Once this task's Reveal
+button exists, the reveal half of Run 4 of `docs/gpui-dialogs-check.md`
+(Explorer opens with the archive selected) becomes runnable. Note in the PR
+that the hand check is due.
 
 ## Out of scope
 

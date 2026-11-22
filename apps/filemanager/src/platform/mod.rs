@@ -9,6 +9,8 @@ pub mod fake;
 pub mod gate;
 pub mod gpui;
 pub mod path_loss;
+#[cfg(any(windows, test))]
+pub mod shell_error;
 #[cfg(windows)]
 pub mod win_dialog;
 #[cfg(windows)]
