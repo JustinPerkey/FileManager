@@ -97,6 +97,11 @@ pub fn set_platform(cx: &mut App, platform: impl Platform) {
     cx.set_global(PlatformHandle(Rc::new(platform)));
 }
 
+/// Installs an already shared platform (what [`crate::AppSetup`] carries).
+pub fn set_platform_rc(cx: &mut App, platform: Rc<dyn Platform>) {
+    cx.set_global(PlatformHandle(platform));
+}
+
 /// The app's platform.
 ///
 /// # Panics

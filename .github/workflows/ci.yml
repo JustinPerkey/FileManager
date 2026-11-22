@@ -27,6 +27,9 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # The workspace runs above do not build the screenshot harness (feature `shoot`).
+      - run: cargo clippy -p filemanager-gpui --features shoot --all-targets --locked -- -D warnings
+      - run: cargo test -p filemanager-gpui --features shoot --locked
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test
@@ -98,6 +101,13 @@ jobs:
       - run: npm run tauri:build
       - name: Build the GPUI app (release)
         run: cargo build --release -p filemanager-gpui --locked
+      - name: The release build must not contain the screenshot harness
+        shell: pwsh
+        run: |
+          if (Test-Path 'target\release\filemanager-shoot.exe') {
+            Write-Error "target\release\filemanager-shoot.exe exists: the harness leaked into the release build"; exit 1
+          }
+          Write-Host "no filemanager-shoot.exe in target\release"
       - name: Exes must import no C runtime, zstd, liblzma, sqlite3, or WebView2Loader DLL
         shell: pwsh
         run: |
@@ -128,6 +138,43 @@ jobs:
           if (-not $p.WaitForExit(60000)) { $p.Kill(); Write-Host "self-check TIMED OUT"; $code = 124 } else { $code = $p.ExitCode }
           Write-Host "self-check exit code: $code"
           if ($code -ne 0) { exit $code }
+      - name: Screenshot harness lint and tests (feature shoot)
+        run: |
+          cargo clippy -p filemanager-gpui --features shoot --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test -p filemanager-gpui --features shoot --locked
+      - name: Screenshots (the harness twice, compared)
+        shell: pwsh
+        run: |
+          # Dev profile: GPUI records debug selectors only in debug builds.
+          cargo build -p filemanager-gpui --features shoot --bin filemanager-shoot --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $failed = $false
+          foreach ($run in 'run1', 'run2') {
+            & target\debug\filemanager-shoot.exe --out "shots\$run"
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+          }
+          # A difference between the runs is reported, never failed.
+          $lines = @()
+          foreach ($f in Get-ChildItem shots\run1 -Filter *.png -ErrorAction SilentlyContinue) {
+            $other = Join-Path shots\run2 $f.Name
+            if (-not (Test-Path $other)) { $lines += "MISSING in run2: $($f.Name)"; continue }
+            $a = (Get-FileHash $f.FullName).Hash
+            $b = (Get-FileHash $other).Hash
+            if ($a -eq $b) { $lines += "identical: $($f.Name)" } else { $lines += "DIFFERENT: $($f.Name)" }
+          }
+          if ($lines.Count -eq 0) { $lines += "no screenshots were written" }
+          $lines | Set-Content shots\determinism.txt
+          $lines | ForEach-Object { Write-Host $_ }
+          # A scenario that fails to run does fail the job.
+          if ($failed) { Write-Error "a screenshot scenario failed"; exit 1 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: shots/
+          if-no-files-found: warn
       - name: Stage artifact (exe only, no .pdb)
         shell: pwsh
         run: |

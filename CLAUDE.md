@@ -149,6 +149,12 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               dev_mode.rs (Ctrl+Alt+Shift+D global, keystroke interceptor), text.rs,
                               view/ (the chrome slot: ui-implementer's, placeholder.rs
                               is the plain stand-in)
+  src/app/probe.rs            `.tag("name")` on an element: records its bounds (test and
+                              `shoot` builds only) so the harness can click or clip to it
+  src/shoot/                  screenshot harness, feature `shoot` only: Scenario/Step API,
+                              steps.rs (player), scenarios/ (ui-implementer's; one per
+                              manual image). src/bin/filemanager-shoot.rs is its binary
+                              (required-features = shoot); never in the release exe
   src/tools/                  registry (ToolId, ToolSlot, ToolHooks, build) and one
                               module per tool, each with model and view/ placeholders;
                               tools never import each other
@@ -199,6 +205,8 @@ npm install                                        # once, at repo root
 npm run tauri:dev                                  # run the app
 npm run tauri:build                                # portable Windows exe (tauri build --no-bundle)
 cargo run -p filemanager-gpui                      # run the GPUI app (Windows; `-- --self-check` quits after one frame)
+cargo run -p filemanager-gpui --features shoot --bin filemanager-shoot -- --out shots   # screenshots (Windows, 100% scale)
+cargo clippy -p filemanager-gpui --features shoot --all-targets -- -D warnings          # the harness is not in the workspace run
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings   # includes clippy::pedantic (workspace lints)
 cargo test --workspace
@@ -255,6 +263,10 @@ $env:UPDATE_GENERATED=1; cargo test -p filemanager --lib generated_types_are_cur
   runs inside a temporary directory it creates and removes.
 - Paths are handled as the platform's path type, not as display strings. Code
   that renders a path does not assume it is valid UTF-8.
+- The release exe never contains GPUI's `test-support` or the screenshot
+  harness: the release build is `cargo build --release -p filemanager-gpui`
+  with default features, and CI asserts `target\release\filemanager-shoot.exe`
+  does not exist.
 - Rust code is always `cargo fmt` clean and passes clippy with the `pedantic`
   group (set in `[workspace.lints.clippy]`; both CI jobs run clippy with
   `-D warnings`, so a pedantic finding fails the build, and the windows job

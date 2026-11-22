@@ -7,7 +7,7 @@ pub mod tarpack;
 
 use std::path::PathBuf;
 
-use gpui::{AnyView, App, SharedString, Window};
+use gpui::{AnyView, App, Global, SharedString, Window};
 
 use crate::app::drop::DropTarget;
 
@@ -32,6 +32,44 @@ impl ToolId {
     }
 }
 
+/// Which backend one tool runs against.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Backend {
+    /// The real backend (the domain crate, the real file system).
+    #[default]
+    Real,
+    /// A fixture backend; the tool's milestone defines what each id means. Only
+    /// in tests and the screenshot harness.
+    #[cfg(any(test, feature = "shoot"))]
+    Fixture(FixtureId),
+}
+
+/// Names one of a tool's fixture backends.
+#[cfg(any(test, feature = "shoot"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FixtureId(pub &'static str);
+
+/// The backend choice for every tool, installed as a global by
+/// [`crate::run_with`]. A tool's `slot` reads it with [`BackendSet::get`]. Each
+/// tool milestone adds its fixtures behind
+/// `#[cfg(any(test, feature = "shoot"))]`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BackendSet {
+    pub pipeline: Backend,
+    pub tarpack: Backend,
+    pub schedule: Backend,
+}
+
+impl Global for BackendSet {}
+
+impl BackendSet {
+    /// The set installed on `cx`; all real if none was.
+    #[must_use]
+    pub fn get(cx: &App) -> Self {
+        cx.try_global::<Self>().copied().unwrap_or_default()
+    }
+}
+
 /// What the shell asks of a tool. Every method has a default so placeholder
 /// tools stay small.
 pub trait ToolHooks {
@@ -52,6 +90,12 @@ pub trait ToolHooks {
     fn unsaved_work(&self, _cx: &App) -> Vec<SharedString> {
         Vec::new()
     }
+
+    /// Screenshot harness: injects a "file changed on disk" signal into the
+    /// tool's model, as its file watcher would. Does nothing by default; the
+    /// tools that watch a file implement it.
+    #[cfg(any(test, feature = "shoot"))]
+    fn inject_file_changed(&self, _window: &mut Window, _cx: &mut App) {}
 }
 
 /// A tool as the shell holds it.
