@@ -1,10 +1,12 @@
 //! A `Session` owns one open database and its resolved model, notices schema
 //! and config changes, and answers every read the UI needs.
 
+mod backup;
 mod cell;
 mod key;
 mod label;
 mod read;
+mod save;
 mod sql;
 #[cfg(test)]
 mod tests;
@@ -12,18 +14,20 @@ mod types;
 mod version;
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::ErrorCode;
 
 use crate::config::{ConfigDiagnostic, LoadedConfig};
 use crate::db::{Database, OpenError};
 use crate::model::{resolve, Model, TableView};
+use crate::rules::FieldError;
 use crate::schema::introspect;
 
 pub use types::{
-    FieldValue, LinkTarget, ListQuery, M2mOption, M2mPage, M2mQuery, ObjectKey, ObjectPage,
-    ObjectSummary, ObjectView, ReferencingFilter, RelationCount, ValueProblem,
+    FieldChange, FieldInput, FieldValue, LinkTarget, ListQuery, M2mOption, M2mPage, M2mQuery,
+    ObjectKey, ObjectPage, ObjectSummary, ObjectView, ReferencingFilter, RelationCount,
+    SaveRequest, SaveResult, ValueProblem,
 };
 
 /// Why a session operation failed. Later milestones add variants.
@@ -38,6 +42,24 @@ pub enum SessionError {
     /// Locked by another program.
     Busy,
     Sqlite(String),
+    /// The database file is read-only; nothing can be saved.
+    ReadOnlyDatabase,
+    /// The config changed since the caller checked its draft; reload it and
+    /// check again.
+    ConfigChangedOnDisk,
+    /// The table (named) cannot be changed or created in.
+    NotEditable(String),
+    Validation {
+        fields: Vec<FieldError>,
+    },
+    /// The object changed since it was read; `current` is what it is now.
+    Conflict {
+        current: Box<ObjectView>,
+    },
+    /// The backup could not be taken, so nothing was written.
+    BackupFailed(String),
+    /// A constraint the app cannot attribute to one field; SQLite's message.
+    Constraint(String),
 }
 
 impl fmt::Display for SessionError {
@@ -52,6 +74,19 @@ impl fmt::Display for SessionError {
             }
             SessionError::Busy => f.write_str("The database is in use by another program."),
             SessionError::Sqlite(m) => write!(f, "Database error: {m}"),
+            SessionError::ReadOnlyDatabase => f.write_str("The database is read-only."),
+            SessionError::ConfigChangedOnDisk => {
+                f.write_str("The config file changed; reload it and check your changes again.")
+            }
+            SessionError::NotEditable(t) => write!(f, "`{t}` cannot be changed."),
+            SessionError::Validation { .. } => f.write_str("Some values are not valid."),
+            SessionError::Conflict { .. } => {
+                f.write_str("This object was changed by someone else.")
+            }
+            SessionError::BackupFailed(m) => {
+                write!(f, "The backup could not be made, so nothing was saved: {m}")
+            }
+            SessionError::Constraint(m) => write!(f, "The database refused the change: {m}"),
         }
     }
 }
@@ -81,6 +116,11 @@ pub struct Session {
     database: Database,
     model: Model,
     config: LoadedConfig,
+    /// The session's one backup, once taken or adopted.
+    backup: Option<PathBuf>,
+    /// Tests: the backup name's timestamp.
+    #[cfg(test)]
+    backup_stamp: Option<String>,
 }
 
 impl Session {
@@ -98,6 +138,9 @@ impl Session {
             database,
             model,
             config,
+            backup: None,
+            #[cfg(test)]
+            backup_stamp: None,
         })
     }
 

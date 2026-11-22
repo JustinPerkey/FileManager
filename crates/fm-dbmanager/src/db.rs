@@ -146,6 +146,13 @@ impl Database {
         self.read_only_reason.as_deref()
     }
 
+    /// Tests: behaves as if the file could only be opened read-only (a
+    /// permission change does not bind when the tests run as root).
+    #[cfg(test)]
+    pub(crate) fn force_read_only(&mut self, reason: &str) {
+        self.read_only_reason = Some(reason.to_owned());
+    }
+
     /// The connection.
     #[must_use]
     pub fn conn(&self) -> &Connection {
