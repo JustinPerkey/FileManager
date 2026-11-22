@@ -14,6 +14,7 @@ pub mod jobs;
 pub mod platform;
 #[cfg(feature = "shoot")]
 pub mod shoot;
+pub mod theme;
 pub mod tools;
 
 use std::cell::Cell;

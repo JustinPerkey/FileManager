@@ -132,12 +132,12 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| dark hooks define identical values | U |  | open |
-| ${name}: %s on %s meets 4.5:1 | U |  | open |
-| %s defines the overlay shadow | U |  | open |
-| %s defines --scrim | U |  | open |
-| type-size tokens exist on :root | U |  | open |
-| every tarpack.css selector is scoped under .tarpack, and only the overlays have a shadow | U |  | open |
+| dark hooks define identical values | U | `theme::tests::tokens_match_tokens_css` (the GPUI app has one dark set, checked against the dark block) | done |
+| ${name}: %s on %s meets 4.5:1 | U | `theme::tests::contrast_pairs_meet_4_5` | done |
+| %s defines the overlay shadow | U | `theme::tests::tokens_match_tokens_css` (shadow alpha, both themes) | done |
+| %s defines --scrim | U | `theme::tests::tokens_match_tokens_css` (scrim alpha, both themes) | done |
+| type-size tokens exist on :root | U | `theme::tests::tokens_match_tokens_css` (type sizes, spacing, radius, fonts) | done |
+| every tarpack.css selector is scoped under .tarpack, and only the overlays have a shadow | - | CSS structure, no CSS in the GPUI app | dropped |
 
 ## `tools/pipeline/PipelineView.test.tsx` (19)
 

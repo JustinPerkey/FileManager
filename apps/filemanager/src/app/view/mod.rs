@@ -10,5 +10,6 @@ use crate::app::shell::Shell;
 
 /// Builds the chrome view for `shell`.
 pub fn chrome(shell: Entity<Shell>, window: &mut Window, cx: &mut App) -> AnyView {
+    crate::theme::init(window, cx);
     placeholder::chrome(shell, window, cx)
 }
