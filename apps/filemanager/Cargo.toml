@@ -36,6 +36,7 @@ gpui_platform = { workspace = true }
 gpui-component = { workspace = true }
 gpui-kit-assets = { workspace = true }
 async-channel = { workspace = true }
+directories = "6"
 log = { workspace = true }
 image = { workspace = true, optional = true }
 

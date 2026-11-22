@@ -250,6 +250,14 @@ impl Core {
             .collect()
     }
 
+    /// The recent manifests as stored paths, most recent first, in the order
+    /// of [`Core::recent_manifests`]. Open one by this path, never by
+    /// parsing its display string.
+    #[must_use]
+    pub fn recent_paths(&self) -> Vec<PathBuf> {
+        self.remembered.recent_manifests.clone()
+    }
+
     fn load_manifest(&mut self, path: &Path) -> Result<(), TarpackError> {
         let manifest =
             load(path).map_err(|e| TarpackError::new(K::ManifestUnreadable, e.to_string()))?;

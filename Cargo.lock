@@ -2068,6 +2068,7 @@ name = "filemanager-gpui"
 version = "0.1.0"
 dependencies = [
  "async-channel",
+ "directories",
  "fm-core",
  "fm-dbmanager",
  "fm-pipeline",

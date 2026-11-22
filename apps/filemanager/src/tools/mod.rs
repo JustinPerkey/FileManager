@@ -50,6 +50,7 @@ pub enum Backend {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FixtureId {
     Pipeline(pipeline::fixtures::PipelineFixture),
+    Tarpack(tarpack::fixtures::TarpackFixture),
     Schedule(schedule::fixtures::ScheduleFixture),
 }
 
