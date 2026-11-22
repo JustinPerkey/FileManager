@@ -274,3 +274,58 @@ test("a typed path's error is announced", async () => {
     ),
   );
 });
+
+test("a repeated typed-path error is re-announced even when the frame fires before React renders", async () => {
+  const user = userEvent.setup();
+  await load(empty);
+  // The slot keeps no path, so the same typed text is sent again on every Enter.
+  vi.mocked(sc.setText).mockResolvedValue({
+    ...empty,
+    text: { path: "", error: { kind: "NotAbsolute", message: "week.txt is not a full path" } },
+  });
+  const sentence = "Enter the full path, starting with the drive letter";
+  await user.type(textBox(), "week.txt{Enter}");
+  const region = screen.getByRole("status");
+  await waitFor(() => expect(region).toHaveTextContent(sentence));
+  const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const prevAct = g.IS_REACT_ACT_ENVIRONMENT;
+  const realRaf = globalThis.requestAnimationFrame;
+  const realCaf = globalThis.cancelAnimationFrame;
+  // The frame fires in a microtask: after the announce() call, before React's scheduler (a macrotask) renders.
+  // Stub ids start far above jsdom's, so a cancel of a real frame never hits a stub frame.
+  const pending = new Map<number, FrameRequestCallback>();
+  let next = 1_000_000;
+  globalThis.requestAnimationFrame = (cb) => {
+    const id = next++;
+    pending.set(id, cb);
+    queueMicrotask(() => {
+      const fn = pending.get(id);
+      pending.delete(id);
+      fn?.(0);
+    });
+    return id;
+  };
+  globalThis.cancelAnimationFrame = (id) => {
+    if (pending.has(id)) pending.delete(id);
+    else realCaf.call(globalThis, id);
+  };
+  const seen: string[] = [];
+  const obs = new MutationObserver(() => seen.push(region.textContent ?? ""));
+  try {
+    g.IS_REACT_ACT_ENVIRONMENT = false;
+    obs.observe(region, { childList: true, characterData: true, subtree: true });
+    textBox().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await waitFor(() => expect(sc.setText).toHaveBeenCalledTimes(2));
+    // Settle: the command resolves, React renders, the frames fire (all within a few ticks).
+    await new Promise((r) => setTimeout(r, 50));
+    obs.disconnect();
+    expect(seen).toContain("");
+    expect(seen[seen.length - 1]).toContain(sentence);
+    expect(seen.indexOf("")).toBeLessThan(seen.length - 1);
+  } finally {
+    obs.disconnect();
+    g.IS_REACT_ACT_ENVIRONMENT = prevAct;
+    globalThis.requestAnimationFrame = realRaf;
+    globalThis.cancelAnimationFrame = realCaf;
+  }
+});

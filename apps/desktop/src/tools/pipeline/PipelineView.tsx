@@ -3,6 +3,7 @@ import { Banner } from "../../app/Banner";
 import { Button } from "../../app/Button";
 import { ConfirmDialog } from "../../app/ConfirmDialog";
 import { Icon, type IconName } from "../../app/icons";
+import { useAnnouncer } from "../../app/useAnnouncer";
 import type { DirectorySlot } from "../../lib/generated/DirectorySlot";
 import type { PipelineSession } from "../../lib/generated/PipelineSession";
 import type { StepId } from "../../lib/generated/StepId";
@@ -72,8 +73,7 @@ export function PipelineView() {
   const [pending, setPending] = useState<Pending | null>(null);
   // The folder named in the open confirmation: exactly this one is used.
   const [confirmedDir, setConfirmedDir] = useState("");
-  const [announcement, setAnnouncement] = useState("");
-  const frame = useRef(0);
+  const { text: announcement, announce } = useAnnouncer();
   const stepRefs = useRef(new Map<StepId, HTMLElement>());
   const nextRef = useRef<HTMLButtonElement>(null);
   // The step "Run next" started, so only that button shows busy for it.
@@ -91,13 +91,6 @@ export function PipelineView() {
       mounted.current = false;
     };
   }, []);
-
-  const announce = useCallback((text: string) => {
-    cancelAnimationFrame(frame.current);
-    setAnnouncement("");
-    frame.current = requestAnimationFrame(() => setAnnouncement(text));
-  }, []);
-  useEffect(() => () => cancelAnimationFrame(frame.current), []);
 
   // The error banner is an alert, so failures are not also announced.
   const fail = useCallback((e: unknown) => {
