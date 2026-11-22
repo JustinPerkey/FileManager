@@ -95,6 +95,9 @@ pub fn error_copy(error: &TarpackError, entries: &[SessionEntry]) -> String {
     error_message(error.kind, error_source(error, entries))
 }
 
+/// The banner when a recent manifest was chosen from a list that had changed.
+pub const RECENT_CHANGED: &str = "The recent list changed. Choose the manifest again.";
+
 /// The error of a drop whose session kept changing while its files were
 /// matched.
 pub const DROP_STALE: &str =
@@ -167,7 +170,8 @@ pub const RECENT: &str = "Recent";
 pub const RECENT_MENU_LABEL: &str = "Recent manifests";
 pub const RELOAD: &str = "Reload";
 pub const EDIT_IN_EDITOR: &str = "Edit in editor";
-/// The state-warning banner's dismiss and the error banner's disclosure.
+/// The label of the disclosure under an error banner that reveals its
+/// technical detail ([`super::model::ViewError::detail`]).
 pub const DETAILS: &str = "Details";
 
 // ---- the errors section ----

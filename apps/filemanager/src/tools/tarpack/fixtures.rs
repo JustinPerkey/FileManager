@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use fm_tarpack::archive::BuildSummary;
 use fm_tarpack::format::ArchiveFormat;
-use fm_tarpack::manifest::{parse, ManifestView, ParseReport};
+use fm_tarpack::manifest::{parse, Diagnostic, ManifestView, ParseReport, Severity};
 use fm_tarpack::session::{
     ArchiveFormatOption, BuildBlockedReason, DroppedAssignment, SessionEntry, SessionManifest,
     TarpackError, TarpackErrorKind, TarpackSession,
@@ -29,7 +29,8 @@ use fm_tarpack::sources::{DropOutcome, EntryStatus, Unmatched, UnmatchedReason};
 
 use super::backend::{BuildWork, DropWork, TarpackBackend};
 
-/// The example manifest: three entries, no errors.
+/// The example manifest: three entries, no errors. The fixtures show
+/// [`gateway_full`], which adds two entries.
 pub const GATEWAY: &str = include_str!("../../../../../examples/tarpack/example.toml");
 
 /// Where the fixture manifest "is".
@@ -44,20 +45,81 @@ const RECENT: [&str; 3] = [
     "D:\\work\\edge-router\\deploy.toml",
 ];
 
-/// A manifest with one failed entry (two errors) and a shared-source warning.
+const GATEWAY_CA: &str =
+    "[[file]]\nid = \"gateway-ca\"\nsource = \"ca.pem\"\ndir = \"/etc/gateway/tls\"\n";
+
+const GATEWAY_UNIT: &str = "[[file]]\nid = \"gateway-unit\"\nsource = \"gateway.service\"\ndir = \"/etc/systemd/system\"\n";
+
+/// `gateway-ca` as the `tarpack-errors` state has it: a relative `dir` and a
+/// mode that is not octal, so the entry fails with two errors.
+const GATEWAY_CA_BAD: &str = "[[file]]\nid = \"gateway-ca\"\nsource = \"ca.pem\"\ndir = \"etc/gateway/tls\"\nmode = \"0898\"\n";
+
+/// The gateway manifest every `tarpack-*` screenshot shows: the example's
+/// three entries, plus `gateway-ca` and `gateway-unit` (five in all, like the
+/// mock gateway of `docs/manual/screenshots/mock.js`).
+#[must_use]
+pub fn gateway_full() -> String {
+    format!("{GATEWAY}\n{GATEWAY_CA}\n{GATEWAY_UNIT}")
+}
+
+/// The `tarpack-errors` manifest: `gateway-ca` fails with two errors and the
+/// manifest has the shared-source warning of the reference image. The
+/// diagnostics are those of `mock.js`: [`parse_text`] sets their texts,
+/// lines and columns exactly (the parser's own wording differs in the
+/// warning, whose second file the screenshot does not list).
 #[must_use]
 pub fn gateway_with_errors() -> String {
-    format!(
-        "{GATEWAY}\n\
-         [[file]]\nid = \"gateway-svc\"\nsource = \"Gateway\"\ndir = \"/etc/systemd/system\"\nname = \"gateway.service\"\n\n\
-         [[file]]\nid = \"gateway-ca\"\nsource = \"ca.pem\"\ndir = \"etc/gateway/tls\"\nmode = \"0898\"\n"
-    )
+    format!("{GATEWAY}\n{GATEWAY_CA_BAD}\n{GATEWAY_UNIT}")
 }
 
 /// A manifest whose top level is wrong (an unknown key before `version`): every entry is withheld.
 #[must_use]
 pub fn gateway_withheld() -> String {
     format!("default = 1\n{GATEWAY}")
+}
+
+/// Parses a fixture manifest. The `tarpack-errors` text gets the diagnostics
+/// of the reference image ([`mock_errors`]).
+fn parse_text(text: &str) -> ParseReport {
+    let mut report = parse(text);
+    if text == gateway_with_errors() {
+        mock_errors(&mut report);
+    }
+    report
+}
+
+/// The diagnostics of the `tarpack-errors` reference image, from `mock.js`.
+fn mock_errors(report: &mut ParseReport) {
+    let error = |line, col, message: &str| Diagnostic {
+        severity: Severity::Error,
+        line,
+        col,
+        entry_id: Some("gateway-ca".to_string()),
+        message: message.to_string(),
+    };
+    if let Some(failure) = report.failures.first_mut() {
+        failure.index = 4;
+        failure.line = 33;
+        failure.errors = vec![
+            error(
+                35,
+                7,
+                "file `gateway-ca`: dir must be absolute (start with `/`)",
+            ),
+            error(
+                36,
+                8,
+                "file `gateway-ca`: mode: mode `0898` is not an octal string",
+            ),
+        ];
+    }
+    report.warnings = vec![Diagnostic {
+        severity: Severity::Warning,
+        line: 41,
+        col: 10,
+        entry_id: Some("gateway-unit".to_string()),
+        message: "file `gateway-unit`: source `gateway.service` matches file `gateway-svc` (compared case-insensitively); a dropped file cannot tell them apart, so pick their files per row".to_string(),
+    }];
 }
 
 fn assigned_path(id: &str) -> String {
@@ -125,6 +187,19 @@ impl Gate {
     }
 }
 
+/// A backend call that can be made to panic ([`FixtureTarpack::panic_on`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Command {
+    Open,
+    OpenRecent,
+    Reload,
+    Create,
+    Assign,
+    Clear,
+    BeginDrop,
+    FinishDrop,
+}
+
 /// One call the model made on the backend.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Call {
@@ -155,6 +230,7 @@ struct State {
     fail_next: Option<TarpackError>,
     stale_drops: usize,
     panic_sessions: usize,
+    panic_commands: Vec<Command>,
     drop_gate: Option<Gate>,
     drop_outcome: Option<DropOutcome>,
 }
@@ -270,7 +346,7 @@ fn display(p: &Path) -> String {
 impl State {
     fn empty() -> Self {
         State {
-            text: GATEWAY.to_string(),
+            text: gateway_full(),
             report: None,
             path: None,
             assigned: BTreeMap::new(),
@@ -282,6 +358,7 @@ impl State {
             fail_next: None,
             stale_drops: 0,
             panic_sessions: 0,
+            panic_commands: Vec::new(),
             drop_gate: None,
             drop_outcome: None,
         }
@@ -292,7 +369,7 @@ impl State {
     }
 
     fn load(&mut self, path: String) {
-        self.report = Some(parse(&self.text));
+        self.report = Some(parse_text(&self.text));
         self.assigned.clear();
         self.recent.retain(|r| *r != path);
         self.recent.insert(0, path.clone());
@@ -374,7 +451,7 @@ impl FixtureTarpack {
         let ids = s.ids();
         let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
         match fixture {
-            F::Partial => s.assign_ready(&["gateway-bin", "gateway-conf"]),
+            F::Partial => s.assign_ready(&["gateway-bin", "gateway-conf", "gateway-start"]),
             F::Missing => {
                 s.assign_ready(&ids);
                 s.assigned.insert(
@@ -437,6 +514,20 @@ impl FixtureTarpack {
         lock(&self.state).panic_sessions = n;
     }
 
+    /// The next call of `command` panics, once, before it changes anything
+    /// (the Worker reports it). A panic in `FinishDrop` leaves the drop's
+    /// files unassigned.
+    pub fn panic_on(&self, command: Command) {
+        lock(&self.state).panic_commands.push(command);
+    }
+
+    /// Replaces the recent list the backend holds, without telling the
+    /// model (which keeps the copy it fetched): tests use it to make the
+    /// model's list out of date.
+    pub fn set_recent(&self, recent: &[&str]) {
+        lock(&self.state).recent = recent.iter().map(|r| (*r).to_string()).collect();
+    }
+
     /// Holds every drop's work until `gate` opens (at most 20 s).
     pub fn hold_drops(&self, gate: &Gate) {
         lock(&self.state).drop_gate = Some(gate.clone());
@@ -455,6 +546,19 @@ impl FixtureTarpack {
 
     fn record(s: &mut State, call: Call) {
         s.calls.push(call);
+    }
+
+    /// Records `call` and panics when `command` was set to
+    /// ([`FixtureTarpack::panic_on`]). The lock is released first.
+    fn enter(&self, call: Call, command: Command) -> MutexGuard<'_, State> {
+        let mut s = lock(&self.state);
+        Self::record(&mut s, call);
+        if let Some(at) = s.panic_commands.iter().position(|c| *c == command) {
+            s.panic_commands.remove(at);
+            drop(s);
+            panic!("{command:?} exploded");
+        }
+        s
     }
 }
 
@@ -531,16 +635,18 @@ impl TarpackBackend for FixtureTarpack {
     }
 
     fn open(&mut self, path: &Path) -> Result<TarpackSession, TarpackError> {
-        let mut s = lock(&self.state);
-        Self::record(&mut s, Call::Open(path.to_path_buf()));
+        let mut s = self.enter(Call::Open(path.to_path_buf()), Command::Open);
         s.failure()?;
         s.load(display(path));
         Ok(snapshot(&s))
     }
 
-    fn open_recent(&mut self, index: usize) -> Result<TarpackSession, TarpackError> {
-        let mut s = lock(&self.state);
-        Self::record(&mut s, Call::OpenRecent(index));
+    fn open_recent(
+        &mut self,
+        index: usize,
+        expected_display: &str,
+    ) -> Result<Option<TarpackSession>, TarpackError> {
+        let mut s = self.enter(Call::OpenRecent(index), Command::OpenRecent);
         s.failure()?;
         let path = s.recent.get(index).cloned().ok_or_else(|| {
             TarpackError::new(
@@ -548,13 +654,15 @@ impl TarpackBackend for FixtureTarpack {
                 "that manifest is no longer in the recent list",
             )
         })?;
+        if path != expected_display {
+            return Ok(None);
+        }
         s.load(path);
-        Ok(snapshot(&s))
+        Ok(Some(snapshot(&s)))
     }
 
     fn reload(&mut self) -> Result<TarpackSession, TarpackError> {
-        let mut s = lock(&self.state);
-        Self::record(&mut s, Call::Reload);
+        let mut s = self.enter(Call::Reload, Command::Reload);
         s.failure()?;
         if s.report.is_none() {
             return Err(TarpackError::new(
@@ -562,23 +670,31 @@ impl TarpackBackend for FixtureTarpack {
                 "no manifest is loaded",
             ));
         }
-        s.report = Some(parse(&s.text));
+        s.report = Some(parse_text(&s.text));
         let ids = s.ids();
         s.assigned.retain(|id, _| ids.contains(id));
         Ok(snapshot(&s))
     }
 
     fn create_from_example(&mut self, path: &Path) -> Result<TarpackSession, TarpackError> {
-        let mut s = lock(&self.state);
-        Self::record(&mut s, Call::Create(path.to_path_buf()));
+        let mut s = self.enter(Call::Create(path.to_path_buf()), Command::Create);
         s.failure()?;
         s.load(display(path));
         Ok(snapshot(&s))
     }
 
+    fn assigned_path(&self, id: &str) -> Option<PathBuf> {
+        lock(&self.state)
+            .assigned
+            .get(id)
+            .map(|(path, _)| PathBuf::from(path))
+    }
+
     fn assign(&mut self, id: &str, path: &Path) -> Result<TarpackSession, TarpackError> {
-        let mut s = lock(&self.state);
-        Self::record(&mut s, Call::Assign(id.to_string(), path.to_path_buf()));
+        let mut s = self.enter(
+            Call::Assign(id.to_string(), path.to_path_buf()),
+            Command::Assign,
+        );
         s.failure()?;
         s.loaded_entry(id)?;
         s.assigned
@@ -587,8 +703,7 @@ impl TarpackBackend for FixtureTarpack {
     }
 
     fn clear(&mut self, id: &str) -> Result<TarpackSession, TarpackError> {
-        let mut s = lock(&self.state);
-        Self::record(&mut s, Call::Clear(id.to_string()));
+        let mut s = self.enter(Call::Clear(id.to_string()), Command::Clear);
         s.failure()?;
         s.loaded_entry(id)?;
         s.assigned.remove(id);
@@ -596,8 +711,7 @@ impl TarpackBackend for FixtureTarpack {
     }
 
     fn begin_drop(&mut self) -> Result<Box<dyn DropWork>, TarpackError> {
-        let mut s = lock(&self.state);
-        Self::record(&mut s, Call::BeginDrop);
+        let mut s = self.enter(Call::BeginDrop, Command::BeginDrop);
         s.failure()?;
         if s.report.is_none() {
             return Err(TarpackError::new(
@@ -624,8 +738,7 @@ impl TarpackBackend for FixtureTarpack {
         &mut self,
         work: Box<dyn DropWork>,
     ) -> Result<Option<DroppedAssignment>, TarpackError> {
-        let mut s = lock(&self.state);
-        Self::record(&mut s, Call::FinishDrop);
+        let mut s = self.enter(Call::FinishDrop, Command::FinishDrop);
         s.failure()?;
         let outcome = work
             .into_any()

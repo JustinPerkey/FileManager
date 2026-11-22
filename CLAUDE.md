@@ -47,7 +47,7 @@ deletes `apps/desktop` and renames the package and binary to `filemanager`.
 ```
 Cargo.toml                    workspace: members crates/*, devtools/*, apps/filemanager,
                               apps/desktop/src-tauri; [workspace.dependencies] pins
-                              ts-rs, tempfile, notify-debouncer-mini, gpui (gpui-pre
+                              ts-rs, tempfile, notify-debouncer-mini, directories, gpui (gpui-pre
                               =0.3.12), gpui_platform (gpui-pre-platform =0.3.12, no
                               default features), gpui-component =0.10.0,
                               gpui-kit-assets =0.10.0, async-channel, log, windows (0.62;
@@ -135,13 +135,17 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               platform (GpuiPlatform) and the path-loss logger, main window
   src/assets.rs, fonts.rs     embedded icons (icons! list); system fonts (Segoe UI, mono
                               Cascadia Mono else Consolas)
-  src/platform/               Platform trait (pick(OpenSpec), pick_save(SaveSpec), open,
-                              reveal, copy_text; global PlatformHandle), gpui.rs (real),
+  src/platform/               Platform trait (pick(OpenSpec), pick_save(SaveSpec), open and
+                              reveal (each a Task<Result<(), OpenError>>), copy_text; global PlatformHandle), gpui.rs (real),
                               gate.rs (DialogGate, run_dialog: one dialog at a time),
                               win_dialog.rs (Windows only: the common item dialog over the
                               `windows` crate, filters, default extension, exact OsString
-                              paths; the only `unsafe` in the app; manual check in
-                              docs/gpui-dialogs-check.md, examples/dialog_check.rs),
+                              paths; manual check in docs/gpui-dialogs-check.md,
+                              examples/dialog_check.rs),
+                              win_shell.rs (Windows only: open_with_system and reveal
+                              over ShellExecuteW / SHOpenFolderAndSelectItems on a COM
+                              thread, returning Task<Result<(), OpenError>>; with
+                              win_dialog.rs the only `unsafe` in the app),
                               fake.rs (scripted, logs specs, for tests and screenshots),
                               path_loss.rs (log::Log that reports dropped names GPUI skips)
   src/jobs.rs                 Worker (backend off the UI thread) and spawn_thread (long

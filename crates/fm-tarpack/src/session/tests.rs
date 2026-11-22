@@ -318,6 +318,22 @@ fn clear_removes_only_the_assignment() {
 }
 
 #[test]
+fn assigned_path_is_the_stored_path() {
+    let env = Env::new();
+    let mut core = env.core();
+    assert_eq!(core.assigned_path("a"), None, "nothing loaded");
+    let m = env.write("m.toml", TWO_FILES);
+    core.open(&m).unwrap();
+    assert_eq!(core.assigned_path("a"), None, "not assigned yet");
+    let a = env.source("a.bin", b"a");
+    core.assign("a", &a).unwrap();
+    assert_eq!(core.assigned_path("a"), Some(a));
+    assert_eq!(core.assigned_path("b"), None);
+    core.clear("a").unwrap();
+    assert_eq!(core.assigned_path("a"), None, "cleared");
+}
+
+#[test]
 fn assign_dropped_matches_by_name() {
     let env = Env::new();
     let m = env.write("m.toml", INVALID);

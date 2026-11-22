@@ -2,7 +2,8 @@
 
 The native open and save dialogs (`apps/filemanager/src/platform/win_dialog.rs`)
 cannot be exercised in CI. This check runs them for real. Run it on Windows 11
-after any change to `win_dialog.rs` or `platform/gate.rs`, and record the
+after any change to `win_dialog.rs` or `platform/gate.rs` (Run 4: to
+`platform/win_shell.rs`), and record the
 result in the PR. A FAIL reopens milestone M3c.
 
 ## Prerequisites
@@ -77,3 +78,37 @@ Pass: exactly one dialog opens, and the window stays disabled until it closes.
 Cancel the dialog and close the window. `dialog-check.txt` holds
 `click 1b: Ok(None)` (the second request was refused at once) and then
 `click 1a: Ok(None)`.
+
+## Run 4: Edit and Reveal report their failures (the Tar Packager, M7a)
+
+These steps check the shell calls of `platform/win_shell.rs`, which no test
+can run: their answer comes from Windows. They need the running app
+(`cargo run -p filemanager-gpui`) with developer mode on
+(Ctrl+Alt+Shift+D) and a manifest loaded in the Tar Packager.
+
+Edit with no handler:
+
+1. In Explorer, find a `.toml` file's association and remove it (Open with,
+   "Choose another app", or on a clean machine where `.toml` has no handler).
+   Loading a manifest from such a file is enough.
+2. Press "Edit in editor".
+
+Pass: the error banner reads "Windows could not open it." and its Details
+read "No application is associated with this file type." (or the matching
+sentence for the code Windows returned). The banner is not silent, and the app
+stays responsive while the call runs.
+
+Edit with a handler: associate `.toml` with Notepad and press the button
+again. Pass: Notepad opens the manifest and no banner appears.
+
+Reveal (the Tar Packager's "Show in folder", part B, uses the same call):
+
+3. Call it for an existing file.
+
+Pass: Explorer opens with that file selected, in its folder.
+
+4. Delete the file first and call it again (part B).
+
+Pass: Explorer opens the file's folder with nothing selected (the fall back to
+the parent folder), without a banner. Delete the folder too and call it once
+more: the banner shows the failure.

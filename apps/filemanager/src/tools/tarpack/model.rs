@@ -19,12 +19,12 @@ use fm_tarpack::session::{
     DroppedAssignment, SessionEntry, TarpackError, TarpackErrorKind, TarpackSession,
 };
 use fm_tarpack::sources::DropOutcome;
-use gpui::{App, AsyncApp, Context, WeakEntity};
+use gpui::{App, AsyncApp, Context, Task, WeakEntity};
 
 use crate::app::dev_mode::DevMode;
 use crate::app::text::PICK_FAILED;
 use crate::jobs::{spawn_thread, JobPanicked, Worker};
-use crate::platform::{platform, FileFilter, OpenSpec, PickError, PickKind, SaveSpec};
+use crate::platform::{platform, FileFilter, OpenError, OpenSpec, PickError, PickKind, SaveSpec};
 
 use super::backend::TarpackBackend;
 use super::text::{self, DropBlocker, DropLine};
@@ -68,6 +68,10 @@ pub enum ViewError {
     Unexpected { message: String },
     /// The file dialog could not be shown. Copy: the app's `PICK_FAILED`.
     Dialog { detail: String },
+    /// A recent manifest was chosen from a list that had changed meanwhile;
+    /// nothing was opened and the list was refreshed. Copy:
+    /// [`text::RECENT_CHANGED`]. It has no detail.
+    RecentChanged,
 }
 
 impl ViewError {
@@ -80,16 +84,18 @@ impl ViewError {
             }
             ViewError::Unexpected { .. } => text::UNEXPECTED.to_string(),
             ViewError::Dialog { .. } => PICK_FAILED.to_string(),
+            ViewError::RecentChanged => text::RECENT_CHANGED.to_string(),
         }
     }
 
-    /// The technical detail shown under "Details".
+    /// The technical detail shown under "Details"; empty when there is none.
     #[must_use]
     pub fn detail(&self) -> &str {
         match self {
             ViewError::Tarpack { error, .. } => &error.message,
             ViewError::Unexpected { message } => message,
             ViewError::Dialog { detail } => detail,
+            ViewError::RecentChanged => "",
         }
     }
 }
@@ -97,6 +103,17 @@ impl ViewError {
 impl From<JobPanicked> for ViewError {
     fn from(e: JobPanicked) -> Self {
         ViewError::Unexpected { message: e.0 }
+    }
+}
+
+impl From<OpenError> for ViewError {
+    /// The system could not open a file or show it: the `OpenerFailed` copy,
+    /// with what the system said as the detail.
+    fn from(e: OpenError) -> Self {
+        ViewError::Tarpack {
+            error: TarpackError::new(TarpackErrorKind::OpenerFailed, e.detail),
+            source: None,
+        }
     }
 }
 
@@ -219,10 +236,24 @@ fn folder_of(path: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
+/// The threads [`default_start_dir`] ran on, newest last (tests check that
+/// none of them is the UI thread).
+#[cfg(test)]
+pub(super) static LOOKUP_THREADS: std::sync::Mutex<Vec<std::thread::ThreadId>> =
+    std::sync::Mutex::new(Vec::new());
+
 /// Where "Create from example" starts when no manifest is loaded: the user's
 /// Documents folder, else their home folder.
+///
+/// The lookup asks the system and may touch the disk, so the model runs it
+/// on a thread of its own, never on the UI thread.
 #[must_use]
 pub fn default_start_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    LOOKUP_THREADS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(std::thread::current().id());
     let dirs = directories::UserDirs::new()?;
     Some(
         dirs.document_dir()
@@ -662,7 +693,16 @@ impl TarpackModel {
         .detach();
     }
 
-    fn watcher_fired(&mut self, id: u64, cx: &mut Context<Self>) {
+    /// The id of the running watcher; it changes whenever the watcher is
+    /// replaced.
+    #[cfg(test)]
+    pub(super) fn watcher_id(&self) -> Option<u64> {
+        self.watcher.as_ref().map(|(id, _)| *id)
+    }
+
+    /// The watcher `id` reported a change; one that is no longer the running
+    /// watcher is ignored.
+    pub(super) fn watcher_fired(&mut self, id: u64, cx: &mut Context<Self>) {
         if self
             .watcher
             .as_ref()
@@ -693,6 +733,18 @@ impl TarpackModel {
         origin: Origin,
         cx: &mut Context<Self>,
     ) {
+        self.command_or_refresh(move |b| f(b).map(Some), origin, cx);
+    }
+
+    /// Like [`TarpackModel::command`] for a command that may decline with
+    /// `Ok(None)`: the recent list the model showed was out of date, so
+    /// nothing was done. The model refreshes its list and says so.
+    fn command_or_refresh(
+        &mut self,
+        f: impl FnOnce(&mut Backend) -> Result<Option<TarpackSession>, TarpackError> + Send + 'static,
+        origin: Origin,
+        cx: &mut Context<Self>,
+    ) {
         self.command_seq += 1;
         let seq = self.command_seq;
         let task = self.worker.run(f, cx);
@@ -707,7 +759,7 @@ impl TarpackModel {
     fn command_done(
         &mut self,
         seq: u64,
-        result: Result<Result<TarpackSession, TarpackError>, JobPanicked>,
+        result: Result<Result<Option<TarpackSession>, TarpackError>, JobPanicked>,
         origin: Origin,
         cx: &mut Context<Self>,
     ) {
@@ -715,7 +767,11 @@ impl TarpackModel {
             return;
         }
         match result {
-            Ok(Ok(session)) => {
+            Ok(Ok(None)) => {
+                self.fetch_recent(cx);
+                self.fail(ViewError::RecentChanged, cx);
+            }
+            Ok(Ok(Some(session))) => {
                 self.apply(session, origin, cx);
                 if origin != Origin::Other {
                     self.arm_watcher(true, cx);
@@ -772,12 +828,18 @@ impl TarpackModel {
     }
 
     /// Opens the recent manifest at `index` of [`TarpackModel::recent`], by
-    /// the path the backend stored for it.
+    /// the path the backend stored for it. The backend opens it only if its
+    /// own list still shows the same text at `index`; otherwise nothing is
+    /// opened, the list is refreshed and the banner is
+    /// [`ViewError::RecentChanged`].
     pub fn open_recent(&mut self, index: usize, cx: &mut Context<Self>) {
-        if self.locked() || index >= self.recent.len() {
+        if self.locked() {
             return;
         }
-        self.command(move |b| b.open_recent(index), Origin::Load, cx);
+        let Some(expected) = self.recent.get(index).cloned() else {
+            return;
+        };
+        self.command_or_refresh(move |b| b.open_recent(index, &expected), Origin::Load, cx);
     }
 
     /// Reads the loaded manifest again, keeping assignments.
@@ -788,7 +850,19 @@ impl TarpackModel {
         self.command(|b| b.reload(), Origin::Reload, cx);
     }
 
-    /// Opens the loaded manifest with the system's editor.
+    /// Waits for the system's answer to an open or reveal and shows its
+    /// failure as the banner (`OpenerFailed`).
+    pub(super) fn report_open(task: Task<Result<(), OpenError>>, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = task.await {
+                this.update(cx, |m, cx| m.fail(e.into(), cx)).ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Opens the loaded manifest with the system's editor. A system that
+    /// cannot open it (no `.toml` handler) is the `OpenerFailed` banner.
     pub fn edit(&mut self, cx: &mut Context<Self>) {
         if self.locked() {
             return;
@@ -797,7 +871,10 @@ impl TarpackModel {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |m, cx| match result {
-                Ok(Ok(path)) => platform(cx).open_with_system(&path, cx),
+                Ok(Ok(path)) => {
+                    let opened = platform(cx).open_with_system(&path, cx);
+                    Self::report_open(opened, cx);
+                }
                 Ok(Err(e)) => m.fail(e.into(), cx),
                 Err(e) => m.fail(e.into(), cx),
             })
@@ -818,11 +895,25 @@ impl TarpackModel {
         let task = self.worker.run(|b| b.manifest_path(), cx);
         cx.spawn(async move |this, cx| {
             let loaded = task.await;
-            let start_dir = match &loaded {
+            let loaded_dir = match &loaded {
                 Ok(Some(path)) => folder_of(path),
                 _ => None,
-            }
-            .or_else(default_start_dir);
+            };
+            let start_dir = if let Some(dir) = loaded_dir {
+                Some(dir)
+            } else {
+                // The lookup asks the system: not on the UI thread.
+                let Ok((_, lookup)) = this.update(cx, |_, cx| {
+                    spawn_thread(
+                        "tarpack-start-dir",
+                        |_: async_channel::Sender<()>| default_start_dir(),
+                        cx,
+                    )
+                }) else {
+                    return;
+                };
+                lookup.await.ok().flatten()
+            };
             let spec = SaveSpec {
                 filters: vec![manifest_filter()],
                 default_extension: Some("toml".to_string()),
@@ -848,32 +939,40 @@ impl TarpackModel {
 
     /// Asks the platform for the source file of the entry `entry_id` (no
     /// filter, starting in the folder of its assigned file) and assigns it.
+    /// The folder comes from the path the backend stored, never from the
+    /// display string, so a name that is not valid Unicode still works. An
+    /// entry with no assignment, or a file with no parent, has no start
+    /// folder.
     pub fn browse(&mut self, entry_id: &str, cx: &mut Context<Self>) {
         if self.locked() {
             return;
         }
-        // The session holds the assigned file as a display string; as a
-        // starting folder for the dialog that is good enough.
-        let start_dir = self
-            .session
-            .as_ref()
-            .and_then(|s| s.manifest.as_ref())
-            .and_then(|m| m.entries.iter().find(|e| e.view.id == entry_id))
-            .and_then(|e| e.assigned.as_deref())
-            .and_then(|a| folder_of(Path::new(a)));
-        let spec = OpenSpec {
-            kind: PickKind::File,
-            filters: Vec::new(),
-            start_dir,
-            title: None,
-        };
-        let pick = platform(cx).pick(spec, cx);
         let id = entry_id.to_string();
-        Self::after_dialog(
-            pick,
-            move |m, path, cx| m.command(move |b| b.assign(&id, &path), Origin::Other, cx),
-            cx,
-        );
+        let lookup_id = id.clone();
+        let assigned = self.worker.run(move |b| b.assigned_path(&lookup_id), cx);
+        cx.spawn(async move |this, cx| {
+            // A panicking lookup only costs the start folder.
+            let start_dir = assigned.await.ok().flatten().as_deref().and_then(folder_of);
+            let spec = OpenSpec {
+                kind: PickKind::File,
+                filters: Vec::new(),
+                start_dir,
+                title: None,
+            };
+            let Ok(pick) = this.update(cx, |_, cx| platform(cx).pick(spec, cx)) else {
+                return;
+            };
+            let result = pick.await;
+            this.update(cx, |m, cx| match result {
+                Ok(Some(path)) => {
+                    m.command(move |b| b.assign(&id, &path), Origin::Other, cx);
+                }
+                Ok(None) => {}
+                Err(PickError::Failed { detail }) => m.fail(ViewError::Dialog { detail }, cx),
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Clears the assignment of the entry `entry_id`.
@@ -1019,7 +1118,13 @@ impl TarpackModel {
             }
             Err(e) => {
                 self.drop_state = None;
+                // A panic leaves the backend's state unknown: fetch it again,
+                // keep the banner.
+                let panicked = matches!(e, ViewError::Unexpected { .. });
                 self.fail(e, cx);
+                if panicked {
+                    self.fetch(Origin::Other, false, cx);
+                }
             }
         }
         cx.notify();

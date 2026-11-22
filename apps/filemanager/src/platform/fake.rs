@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use gpui::{App, Task};
 
-use super::{OpenSpec, PickResult, Platform, SaveSpec};
+use super::{OpenError, OpenSpec, PickResult, Platform, SaveSpec};
 
 /// One call a model made.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,11 +24,13 @@ pub enum PlatformCall {
 struct Script {
     picks: VecDeque<PickResult>,
     saves: VecDeque<PickResult>,
+    opens: VecDeque<Result<(), OpenError>>,
     calls: Vec<PlatformCall>,
 }
 
 /// Answers dialogs from a script, in order, and logs every call. A dialog
-/// with no scripted answer resolves to `Ok(None)` (cancelled). Clones share
+/// with no scripted answer resolves to `Ok(None)` (cancelled); an open or
+/// reveal with none resolves to `Ok(())`. Clones share
 /// the same script and log.
 #[derive(Clone, Default)]
 pub struct FakePlatform {
@@ -51,6 +53,12 @@ impl FakePlatform {
         self.inner.borrow_mut().saves.push_back(answer);
     }
 
+    /// Queues the answer to the next open or reveal (they share one queue, in
+    /// call order). The default is `Ok(())`.
+    pub fn answer_open(&self, answer: Result<(), OpenError>) {
+        self.inner.borrow_mut().opens.push_back(answer);
+    }
+
     /// Every call so far, in order.
     #[must_use]
     pub fn calls(&self) -> Vec<PlatformCall> {
@@ -71,14 +79,17 @@ impl Platform for FakePlatform {
         Task::ready(s.saves.pop_front().unwrap_or(Ok(None)))
     }
 
-    fn open_with_system(&self, path: &Path, _cx: &mut App) {
-        let call = PlatformCall::OpenWithSystem(path.to_path_buf());
-        self.inner.borrow_mut().calls.push(call);
+    fn open_with_system(&self, path: &Path, _cx: &mut App) -> Task<Result<(), OpenError>> {
+        let mut s = self.inner.borrow_mut();
+        s.calls
+            .push(PlatformCall::OpenWithSystem(path.to_path_buf()));
+        Task::ready(s.opens.pop_front().unwrap_or(Ok(())))
     }
 
-    fn reveal(&self, path: &Path, _cx: &mut App) {
-        let call = PlatformCall::Reveal(path.to_path_buf());
-        self.inner.borrow_mut().calls.push(call);
+    fn reveal(&self, path: &Path, _cx: &mut App) -> Task<Result<(), OpenError>> {
+        let mut s = self.inner.borrow_mut();
+        s.calls.push(PlatformCall::Reveal(path.to_path_buf()));
+        Task::ready(s.opens.pop_front().unwrap_or(Ok(())))
     }
 
     fn copy_text(&self, text: &str, _cx: &mut App) {
@@ -133,11 +144,12 @@ mod tests {
         assert_eq!(first, Ok(Some(PathBuf::from("one"))));
         assert_eq!(second, Err(PickError::Failed { detail: "x".into() }));
         assert_eq!(saved, Ok(Some(PathBuf::from("saved"))));
-        cx.update(|cx| {
-            fake.open_with_system(Path::new("o"), cx);
-            fake.reveal(Path::new("r"), cx);
-            fake.copy_text("t", cx);
-        });
+        let opened = cx
+            .update(|cx| fake.open_with_system(Path::new("o"), cx))
+            .await;
+        let revealed = cx.update(|cx| fake.reveal(Path::new("r"), cx)).await;
+        assert_eq!((opened, revealed), (Ok(()), Ok(())), "the default");
+        cx.update(|cx| fake.copy_text("t", cx));
         assert_eq!(
             fake.calls(),
             [
@@ -149,6 +161,22 @@ mod tests {
                 PlatformCall::CopyText("t".into()),
             ]
         );
+    }
+
+    #[gpui::test]
+    async fn scripted_open_and_reveal_answers_are_returned_in_order(cx: &mut TestAppContext) {
+        let fake = FakePlatform::new();
+        let err = OpenError {
+            detail: "no handler".into(),
+        };
+        fake.answer_open(Err(err.clone()));
+        let first = cx
+            .update(|cx| fake.open_with_system(Path::new("o"), cx))
+            .await;
+        let second = cx.update(|cx| fake.reveal(Path::new("r"), cx)).await;
+        assert_eq!(first, Err(err));
+        assert_eq!(second, Ok(()));
+        assert_eq!(fake.calls().len(), 2, "failures are still logged");
     }
 
     #[gpui::test]

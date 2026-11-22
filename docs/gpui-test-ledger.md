@@ -441,7 +441,7 @@ its heading's count.
 | Case | Owner | New test | Status |
 |---|---|---|---|
 | restore announces %s | M7a | `tools::tarpack::tests::restores_last_manifest_on_start`, `tools::tarpack::tests::manifest_sentences_match_today` | done |
-| open and reload announce, repeat on same count, and clear announces No errors | M7a | `tools::tarpack::tests::open_uses_platform_and_announces`, `tools::tarpack::tests::reload_clears_changed_and_results` | done |
+| open and reload announce, repeat on same count, and clear announces No errors | M7a | `tools::tarpack::tests::open_uses_platform_and_announces`, `tools::tarpack::tests::reload_clears_changed_and_results`; the repeat: `tools::tarpack::tests::a_reload_with_the_same_error_count_announces_again` (same sentence, `announcement_generation` +1 each time) | done |
 | a repeated sentence is re-announced even when the frame fires before React renders | M7a | `tools::tarpack::tests::state_warning_announced_once_and_dismissal_sticks` | done |
 | report re-expands after reload even if collapsed; no focus stolen | M7a | `tools::tarpack::tests::load_expands_errors_when_present` | done |
 | showErrors expands and focuses the report body; no-op without errors | M7a | `tools::tarpack::tests::show_errors_expands_and_hints_focus` | done |
@@ -498,11 +498,11 @@ its heading's count.
 | name of exactly 32 code points is kept, 33 is capped | U |  | open |
 | an astral character at the cap is not split | U |  | open |
 | U+FFFD is preserved | U |  | open |
-| assignedFolder: drive root keeps its separator | U |  | open |
-| assignedFolder: nested, forward-slash and UNC paths | U |  | open |
-| assignedFolder: undefined without a separator or with U+FFFD | U |  | open |
+| assignedFolder: drive root keeps its separator | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows paths run in the Windows job; the Unix job runs the `/` root) | done |
+| assignedFolder: nested, forward-slash and UNC paths | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows job) | done |
+| assignedFolder: undefined without a separator or with U+FFFD | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (no parent: no start folder), `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode` (the stored path has nothing to refuse: a lossy display name still starts in its exact folder). `C:a.txt` is not ported: `Path::parent` gives `C:` and the dialog accepts it | done |
 | fileName is what follows the last separator | U |  | open |
-| displayFolder shows a lossy folder as is; assignedFolder refuses it | U |  | open |
+| displayFolder shows a lossy folder as is; assignedFolder refuses it | U | `displayFolder` half: the view renders it (U). The `assignedFolder` half is `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode`: it no longer refuses, it uses the stored `PathBuf` | open |
 
 ## `tools/tarpack/reportText.test.ts` (4)
 

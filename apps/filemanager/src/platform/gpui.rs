@@ -9,7 +9,7 @@ use ::gpui::{App, ClipboardItem, Task};
 #[cfg(windows)]
 use super::gate::run_dialog;
 use super::gate::DialogGate;
-use super::{OpenSpec, PickResult, Platform, SaveSpec};
+use super::{OpenError, OpenSpec, PickResult, Platform, SaveSpec};
 #[cfg(not(windows))]
 use super::{PickError, PickKind};
 
@@ -97,6 +97,29 @@ fn save_dialog(spec: SaveSpec, cx: &mut App) -> Task<PickResult> {
     })
 }
 
+#[cfg(windows)]
+fn open_path(path: &Path, cx: &App) -> Task<Result<(), OpenError>> {
+    super::win_shell::open(path, cx)
+}
+
+#[cfg(windows)]
+fn reveal_path(path: &Path, cx: &App) -> Task<Result<(), OpenError>> {
+    super::win_shell::reveal(path, cx)
+}
+
+// GPUI's calls return nothing, so off Windows no failure can be reported.
+#[cfg(not(windows))]
+fn open_path(path: &Path, cx: &mut App) -> Task<Result<(), OpenError>> {
+    cx.open_with_system(path);
+    Task::ready(Ok(()))
+}
+
+#[cfg(not(windows))]
+fn reveal_path(path: &Path, cx: &mut App) -> Task<Result<(), OpenError>> {
+    cx.reveal_path(path);
+    Task::ready(Ok(()))
+}
+
 impl Platform for GpuiPlatform {
     fn pick(&self, spec: OpenSpec, cx: &mut App) -> Task<PickResult> {
         open_dialog(spec, cx)
@@ -106,12 +129,12 @@ impl Platform for GpuiPlatform {
         save_dialog(spec, cx)
     }
 
-    fn open_with_system(&self, path: &Path, cx: &mut App) {
-        cx.open_with_system(path);
+    fn open_with_system(&self, path: &Path, cx: &mut App) -> Task<Result<(), OpenError>> {
+        open_path(path, cx)
     }
 
-    fn reveal(&self, path: &Path, cx: &mut App) {
-        cx.reveal_path(path);
+    fn reveal(&self, path: &Path, cx: &mut App) -> Task<Result<(), OpenError>> {
+        reveal_path(path, cx)
     }
 
     fn copy_text(&self, text: &str, cx: &mut App) {

@@ -55,12 +55,19 @@ pub trait TarpackBackend: Send + 'static {
     fn open(&mut self, path: &Path) -> Result<TarpackSession, TarpackError>;
 
     /// Loads the recent manifest at position `index` of
-    /// [`TarpackBackend::recent_manifests`], by its stored path.
+    /// [`TarpackBackend::recent_manifests`], by its stored path, but only if
+    /// that entry's display string is still `expected_display`: the model's
+    /// copy of the list may be older than the backend's. `Ok(None)` when it
+    /// is not (nothing was opened): the model refreshes its list.
     ///
     /// # Errors
     /// `ManifestUnreadable` when there is no such position or the file cannot
     /// be read.
-    fn open_recent(&mut self, index: usize) -> Result<TarpackSession, TarpackError>;
+    fn open_recent(
+        &mut self,
+        index: usize,
+        expected_display: &str,
+    ) -> Result<Option<TarpackSession>, TarpackError>;
 
     /// Re-reads the loaded manifest, keeping assignments by id.
     ///
@@ -74,6 +81,10 @@ pub trait TarpackBackend: Send + 'static {
     /// # Errors
     /// `PathExists` when `path` exists, or `Io`.
     fn create_from_example(&mut self, path: &Path) -> Result<TarpackSession, TarpackError>;
+
+    /// The file assigned to the entry `id`, as the stored path (a dialog
+    /// starts in its folder). `None` when nothing is loaded or it has none.
+    fn assigned_path(&self, id: &str) -> Option<PathBuf>;
 
     /// Assigns the file `path` to the entry `id`.
     ///
@@ -229,7 +240,11 @@ impl TarpackBackend for RealTarpack {
         Ok(self.core.snapshot())
     }
 
-    fn open_recent(&mut self, index: usize) -> Result<TarpackSession, TarpackError> {
+    fn open_recent(
+        &mut self,
+        index: usize,
+        expected_display: &str,
+    ) -> Result<Option<TarpackSession>, TarpackError> {
         let path = self
             .core
             .recent_paths()
@@ -241,7 +256,11 @@ impl TarpackBackend for RealTarpack {
                     "that manifest is no longer in the recent list",
                 )
             })?;
-        self.open(&path)
+        let shown = self.core.recent_manifests();
+        if shown.get(index).map(String::as_str) != Some(expected_display) {
+            return Ok(None);
+        }
+        self.open(&path).map(Some)
     }
 
     fn reload(&mut self) -> Result<TarpackSession, TarpackError> {
@@ -252,6 +271,10 @@ impl TarpackBackend for RealTarpack {
     fn create_from_example(&mut self, path: &Path) -> Result<TarpackSession, TarpackError> {
         self.core.create_from_example(path)?;
         Ok(self.core.snapshot())
+    }
+
+    fn assigned_path(&self, id: &str) -> Option<PathBuf> {
+        self.core.assigned_path(id)
     }
 
     fn assign(&mut self, id: &str, path: &Path) -> Result<TarpackSession, TarpackError> {

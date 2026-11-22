@@ -18,11 +18,12 @@ use gpui::{AppContext as _, Context, Entity, TestAppContext};
 
 use super::backend::{RealTarpack, TarpackBackend};
 use super::fixtures::{
-    gateway_with_errors, gateway_withheld, Call, FixtureTarpack, Gate, TarpackFixture, GATEWAY,
-    MANIFEST_PATH, OUTPUT_PATH,
+    gateway_with_errors, gateway_withheld, Call, Command, FixtureTarpack, Gate, TarpackFixture,
+    GATEWAY, MANIFEST_PATH, OUTPUT_PATH,
 };
 use super::model::{
-    default_start_dir, DropState, FocusHint, Origin, TarpackModel, ViewError, SKELETON_DELAY,
+    default_start_dir, DropState, FocusHint, Origin, TarpackModel, ViewError, LOOKUP_THREADS,
+    SKELETON_DELAY,
 };
 use super::text::{self, DropBlocker, DropLine};
 use super::Hooks;
@@ -30,7 +31,7 @@ use crate::app::dev_mode::DevMode;
 use crate::app::drop::DropTarget;
 use crate::app::text::{DROP_BLOCKED_BY_DIALOG, PICK_FAILED};
 use crate::platform::fake::{FakePlatform, PlatformCall};
-use crate::platform::{self, FileFilter, OpenSpec, PickError, PickKind, SaveSpec};
+use crate::platform::{self, FileFilter, OpenError, OpenSpec, PickError, PickKind, SaveSpec};
 use crate::tools::ToolHooks as _;
 
 const ALL_KINDS: [TarpackErrorKind; 17] = [
@@ -147,6 +148,13 @@ fn wait_for(cx: &mut TestAppContext, mut done: impl FnMut(&mut TestAppContext) -
         assert!(Instant::now() < deadline, "the condition never held");
         std::thread::sleep(Duration::from_millis(2));
     }
+}
+
+/// Runs everything queued until the platform has been asked `n` times. A
+/// dialog that starts in the default folder asks only after a lookup on a
+/// thread of its own.
+fn wait_for_calls(cx: &mut TestAppContext, fake: &FakePlatform, n: usize) {
+    wait_for(cx, |_| fake.calls().len() >= n);
 }
 
 /// Runs everything queued until nothing loads and no drop is pending.
@@ -866,6 +874,7 @@ fn open_error_shows_dialog_failure_copy(cx: &mut TestAppContext) {
     }));
     let before = read(cx, &model, TarpackModel::error_generation);
     act(cx, &model, TarpackModel::create_from_example);
+    wait_for_calls(cx, &fake, 2);
     idle(cx, &model);
     assert_eq!(read(cx, &model, TarpackModel::error_generation), before + 1);
     assert_eq!(error_of(cx, &model).expect("banner").detail(), "again");
@@ -1214,6 +1223,7 @@ fn create_from_example_writes_and_loads(cx: &mut TestAppContext) {
     let target = dir.path().join("new.toml");
     fake.answer_save(pick(&target));
     act(cx, &model, TarpackModel::create_from_example);
+    wait_for_calls(cx, &fake, 1);
     idle(cx, &model);
     assert_eq!(
         fake.calls(),
@@ -1257,6 +1267,7 @@ fn create_from_example_refuses_existing_file(cx: &mut TestAppContext) {
     idle(cx, &model);
     fake.answer_save(pick(&existing));
     act(cx, &model, TarpackModel::create_from_example);
+    wait_for_calls(cx, &fake, 1);
     idle(cx, &model);
     let error = error_of(cx, &model).expect("a banner");
     let ViewError::Tarpack { error: inner, .. } = &error else {
@@ -1485,7 +1496,12 @@ fn drop_assigns_and_reports_lines(cx: &mut TestAppContext) {
         Some("3 matched. 1 not in the manifest: README.md.")
     );
     for e in entries(cx, &model) {
-        assert_eq!(e.status, EntryStatus::Ready, "{}", e.view.id);
+        let expected = if matches!(e.view.id.as_str(), "gateway-ca" | "gateway-unit") {
+            EntryStatus::Unassigned
+        } else {
+            EntryStatus::Ready
+        };
+        assert_eq!(e.status, expected, "{}", e.view.id);
     }
     assert_eq!(
         status_of(cx, &model, "gateway-bin")
@@ -1503,7 +1519,7 @@ fn drop_assigns_and_reports_lines(cx: &mut TestAppContext) {
         }
         _ => None,
     });
-    assert_eq!(kept, Some((false, 3, EntryStatus::Ready)));
+    assert_eq!(kept, Some((false, 5, EntryStatus::Ready)));
     // Dismissing it hints focus; dismissing nothing does not.
     act(cx, &model, TarpackModel::dismiss_drop_result);
     assert!(read(cx, &model, |m| m.drop_state().is_none()));
@@ -1836,8 +1852,8 @@ fn fixtures_build_each_manifest_state(cx: &mut TestAppContext) {
             }
             F::Recent | F::Loaded | F::Drag | F::Dropped => {
                 let m = manifest.expect("manifest");
-                assert_eq!((m.entries.len(), m.error_count), (3, 0), "{fixture:?}");
-                assert_eq!(statuses(EntryStatus::Unassigned), 3);
+                assert_eq!((m.entries.len(), m.error_count), (5, 0), "{fixture:?}");
+                assert_eq!(statuses(EntryStatus::Unassigned), 5);
                 assert_eq!(recent.len(), 3);
                 assert_eq!(recent[0], MANIFEST_PATH);
                 assert!(!session.can_build);
@@ -1856,12 +1872,12 @@ fn fixtures_build_each_manifest_state(cx: &mut TestAppContext) {
                 assert!(!session.can_build);
             }
             F::Partial => {
-                assert_eq!(statuses(EntryStatus::Ready), 2);
-                assert_eq!(statuses(EntryStatus::Unassigned), 1);
+                assert_eq!(statuses(EntryStatus::Ready), 3);
+                assert_eq!(statuses(EntryStatus::Unassigned), 2);
                 assert_eq!(session.output_path.as_deref(), Some(OUTPUT_PATH));
             }
             F::Changed | F::Ready => {
-                assert_eq!(statuses(EntryStatus::Ready), 3, "{fixture:?}");
+                assert_eq!(statuses(EntryStatus::Ready), 5, "{fixture:?}");
                 assert!(session.can_build);
             }
             F::Withheld => {
@@ -1888,4 +1904,502 @@ fn fixtures_build_each_manifest_state(cx: &mut TestAppContext) {
         fm_tarpack::manifest::parse(&gateway_withheld()).error_count(),
         1
     );
+}
+
+// ---- review follow-up: opener failures ----
+
+#[gpui::test]
+fn edit_reports_an_opener_failure(cx: &mut TestAppContext) {
+    let (model, fake) = start(cx, &FixtureTarpack::loaded());
+    idle(cx, &model);
+    // The system refuses (no `.toml` handler): the banner, with its detail.
+    fake.answer_open(Err(OpenError {
+        detail: "No application is associated with this file type.".to_string(),
+    }));
+    let before = read(cx, &model, TarpackModel::error_generation);
+    act(cx, &model, TarpackModel::edit);
+    idle(cx, &model);
+    let error = error_of(cx, &model).expect("a banner");
+    let ViewError::Tarpack { error: inner, .. } = &error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(inner.kind, TarpackErrorKind::OpenerFailed);
+    assert_eq!(error.copy(), "Windows could not open it.");
+    assert_eq!(
+        error.detail(),
+        "No application is associated with this file type."
+    );
+    assert_eq!(read(cx, &model, TarpackModel::error_generation), before + 1);
+    // The next success (nothing scripted: `Ok`) leaves no banner behind.
+    act(cx, &model, |m, cx| m.clear("gateway-bin", cx));
+    idle(cx, &model);
+    act(cx, &model, TarpackModel::edit);
+    idle(cx, &model);
+    assert!(error_of(cx, &model).is_none());
+    assert_eq!(
+        fake.calls()
+            .iter()
+            .filter(|c| matches!(c, PlatformCall::OpenWithSystem(_)))
+            .count(),
+        2
+    );
+}
+
+// ---- review follow-up: the recent list ----
+
+#[gpui::test]
+fn open_recent_refuses_a_list_that_changed(cx: &mut TestAppContext) {
+    let backend = FixtureTarpack::loaded();
+    let (model, _) = start(cx, &backend);
+    idle(cx, &model);
+    let shown = read(cx, &model, |m| m.recent().to_vec());
+    assert_eq!(shown[1], "C:\\Packages\\sensor-agent\\manifest.toml");
+    // The backend's list is reordered before the model's copy refreshes.
+    backend.set_recent(&[
+        "C:\\Packages\\gateway\\manifest.toml",
+        "D:\\work\\edge-router\\deploy.toml",
+        "C:\\Packages\\sensor-agent\\manifest.toml",
+    ]);
+    act(cx, &model, |m, cx| m.open_recent(1, cx));
+    idle(cx, &model);
+    // Nothing was opened, the list is the backend's, and the banner says why.
+    assert_eq!(manifest_path(cx, &model).as_deref(), Some(MANIFEST_PATH));
+    assert_eq!(
+        read(cx, &model, |m| m.recent().to_vec()),
+        [
+            "C:\\Packages\\gateway\\manifest.toml",
+            "D:\\work\\edge-router\\deploy.toml",
+            "C:\\Packages\\sensor-agent\\manifest.toml",
+        ]
+    );
+    let error = error_of(cx, &model).expect("a banner");
+    assert_eq!(error, ViewError::RecentChanged);
+    assert_eq!(
+        error.copy(),
+        "The recent list changed. Choose the manifest again."
+    );
+    assert_eq!(error.detail(), "");
+    assert_eq!(
+        backend
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, Call::Open(_)))
+            .count(),
+        0
+    );
+    // Choosing again, from the refreshed list, opens the right one.
+    act(cx, &model, |m, cx| m.open_recent(2, cx));
+    idle(cx, &model);
+    assert_eq!(
+        manifest_path(cx, &model).as_deref(),
+        Some("C:\\Packages\\sensor-agent\\manifest.toml")
+    );
+    assert!(error_of(cx, &model).is_none());
+}
+
+#[test]
+fn real_backend_open_recent_checks_the_display_string() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_manifest(dir.path(), "a.toml", GATEWAY);
+    let b = write_manifest(dir.path(), "b.toml", GATEWAY);
+    let mut backend = real(dir.path());
+    backend.open(&a).expect("open a");
+    backend.open(&b).expect("open b");
+    assert_eq!(backend.recent_manifests(), [display(&b), display(&a)]);
+    // A copy that thinks position 1 is something else opens nothing.
+    assert_eq!(
+        backend.open_recent(1, &display(&b)).expect("no error"),
+        None
+    );
+    assert_eq!(
+        backend.manifest_path().as_deref(),
+        Some(b.as_path()),
+        "still on b"
+    );
+    // The matching text opens it.
+    let session = backend
+        .open_recent(1, &display(&a))
+        .expect("no error")
+        .expect("opened");
+    assert_eq!(
+        session.manifest.map(|m| m.path),
+        Some(display(&a)),
+        "now on a"
+    );
+    assert_eq!(backend.recent_manifests(), [display(&a), display(&b)]);
+}
+
+#[gpui::test]
+fn recent_list_refreshes_after_every_load(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_manifest(dir.path(), "a.toml", GATEWAY);
+    let (model, fake) = start_boxed(cx, Box::new(real(dir.path())));
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.recent().is_empty()));
+    fake.answer_pick(pick(&a));
+    act(cx, &model, TarpackModel::open);
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, |m| m.recent().to_vec()), [display(&a)]);
+    // A created example is remembered too.
+    let created = dir.path().join("new.toml");
+    fake.answer_save(pick(&created));
+    act(cx, &model, TarpackModel::create_from_example);
+    wait_for_calls(cx, &fake, 2);
+    idle(cx, &model);
+    assert_eq!(
+        read(cx, &model, |m| m.recent().to_vec()),
+        [display(&created), display(&a)]
+    );
+}
+
+// ---- review follow-up: where browse starts ----
+
+/// The folder the second browse of `gateway-bin` starts in, after the first
+/// assigned `assigned` to it.
+fn browse_start(cx: &mut TestAppContext, assigned: &str) -> Option<PathBuf> {
+    let backend = FixtureTarpack::loaded();
+    let (model, fake) = start(cx, &backend);
+    idle(cx, &model);
+    fake.answer_pick(pick(Path::new(assigned)));
+    act(cx, &model, |m, cx| m.browse("gateway-bin", cx));
+    idle(cx, &model);
+    act(cx, &model, |m, cx| m.browse("gateway-bin", cx));
+    idle(cx, &model);
+    let Some(PlatformCall::Pick(spec)) = fake.calls().pop() else {
+        panic!("a dialog");
+    };
+    spec.start_dir
+}
+
+#[cfg(unix)]
+#[gpui::test]
+fn browse_starts_in_the_parent_folder(cx: &mut TestAppContext) {
+    let start = |cx: &mut TestAppContext, p: &str| browse_start(cx, p);
+    assert_eq!(start(cx, "/a.txt"), Some(PathBuf::from("/")), "root");
+    assert_eq!(start(cx, "/tools/a.txt"), Some(PathBuf::from("/tools")));
+    assert_eq!(
+        start(cx, "/tools/sub/a.txt"),
+        Some(PathBuf::from("/tools/sub"))
+    );
+    assert_eq!(start(cx, "a.txt"), None, "no parent, no start folder");
+}
+
+// Windows path syntax: only the Windows job can run this.
+#[cfg(windows)]
+#[gpui::test]
+fn browse_starts_in_the_parent_folder(cx: &mut TestAppContext) {
+    let start = |cx: &mut TestAppContext, p: &str| browse_start(cx, p);
+    assert_eq!(
+        start(cx, "C:\\a.txt"),
+        Some(PathBuf::from("C:\\")),
+        "drive root"
+    );
+    assert_eq!(start(cx, "C:/a.txt"), Some(PathBuf::from("C:/")));
+    assert_eq!(
+        start(cx, "C:\\tools\\a.txt"),
+        Some(PathBuf::from("C:\\tools"))
+    );
+    assert_eq!(
+        start(cx, "C:/tools/sub/a.txt"),
+        Some(PathBuf::from("C:/tools/sub"))
+    );
+    assert_eq!(
+        start(cx, "\\\\srv\\share\\a.txt"),
+        Some(PathBuf::from("\\\\srv\\share\\")),
+        "UNC share root"
+    );
+    assert_eq!(
+        start(cx, "\\\\srv\\share\\d\\a.txt"),
+        Some(PathBuf::from("\\\\srv\\share\\d"))
+    );
+    assert_eq!(start(cx, "a.txt"), None, "no parent, no start folder");
+}
+
+#[cfg(unix)]
+#[gpui::test]
+fn browse_starts_in_a_folder_that_is_not_valid_unicode(cx: &mut TestAppContext) {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let odd = dir.path().join(OsStr::from_bytes(b"d\xff"));
+    fs::create_dir(&odd).expect("dir");
+    let source = odd.join("gateway");
+    fs::write(&source, b"x").expect("source");
+    let m = write_manifest(dir.path(), "m.toml", GATEWAY);
+    real(dir.path()).open(&m).expect("open");
+    let (model, fake) = start_boxed(cx, Box::new(real(dir.path())));
+    idle(cx, &model);
+    fake.answer_pick(pick(&source));
+    act(cx, &model, |m, cx| m.browse("gateway-bin", cx));
+    idle(cx, &model);
+    act(cx, &model, |m, cx| m.browse("gateway-bin", cx));
+    idle(cx, &model);
+    let Some(PlatformCall::Pick(spec)) = fake.calls().pop() else {
+        panic!("a dialog");
+    };
+    // The exact folder, not its display string with U+FFFD in it.
+    assert_eq!(spec.start_dir.as_deref(), Some(odd.as_path()));
+}
+
+// ---- review follow-up: the start folder lookup ----
+
+#[gpui::test]
+fn default_start_dir_is_looked_up_off_the_ui_thread(cx: &mut TestAppContext) {
+    let (model, fake) = start(cx, &FixtureTarpack::empty());
+    idle(cx, &model);
+    let ui = std::thread::current().id();
+    act(cx, &model, TarpackModel::create_from_example);
+    wait_for_calls(cx, &fake, 1);
+    let lookups = LOOKUP_THREADS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    assert!(!lookups.is_empty(), "the lookup ran");
+    assert!(!lookups.contains(&ui), "never on the UI thread");
+    let Some(PlatformCall::PickSave(spec)) = fake.calls().pop() else {
+        panic!("a save dialog");
+    };
+    assert_eq!(spec.start_dir, default_start_dir());
+}
+
+// ---- review follow-up: stale results, panics, the watcher ----
+
+#[gpui::test]
+fn a_stale_command_result_is_discarded(cx: &mut TestAppContext) {
+    let backend = FixtureTarpack::loaded();
+    let (model, _) = start(cx, &backend);
+    idle(cx, &model);
+    let errors_before = read(cx, &model, TarpackModel::error_generation);
+    // The older command fails; the newer one succeeds. Showing the older
+    // answer would raise a banner (and bump the generation), however briefly.
+    backend.fail_next(err(TarpackErrorKind::UnknownEntry));
+    act(cx, &model, |m, cx| {
+        m.clear("gateway-bin", cx);
+        m.clear("gateway-conf", cx);
+    });
+    idle(cx, &model);
+    assert_eq!(
+        read(cx, &model, TarpackModel::error_generation),
+        errors_before,
+        "the older failure was never shown"
+    );
+    assert!(error_of(cx, &model).is_none());
+    // Both commands ran in order on the backend.
+    let clears: Vec<_> = backend
+        .calls()
+        .into_iter()
+        .filter(|c| matches!(c, Call::Clear(_)))
+        .collect();
+    assert_eq!(
+        clears,
+        [
+            Call::Clear("gateway-bin".to_string()),
+            Call::Clear("gateway-conf".to_string())
+        ]
+    );
+}
+
+fn session_fetches(backend: &FixtureTarpack) -> usize {
+    backend
+        .calls()
+        .iter()
+        .filter(|c| matches!(c, Call::Session))
+        .count()
+}
+
+#[gpui::test]
+fn a_panicking_command_refetches_the_session(cx: &mut TestAppContext) {
+    for (command, run) in [
+        (
+            Command::Clear,
+            (|m: &mut TarpackModel, cx: &mut Context<TarpackModel>| m.clear("gateway-bin", cx))
+                as fn(&mut TarpackModel, &mut Context<TarpackModel>),
+        ),
+        (Command::Reload, TarpackModel::reload),
+    ] {
+        let backend = FixtureTarpack::loaded();
+        let (model, _) = start(cx, &backend);
+        idle(cx, &model);
+        let fetched = session_fetches(&backend);
+        backend.panic_on(command);
+        act(cx, &model, run);
+        idle(cx, &model);
+        let error = error_of(cx, &model).expect("the banner stays");
+        assert!(
+            matches!(&error, ViewError::Unexpected { message } if message.contains("exploded")),
+            "{command:?}: {error:?}"
+        );
+        assert_eq!(
+            session_fetches(&backend),
+            fetched + 1,
+            "{command:?}: the backend's state was fetched again"
+        );
+        assert_eq!(manifest_path(cx, &model).as_deref(), Some(MANIFEST_PATH));
+    }
+}
+
+#[gpui::test]
+fn a_panicking_drop_refetches_the_session(cx: &mut TestAppContext) {
+    for command in [Command::BeginDrop, Command::FinishDrop] {
+        let backend = FixtureTarpack::loaded();
+        let (model, _) = start(cx, &backend);
+        idle(cx, &model);
+        let fetched = session_fetches(&backend);
+        backend.panic_on(command);
+        dropped(cx, &model, &["C:\\Builds\\gateway\\gateway"]);
+        idle(cx, &model);
+        wait_for(cx, |_| session_fetches(&backend) > fetched);
+        let error = error_of(cx, &model).expect("the banner stays");
+        assert!(
+            matches!(&error, ViewError::Unexpected { message } if message.contains("exploded")),
+            "{command:?}: {error:?}"
+        );
+        assert!(read(cx, &model, |m| m.drop_state().is_none()));
+        assert_eq!(session_fetches(&backend), fetched + 1, "{command:?}");
+    }
+}
+
+fn watcher_id(cx: &mut TestAppContext, model: &Entity<TarpackModel>) -> Option<u64> {
+    read(cx, model, TarpackModel::watcher_id)
+}
+
+/// Runs until the model's watcher is not `old`.
+fn wait_for_new_watcher(
+    cx: &mut TestAppContext,
+    model: &Entity<TarpackModel>,
+    old: Option<u64>,
+) -> u64 {
+    wait_for(cx, |cx| {
+        watcher_id(cx, model).is_some() && watcher_id(cx, model) != old
+    });
+    watcher_id(cx, model).expect("armed")
+}
+
+#[gpui::test]
+fn the_watcher_is_re_armed_on_open_reload_and_create(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_manifest(dir.path(), "a.toml", GATEWAY);
+    let b = write_manifest(dir.path(), "b.toml", GATEWAY);
+    real(dir.path()).open(&a).expect("open");
+    let (model, fake) = start_boxed(cx, Box::new(real(dir.path())));
+    idle(cx, &model);
+    let first = wait_for_new_watcher(cx, &model, None);
+    // Fetching the session again keeps the watcher of the same path.
+    act(cx, &model, TarpackModel::activated);
+    idle(cx, &model);
+    assert_eq!(watcher_id(cx, &model), Some(first), "kept");
+    // Opening another manifest arms a new one.
+    fake.answer_pick(pick(&b));
+    act(cx, &model, TarpackModel::open);
+    let second = wait_for_new_watcher(cx, &model, Some(first));
+    // Reloading replaces it even though the path is the same.
+    act(cx, &model, TarpackModel::reload);
+    let third = wait_for_new_watcher(cx, &model, Some(second));
+    // So does creating from the example.
+    let created = dir.path().join("new.toml");
+    fake.answer_save(pick(&created));
+    act(cx, &model, TarpackModel::create_from_example);
+    wait_for_calls(cx, &fake, 2);
+    let fourth = wait_for_new_watcher(cx, &model, Some(third));
+    let ids = [first, second, third, fourth];
+    for (i, id) in ids.iter().enumerate() {
+        assert!(!ids[..i].contains(id), "{ids:?}: every re-arm is new");
+    }
+}
+
+#[gpui::test]
+fn events_of_a_superseded_watcher_change_nothing(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let m = write_manifest(dir.path(), "m.toml", GATEWAY);
+    real(dir.path()).open(&m).expect("open");
+    let (model, _) = start_boxed(cx, Box::new(real(dir.path())));
+    idle(cx, &model);
+    let old = wait_for_new_watcher(cx, &model, None);
+    act(cx, &model, TarpackModel::reload);
+    let current = wait_for_new_watcher(cx, &model, Some(old));
+    let generation_before = generation(cx, &model);
+    // An event of the old watcher, after the re-arm.
+    act(cx, &model, |m, cx| m.watcher_fired(old, cx));
+    assert!(read(cx, &model, |m| !m.changed_on_disk()));
+    assert_eq!(generation(cx, &model), generation_before, "no announcement");
+    // The current watcher's event counts.
+    act(cx, &model, |m, cx| m.watcher_fired(current, cx));
+    assert!(read(cx, &model, TarpackModel::changed_on_disk));
+    assert_eq!(say(cx, &model).as_deref(), Some(text::CHANGED_ON_DISK));
+}
+
+#[gpui::test]
+fn a_reload_with_the_same_error_count_announces_again(cx: &mut TestAppContext) {
+    let backend = FixtureTarpack::from_fixture(TarpackFixture::Errors);
+    let (model, _) = start(cx, &backend);
+    idle(cx, &model);
+    let sentence = "Gateway deploy has 2 errors. 1 file will be left out of the archive.";
+    let mut previous = generation(cx, &model);
+    for _ in 0..2 {
+        act(cx, &model, TarpackModel::reload);
+        idle(cx, &model);
+        // The same sentence, announced again: only the generation tells.
+        assert_eq!(say(cx, &model).as_deref(), Some(sentence));
+        assert_eq!(generation(cx, &model), previous + 1);
+        previous += 1;
+    }
+    // Clearing the errors announces "No errors"; a clean reload after that
+    // announces nothing.
+    backend.set_text(GATEWAY);
+    act(cx, &model, TarpackModel::reload);
+    idle(cx, &model);
+    assert_eq!(
+        say(cx, &model).as_deref(),
+        Some("Gateway deploy reloaded. No errors.")
+    );
+    assert_eq!(generation(cx, &model), previous + 1);
+    act(cx, &model, TarpackModel::reload);
+    idle(cx, &model);
+    assert_eq!(generation(cx, &model), previous + 1);
+}
+
+#[test]
+fn the_errors_fixture_carries_the_reference_diagnostics() {
+    let mut backend = FixtureTarpack::from_fixture(TarpackFixture::Errors);
+    let session = backend.session();
+    let m = session.manifest.expect("manifest");
+    let ids: Vec<&str> = m.entries.iter().map(|e| e.view.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "gateway-bin",
+            "gateway-conf",
+            "gateway-start",
+            "gateway-unit"
+        ]
+    );
+    let failed = &m.failed_entries[0];
+    assert_eq!(
+        (failed.id.as_deref(), failed.line),
+        (Some("gateway-ca"), 33)
+    );
+    let at: Vec<_> = failed.errors.iter().map(|e| (e.line, e.col)).collect();
+    assert_eq!(at, [(35, 7), (36, 8)]);
+    assert_eq!(
+        failed.errors[0].message,
+        "file `gateway-ca`: dir must be absolute (start with `/`)"
+    );
+    assert_eq!(
+        failed.errors[1].message,
+        "file `gateway-ca`: mode: mode `0898` is not an octal string"
+    );
+    assert_eq!(m.warnings.len(), 1);
+    assert_eq!((m.warnings[0].line, m.warnings[0].col), (41, 10));
+    assert_eq!(
+        m.warnings[0].message,
+        "file `gateway-unit`: source `gateway.service` matches file `gateway-svc` (compared case-insensitively); a dropped file cannot tell them apart, so pick their files per row"
+    );
+    assert_eq!(m.error_count, 2);
+    // The other states show the five-entry gateway.
+    let loaded = FixtureTarpack::from_fixture(TarpackFixture::Loaded).session();
+    let loaded = loaded.manifest.expect("manifest");
+    assert_eq!(loaded.entries.len(), 5);
+    assert_eq!(loaded.entries[3].view.source, "ca.pem");
+    assert_eq!(loaded.entries[4].view.source, "gateway.service");
 }

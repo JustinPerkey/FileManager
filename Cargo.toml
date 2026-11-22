@@ -24,11 +24,12 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-fe
 gpui-component = "=0.10.0"
 gpui-kit-assets = "=0.10.0"
 async-channel = "2"
+directories = "6"
 # PNG encoding for the screenshot harness (feature `shoot` of filemanager-gpui).
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 # Same version GPUI uses on Windows; the file dialogs (M3c) call it directly.
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }
 raw-window-handle = "0.6"
 
 # Every crate opts in with `[lints] workspace = true`. CI runs clippy with
