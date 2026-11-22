@@ -196,6 +196,16 @@ screenshot state listed above, built from `examples/tarpack/` manifests
 files), fake Windows display paths, a recent list, and drop outcomes for
 `-dropped` and `-withheld`. Part B adds the build fixtures.
 
+**Fixture timing rule (planner, 2026-11-22, after M4).** The harness's
+`Step::WaitIdle` is a short fixed settle, not idle detection: it does not
+await `Worker` jobs, `spawn_thread` jobs or async loads. So every fixture
+backend state a scenario shows must answer **synchronously** (the backend
+method returns at once, so the Worker call resolves inside the settle), or
+the scenario that shows it must add an explicit `Step::Wait(ms)` long
+enough for the job. Fixtures that simulate long work (progress, a running
+step) are timed on purpose; document each fixture's timing in its doc
+comment so the scenario author knows which `Wait` it needs.
+
 ### Rules that bind this task
 
 - Views never touch the filesystem or a domain crate. No blocking I/O on

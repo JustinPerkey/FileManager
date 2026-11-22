@@ -16,6 +16,7 @@ use gpui_component::WindowExt as _;
 
 use crate::app::drop::DropTarget;
 use crate::app::guard::{self, CloseRequest};
+use crate::app::probe;
 use crate::app::text;
 use crate::app::view;
 use crate::platform::path_loss::{Coalescer, Signal};
@@ -297,7 +298,7 @@ impl Render for Shell {
         // capture-phase mouse-up, exactly once, wherever the pointer is.
         let weak = cx.entity().downgrade();
         let tracker = canvas(
-            |_, _, _| (),
+            |_, _, _| probe::begin_frame(),
             move |_, (), window, _cx| {
                 let on_exit = weak.clone();
                 window.on_mouse_event(move |event: &FileDropEvent, phase, window, cx| {
@@ -649,6 +650,24 @@ mod tests {
         send(&tx, NON_UNICODE, cx);
         send(&tx, UNREADABLE, cx);
         assert_eq!(notice(&shell, cx), None, "a paste logs the same text");
+    }
+
+    #[gpui::test]
+    fn shell_starts_a_probe_frame_on_every_draw(cx: &mut TestAppContext) {
+        let tx = feed(cx);
+        let (shell, cx) = open(cx, tools::build);
+        enter(cx);
+        tx.try_send(NON_UNICODE).expect("open channel");
+        cx.run_until_parked();
+        assert!(
+            probe::bounds("shell-notice").is_some(),
+            "the notice is drawn"
+        );
+        // Hide the tagged element and redraw. No manual `begin_frame`: only the
+        // Shell's own call can make the stale entry stop resolving.
+        shell.update(cx, Shell::dismiss_notice);
+        cx.run_until_parked();
+        assert_eq!(probe::bounds("shell-notice"), None);
     }
 
     #[gpui::test]

@@ -150,9 +150,12 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               view/ (the chrome slot: ui-implementer's, placeholder.rs
                               is the plain stand-in)
   src/app/probe.rs            `.tag("name")` on an element: records its bounds (test and
-                              `shoot` builds only) so the harness can click or clip to it
+                              `shoot` builds only) so the harness can click or clip to it;
+                              only tags drawn in the latest frame resolve (Shell calls
+                              `begin_frame` once per draw); `.tag` goes last in a chain
   src/shoot/                  screenshot harness, feature `shoot` only: Scenario/Step API,
-                              steps.rs (player), scenarios/ (ui-implementer's; one per
+                              steps.rs (player), cli.rs (arg parsing, child runner with
+                              a 60 s timeout), scenarios/ (ui-implementer's; one per
                               manual image). src/bin/filemanager-shoot.rs is its binary
                               (required-features = shoot); never in the release exe
   src/tools/                  registry (ToolId, ToolSlot, ToolHooks, build) and one

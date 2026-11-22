@@ -44,7 +44,11 @@ byte/pixel comparison of two PNGs). Facts:
 - The image is in device pixels: at a display scale of 125% a 1000×700
   window gives a larger PNG.
 - GPUI records **debug selectors only in debug builds**, so a harness that
-  clicks by selector must be a dev-profile build.
+  clicks by selector must be a dev-profile build. *(As built, 2026-11-22:
+  debug selectors cannot be read outside `VisualTestContext` at all, so the
+  harness resolves `.tag("<name>")` names recorded by `app/probe.rs`; it
+  stays in the dev profile because that reuses the test build. Follow-ups:
+  `M4b-harness-followups.md`.)*
 
 ### What to build
 
@@ -82,11 +86,11 @@ pub struct Scenario {
     pub size: (f32, f32),                   // logical px; 1000×700 default, 1366×800 Tar Packager
     pub setup: fn(&mut AppSetup),           // fixtures, scripted platform answers
     pub steps: &'static [Step],
-    pub clip: Option<&'static str>,         // debug selector: crop the PNG to that element's bounds (no margin)
+    pub clip: Option<&'static str>,         // tag (`.tag(..)`, app/probe.rs): crop the PNG to that element's bounds (no margin)
 }
 pub enum Step {
     SelectTool(ToolId),
-    Click(&'static str),                    // debug selector
+    Click(&'static str),                    // tag (`.tag(..)`), not a debug selector
     Keys(&'static str),                     // GPUI keystroke syntax, "ctrl-alt-shift-d"
     Type(&'static str),                     // into the focused input
     DragEnter(&'static [&'static str]),     // paths, for the drop overlay

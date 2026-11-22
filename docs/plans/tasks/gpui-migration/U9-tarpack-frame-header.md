@@ -124,6 +124,16 @@ Debug selectors: `tarpack-open`, `tarpack-recent`, `tarpack-reload`,
 `tarpack-error`, `tarpack-changed`, `tarpack-errors`,
 `tarpack-errors-toggle`, `tarpack-drop-result`, `tarpack-header`.
 
+**Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
+harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
+names (`apps/filemanager/src/app/probe.rs`); GPUI's debug selectors cannot be
+read outside `VisualTestContext`, so they do not work in the harness. Every
+element a scenario clicks or clips therefore carries `.tag("<name>")` as the
+**outermost (last) call of its builder chain**, using the names this plan
+lists (where this plan says "debug selector", read "tag"). If a
+`VisualTestContext` view test also clicks the element, add
+`.debug_selector(..)` with the same name as well.
+
 ## Files
 
 Create: `apps/filemanager/src/tools/tarpack/view/{header.rs,banners.rs,empty.rs,errors.rs,drop_result.rs,tests.rs}`.

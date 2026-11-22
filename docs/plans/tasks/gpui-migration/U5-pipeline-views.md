@@ -123,6 +123,16 @@ Debug selectors: `pipeline-folder-input`, `pipeline-browse`,
 `pipeline-run-next`, `pipeline-run-all`, `pipeline-step-<n>` (1–4),
 `pipeline-run-<n>`, `pipeline-error`, `pipeline-retry`.
 
+**Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
+harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
+names (`apps/filemanager/src/app/probe.rs`); GPUI's debug selectors cannot be
+read outside `VisualTestContext`, so they do not work in the harness. Every
+element a scenario clicks or clips therefore carries `.tag("<name>")` as the
+**outermost (last) call of its builder chain**, using the names this plan
+lists (where this plan says "debug selector", read "tag"). If a
+`VisualTestContext` view test also clicks the element, add
+`.debug_selector(..)` with the same name as well.
+
 ## Files
 
 Create: `apps/filemanager/src/tools/pipeline/view/{folder.rs,run_bar.rs,steps.rs,tests.rs}`.

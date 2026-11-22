@@ -185,9 +185,12 @@ border; `65ch`; tabular numerals (§4.6).
 
 Every interactive widget is keyboard reachable (Tab, plus Enter/Space for
 buttons and checkboxes, with key-down **and** key-up in tests: gap 7) and
-labelled. Debug selectors follow `<scope>-<thing>` (`tarpack-build`,
-`dialog-confirm`) and are listed in each task plan; scenarios and view tests
-rely on them.
+labelled. Element names follow `<scope>-<thing>` (`tarpack-build`,
+`dialog-confirm`) and are listed in each task plan. Scenarios click and clip
+only by `.tag("<name>")` (the harness's probe, `app/probe.rs`), called last
+in the builder chain; view tests in `VisualTestContext` use
+`.debug_selector(..)` with the same name (planner note, 2026-11-22, after
+M4).
 
 ### 3.1 Shared widgets (`apps/filemanager/src/widgets/`, U2 and U3)
 
@@ -425,7 +428,7 @@ run with `run_shortcut`; held keys do not repeat an action:
 
 Each scenario is `apps/filemanager/src/shoot/scenarios/<tool>.rs`, named as
 the PNG stem, with a fixture state from the tool's `fixtures.rs` and the
-`FakePlatform`. Selectors are the debug selectors of §3 and the task plans.
+`FakePlatform`. Selectors are the `.tag(..)` names of §3 and the task plans.
 
 | Image | Size | Fixture | Steps |
 |---|---|---|---|
@@ -494,7 +497,7 @@ Every U task fills its rows of `docs/gpui-test-ledger.md` (created in M3a):
 ## 8. Requests to the planner
 
 - **R1 Crop in the harness (M4, M8).** Add `clip: Option<&'static str>` to
-  `shoot::Scenario`: when set, the PNG is cropped to that debug selector's
+  `shoot::Scenario`: when set, the PNG is cropped to that tag's (`.tag(..)`; originally "debug selector's")
   bounds (plus nothing). Four manual images are crops (§6). M8's acceptance
   "every PNG is the harness output at the scenario's size" then reads "…at
   the scenario's size or clip".

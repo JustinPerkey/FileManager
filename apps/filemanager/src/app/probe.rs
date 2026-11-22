@@ -9,15 +9,33 @@
 //! drives or clips to call `.tag("name")` on the element, next to any
 //! `debug_selector`.
 //!
-//! A tag keeps the bounds of its latest paint. An element that stops being
-//! drawn keeps its last bounds until [`reset`] (the harness calls it once per
-//! scenario).
+//! Rules for a tagged element:
+//!
+//! - `.tag("name")` is the **last** call in the builder chain (outermost), so
+//!   the recorded bounds are the element's final bounds, not an inner box.
+//! - A tag resolves only if its element was laid out in the **latest frame**.
+//!   A frame starts when [`begin_frame`] runs, which the `Shell` does once per
+//!   window draw before any of its children are laid out. An element that left
+//!   the tree no longer resolves (`bounds` is `None`), so the harness reports
+//!   "not found" instead of using stale coordinates. A view GPUI replays from
+//!   its cache without redrawing records nothing for that frame; tagged
+//!   elements must not sit inside a `cached` view. [`reset`] forgets
+//!   everything (the harness calls it once per scenario).
+//!   Consequences: a tag on the Shell's root, or on any ancestor of its tracker
+//!   canvas, never resolves (it is laid out before the frame starts); the
+//!   Shell must not be wrapped in a `cached` view; the counter is per thread,
+//!   so a second window's draw invalidates the first window's tags; a step
+//!   that depends on a state a click just caused needs `Step::WaitIdle` before
+//!   the next `Click`; and an element that is prepainted but not painted (list
+//!   measurement, for example) can still resolve.
+//! - `debug_selector` is for `VisualTestContext` tests only; the harness cannot
+//!   read it in a real window. Tag what a scenario drives.
 
 use gpui::{IntoElement, SharedString};
 
 #[cfg(any(test, feature = "shoot"))]
 mod imp {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
 
     use gpui::{
@@ -26,15 +44,27 @@ mod imp {
     };
 
     thread_local! {
-        static BOUNDS: RefCell<HashMap<SharedString, Bounds<Pixels>>> = RefCell::default();
+        /// Name -> (frame it was recorded in, bounds).
+        static BOUNDS: RefCell<HashMap<SharedString, (u64, Bounds<Pixels>)>> = RefCell::default();
+        static FRAME: Cell<u64> = const { Cell::new(0) };
     }
 
     pub fn reset() {
         BOUNDS.with(|b| b.borrow_mut().clear());
     }
 
+    pub fn begin_frame() {
+        FRAME.with(|f| f.set(f.get() + 1));
+    }
+
     pub fn bounds(name: &str) -> Option<Bounds<Pixels>> {
-        BOUNDS.with(|b| b.borrow().get(name).copied())
+        let frame = FRAME.with(Cell::get);
+        BOUNDS.with(|b| {
+            b.borrow()
+                .get(name)
+                .filter(|(stamp, _)| *stamp == frame)
+                .map(|(_, bounds)| *bounds)
+        })
     }
 
     /// The element `tag` returns: draws as the inner element and records its
@@ -89,7 +119,8 @@ mod imp {
             window: &mut Window,
             cx: &mut App,
         ) -> Self::PrepaintState {
-            BOUNDS.with(|b| b.borrow_mut().insert(self.name.clone(), bounds));
+            let frame = FRAME.with(Cell::get);
+            BOUNDS.with(|b| b.borrow_mut().insert(self.name.clone(), (frame, bounds)));
             self.inner
                 .prepaint(id, inspector_id, bounds, request_layout, window, cx)
         }
@@ -141,7 +172,17 @@ pub use imp::Tagged;
 #[cfg(any(test, feature = "shoot"))]
 pub use imp::reset;
 
-/// The bounds `name` had when last painted (window coordinates, logical px).
+/// Starts a frame: tags recorded before this call no longer resolve unless
+/// drawn again. A no-op outside test and `shoot` builds.
+#[cfg(any(test, feature = "shoot"))]
+pub use imp::begin_frame;
+
+/// Starts a frame (no-op: tags are recorded only in test and harness builds).
+#[cfg(not(any(test, feature = "shoot")))]
+pub fn begin_frame() {}
+
+/// The bounds `name` had in the latest frame (window coordinates, logical px),
+/// or `None` if it was not drawn in it.
 #[cfg(any(test, feature = "shoot"))]
 #[must_use]
 pub fn bounds(name: &str) -> Option<gpui::Bounds<gpui::Pixels>> {
@@ -166,3 +207,91 @@ pub trait Tag: IntoElement {
 }
 
 impl<T: IntoElement> Tag for T {}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::{
+        canvas, div, point, px, size, Bounds, Context, IntoElement, ParentElement as _, Render,
+        Styled as _, TestAppContext, VisualTestContext, Window,
+    };
+
+    use super::*;
+
+    /// Draws a tagged box at `x` when `shown`; always marks the frame start.
+    struct Frame {
+        shown: Rc<Cell<bool>>,
+        x: Rc<Cell<f32>>,
+    }
+
+    impl Render for Frame {
+        fn render(&mut self, _w: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let tracker = canvas(|_, _, _| begin_frame(), |_, (), _, _| ())
+                .absolute()
+                .size_full();
+            let root = div().size_full().child(tracker);
+            if self.shown.get() {
+                root.child(
+                    div()
+                        .absolute()
+                        .left(px(self.x.get()))
+                        .top(px(5.0))
+                        .w(px(30.0))
+                        .h(px(20.0))
+                        .tag("box"),
+                )
+            } else {
+                root
+            }
+        }
+    }
+
+    fn open(cx: &mut TestAppContext) -> (Rc<Cell<bool>>, Rc<Cell<f32>>, &mut VisualTestContext) {
+        reset();
+        let shown = Rc::new(Cell::new(true));
+        let x = Rc::new(Cell::new(10.0));
+        let (s, xx) = (shown.clone(), x.clone());
+        let window = cx.add_window(move |_, _| Frame { shown: s, x: xx });
+        let vcx = VisualTestContext::from_window(window.into(), cx).into_mut();
+        vcx.run_until_parked();
+        (shown, x, vcx)
+    }
+
+    #[gpui::test]
+    fn tag_not_drawn_in_latest_frame_does_not_resolve(cx: &mut TestAppContext) {
+        let (shown, _, vcx) = open(cx);
+        assert_eq!(
+            bounds("box"),
+            Some(Bounds::new(
+                point(px(10.0), px(5.0)),
+                size(px(30.0), px(20.0))
+            ))
+        );
+        shown.set(false);
+        vcx.update(|window, _| window.refresh());
+        vcx.run_until_parked();
+        assert_eq!(bounds("box"), None);
+    }
+
+    #[gpui::test]
+    fn tag_drawn_again_resolves_to_new_bounds(cx: &mut TestAppContext) {
+        let (shown, x, vcx) = open(cx);
+        shown.set(false);
+        vcx.update(|window, _| window.refresh());
+        vcx.run_until_parked();
+        assert_eq!(bounds("box"), None);
+        shown.set(true);
+        x.set(50.0);
+        vcx.update(|window, _| window.refresh());
+        vcx.run_until_parked();
+        assert_eq!(
+            bounds("box"),
+            Some(Bounds::new(
+                point(px(50.0), px(5.0)),
+                size(px(30.0), px(20.0))
+            ))
+        );
+    }
+}

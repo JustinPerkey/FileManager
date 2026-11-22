@@ -43,7 +43,8 @@ Facts that bind: a mouse press does not focus a gpui-component `Button`;
 Enter/Space activate a Button or Checkbox only on key-down **plus** key-up,
 so tests send both events (`KeyDownEvent` then `KeyUpEvent`, or
 `simulate_keystrokes` if it sends both); debug selectors exist only in
-debug builds (tests are debug builds).
+debug builds (tests are debug builds) and only `VisualTestContext` can use
+them; the screenshot harness uses `.tag("<name>")` instead (rule below).
 
 ### The widgets (today's look, from `controls.css`, `base.css`)
 
@@ -73,7 +74,8 @@ colour `text`.
   0.55; a disabled quiet button stays transparent at 0.45); `.busy(b)`
   (inert, full opacity, label unchanged, gpui-component's loading
   indicator); `.shortcut("Ctrl+O")` (tooltip "Shortcut: Ctrl+O", appended
-  to any tooltip); `.tooltip(text)`; `.on_click(..)`; `.debug_selector(..)`.
+  to any tooltip); `.tooltip(text)`; `.on_click(..)`; `.debug_selector(..)`; and works with
+  `.tag(..)` called last (the harness's probe).
 - **`input.rs`**: `text_input(&Entity<InputState>) -> FmInput`: `surface`
   fill (set on the element: the slot is not it), 1 px `border`, radius 6,
   min height 32 px, padding 4/8, placeholder `text_muted`. `.mono()`,
@@ -128,6 +130,16 @@ colour `text`.
   rule: no colour literal, sizes from tokens only.
 - **Gallery for tests** (`src/widgets/tests.rs`): a test-only view
   rendering one of each.
+
+**Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
+harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
+names (`apps/filemanager/src/app/probe.rs`); GPUI's debug selectors cannot be
+read outside `VisualTestContext`, so they do not work in the harness. Every
+element a scenario clicks or clips therefore carries `.tag("<name>")` as the
+**outermost (last) call of its builder chain**, using the names this plan
+lists (where this plan says "debug selector", read "tag"). If a
+`VisualTestContext` view test also clicks the element, add
+`.debug_selector(..)` with the same name as well.
 
 ## Files
 

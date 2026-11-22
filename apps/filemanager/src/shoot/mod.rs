@@ -15,14 +15,25 @@
 //!   `debug_selector` can only be read from a test context, not from a real
 //!   window, and capture needs a real window (GPUI has no headless renderer on
 //!   Windows). A view that a scenario clicks or clips calls `.tag("name")` on
-//!   the element. Tags work in debug and release builds of the harness.
-//! - `WaitIdle` is a heuristic: three consecutive frames have been presented
-//!   with a short pause before each. GPUI exposes no "no task is pending".
+//!   the element. Only tags drawn in the latest frame resolve (see
+//!   [`crate::app::probe`]), in debug and release builds of the harness. CI
+//!   builds the harness in the dev profile because that reuses the test
+//!   build's artifacts.
+//! - [`run_scenario`] builds the app with `init_app` and `open_main_window`
+//!   rather than `run_with`: `run_with` opens the window at the default size
+//!   and owns the run loop, but each scenario needs its own window size and
+//!   setup (fixtures, scripted platform) and a task of its own on the loop.
+//! - `Step::WaitIdle` is a fixed settle: three consecutive frames have been
+//!   presented with a short pause before each. It does not await `Worker`
+//!   jobs, thread jobs or async loads (GPUI exposes no "no task is pending"),
+//!   so fixtures must answer synchronously, or the scenario adds
+//!   `Step::Wait(ms)`.
 //! - `--dark` is a no-op until the theme task provides
 //!   `fm_app::theme::set_override`; the harness records the request and the
 //!   binary says so.
 //! - Capture is Windows only: elsewhere GPUI cannot render to an image.
 
+pub mod cli;
 mod steps;
 
 pub mod scenarios;
@@ -219,10 +230,10 @@ fn capture(
 /// Crops `image` to the tagged element's bounds, scaled to device pixels.
 fn crop(image: &image::RgbaImage, selector: &str, scale: f32) -> Result<image::RgbaImage, Failure> {
     let bounds =
-        probe::bounds(selector).ok_or_else(|| format!("clip selector not found: {selector}"))?;
+        probe::bounds(selector).ok_or_else(|| format!("clip tag not found: {selector}"))?;
     let (x, y, w, h) = device_rect(bounds, scale, (image.width(), image.height()));
     if w == 0 || h == 0 {
-        return Err(format!("clip selector {selector} has no area on screen"));
+        return Err(format!("clip tag {selector} has no area on screen"));
     }
     Ok(image::imageops::crop_imm(image, x, y, w, h).to_image())
 }
