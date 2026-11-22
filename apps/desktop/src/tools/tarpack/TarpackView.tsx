@@ -4,6 +4,7 @@ import { Banner } from "../../app/Banner";
 import { Button } from "../../app/Button";
 import { DropZone } from "../../app/DropZone";
 import { useDevMode } from "../../app/devMode";
+import { useAnnouncer } from "../../app/useAnnouncer";
 import { openFileDialog, saveFileDialog } from "../../lib/tauri";
 import type { ArchiveFormat } from "../../lib/generated/ArchiveFormat";
 import type { Progress } from "../../lib/generated/Progress";
@@ -88,7 +89,8 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
   const [drop, setDrop] = useState<DropState>(null);
   const [pendingShown, setPendingShown] = useState(false);
   const pendingRef = useRef(false);
-  const [announcer, setAnnouncer] = useState<AnnouncerState>({ text: "", pending: "", id: 0 });
+  const announcer = useAnnouncer();
+  const { announce } = announcer;
   const [buildRunning, setBuildRunning] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [result, setResult] = useState<BuildOutcome | null>(null);
@@ -102,18 +104,6 @@ export function TarpackView({ actionsRef, building: buildingProp = false }: Tarp
   const reportRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLElement>(null);
   const sessionRef = useRef<TarpackSession | null>(null);
-
-  // Clear now, set on a frame scheduled only after the clear has committed (see the
-  // effect below), so React can never batch the two into one unchanged render.
-  const announce = useCallback((text: string) => {
-    setAnnouncer((a) => ({ text: "", pending: text, id: a.id + 1 }));
-  }, []);
-  const announceId = announcer.id;
-  useEffect(() => {
-    if (announceId === 0) return;
-    const f = requestAnimationFrame(() => setAnnouncer((a) => ({ ...a, text: a.pending })));
-    return () => cancelAnimationFrame(f);
-  }, [announceId]);
 
   const apply = useCallback(
     (next: TarpackSession, origin: Origin) => {
@@ -623,8 +613,6 @@ function overwriteBody(outputPath: string): string {
     ? `A file with this name already exists in ${folder}. Replacing it can't be undone.`
     : "A file with this name already exists. Replacing it can't be undone.";
 }
-
-type AnnouncerState = { text: string; pending: string; id: number };
 
 function Announcer({ text }: { text: string }) {
   return (

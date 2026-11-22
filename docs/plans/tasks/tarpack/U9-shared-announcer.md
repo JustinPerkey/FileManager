@@ -103,15 +103,32 @@ Read it; the two new tests follow it.
    - `announce` commits `""` before the frame and the text after it;
    - a second `announce` before the frame replaces the pending text, and only
      the latest is shown;
-   - unmounting cancels the frame.
+   - unmounting cancels the frame;
+   - *optional, recommended:* one hook-level race test, so the hook's own
+     file catches the race without a view. With `IS_REACT_ACT_ENVIRONMENT`
+     saved, set to `false`, and restored to its saved value in `finally`,
+     and a rAF stub that fires frames in a microtask (its own `Map` with
+     high ids, as in item 5), call `announce` with the current text from an
+     async continuation, for example after `await Promise.resolve()`. Then
+     assert with a `MutationObserver` on a rendered `<div>{text}</div>`
+     that `""` was observed before the text. If you add it, include it in
+     the revert check: it must fail against a hook that schedules the frame
+     directly in `announce`.
 5. **Regression tests:** one in `PipelineView.test.tsx` and one in
    `ScheduleView.test.tsx`, modelled on the Tar Packager test.
    - Trigger the **same** sentence twice from an **async** call site:
      - Pipeline: run the same step twice with the same result. Each run
        announces "<title>: <status>." after the awaited command; use the
        view's existing mocks.
-     - Schedule: type the same bad path twice. The announcement is the
-       slot's error message, after the awaited `setText`.
+     - Schedule: commit two **different** relative paths in the schedule
+       file field, for example `week.txt` and then `month.txt` (type, then
+       Enter, for each). The same path twice cannot be sent: the backend
+       keeps the typed path in the slot, and the field's unchanged-path
+       guard sends nothing on a second Enter. Each commit announces the
+       same sentence, the `NotAbsolute` message from `errorMessages.ts`
+       ("Enter the full path, …"), after the awaited `setText`. The
+       `setText` mock must behave like the real backend: it echoes the
+       typed path back in the slot, with a `NotAbsolute` error.
    - **rAF stub:**
      - keep its own `Map<number, FrameRequestCallback>`, with ids that start
        far above jsdom's (for example from `1_000_000`), so cancelling a real

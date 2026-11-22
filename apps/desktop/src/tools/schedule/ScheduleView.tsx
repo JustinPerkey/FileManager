@@ -3,6 +3,7 @@ import { Banner } from "../../app/Banner";
 import { Button } from "../../app/Button";
 import { ConfirmDialog } from "../../app/ConfirmDialog";
 import { DropZone } from "../../app/DropZone";
+import { useAnnouncer } from "../../app/useAnnouncer";
 import type { ApplySummary } from "../../lib/generated/ApplySummary";
 import type { FileSlot } from "../../lib/generated/FileSlot";
 import type { ScheduleSession } from "../../lib/generated/ScheduleSession";
@@ -58,8 +59,7 @@ export function ScheduleView() {
   const [result, setResult] = useState<ApplySummary | null>(null);
   // The files of the last successful apply: adding the same schedule again would duplicate entries.
   const [applied, setApplied] = useState<string | null>(null);
-  const [announcement, setAnnouncement] = useState("");
-  const frame = useRef(0);
+  const { text: announcement, announce } = useAnnouncer();
   // After the confirm dialog closes, the Add button is disabled (busy), so the
   // dialog cannot return focus to it; focus moves here once applying ends.
   const refocus = useRef(false);
@@ -67,13 +67,6 @@ export function ScheduleView() {
   const outcomeRef = useRef<HTMLDivElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const reasonId = useId();
-
-  const announce = useCallback((text: string) => {
-    cancelAnimationFrame(frame.current);
-    setAnnouncement("");
-    frame.current = requestAnimationFrame(() => setAnnouncement(text));
-  }, []);
-  useEffect(() => () => cancelAnimationFrame(frame.current), []);
 
   // The error banner is an alert, so failures are not also announced.
   const fail = useCallback((e: unknown) => {
