@@ -21,19 +21,18 @@ use std::path::{Path, PathBuf};
 
 use gpui::{App, Task};
 use windows::core::{HRESULT, PCWSTR};
-use windows::Win32::Foundation::{ERROR_BAD_FORMAT, ERROR_FILE_NOT_FOUND, ERROR_NO_ASSOCIATION};
+use windows::Win32::Foundation::ERROR_FILE_NOT_FOUND;
 use windows::Win32::System::Com::{
     CoInitializeEx, CoUninitialize, IBindCtx, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
 };
 use windows::Win32::UI::Shell::Common::ITEMIDLIST;
 use windows::Win32::UI::Shell::{
     ILFree, SHOpenFolderAndSelectItems, SHParseDisplayName, ShellExecuteExW, SEE_MASK_NOASYNC,
-    SE_ERR_ACCESSDENIED, SE_ERR_ASSOCINCOMPLETE, SE_ERR_DDEBUSY, SE_ERR_DDEFAIL, SE_ERR_DDETIMEOUT,
-    SE_ERR_DLLNOTFOUND, SE_ERR_FNF, SE_ERR_NOASSOC, SE_ERR_OOM, SE_ERR_PNF, SE_ERR_SHARE,
     SHELLEXECUTEINFOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
+use super::shell_error::open_failure;
 use super::OpenError;
 
 /// `s` as a NUL-terminated UTF-16 buffer (lone surrogates are kept).
@@ -41,49 +40,20 @@ fn wide(s: &OsStr) -> Vec<u16> {
     s.encode_wide().chain(std::iter::once(0)).collect()
 }
 
-/// The sentence for a failed shell-execute code: a Win32 error as
-/// `GetLastError` reports it, which for the small codes is the same number as
-/// the `SE_ERR_*` value the older `ShellExecute` returned.
-fn shell_execute_detail(code: usize) -> String {
-    const BAD_FORMAT: u32 = ERROR_BAD_FORMAT.0;
-    const NO_ASSOCIATION: u32 = ERROR_NO_ASSOCIATION.0;
-    let known = u32::try_from(code).ok().and_then(|c| match c {
-        0 | SE_ERR_OOM => Some("There was not enough memory or resources."),
-        SE_ERR_FNF => Some("The file was not found."),
-        SE_ERR_PNF => Some("The folder was not found."),
-        SE_ERR_ACCESSDENIED => Some("Access was denied."),
-        BAD_FORMAT => Some("The file is not a valid program."),
-        SE_ERR_SHARE => Some("A sharing violation occurred."),
-        SE_ERR_ASSOCINCOMPLETE => Some("The file association is incomplete or invalid."),
-        SE_ERR_DDETIMEOUT => Some("The request timed out."),
-        SE_ERR_DDEFAIL => Some("The request failed."),
-        SE_ERR_DDEBUSY => Some("The request could not be completed: the application is busy."),
-        SE_ERR_NOASSOC | NO_ASSOCIATION => {
-            Some("No application is associated with this file type.")
-        }
-        SE_ERR_DLLNOTFOUND => Some("A required library was not found."),
-        _ => None,
-    });
-    known.map_or_else(
-        || format!("The shell reported error {code}."),
-        str::to_string,
-    )
-}
-
 /// The Win32 error code inside an `HRESULT` that wraps one.
-fn win32_code(error: &windows::core::Error) -> Option<usize> {
+fn win32_code(error: &windows::core::Error) -> Option<u32> {
     let hr = error.code().0.cast_unsigned();
-    (hr >> 16 == 0x8007).then(|| usize::try_from(hr & 0xFFFF).unwrap_or(usize::MAX))
+    (hr >> 16 == 0x8007).then_some(hr & 0xFFFF)
 }
 
-/// The detail of a failed `ShellExecuteExW`: the sentence for the
-/// `GetLastError` code when it has one, else what Windows says for it.
-fn shell_error_detail(error: &windows::core::Error) -> String {
+/// The result of a failed `ShellExecuteExW`: the mapped `GetLastError` code
+/// (cancelling the "open with" dialog is `Ok`), else what Windows says.
+fn shell_failure(error: &windows::core::Error) -> Result<(), OpenError> {
     match win32_code(error) {
-        Some(code) if !shell_execute_detail(code).starts_with("The shell reported") => {
-            shell_execute_detail(code)
-        }
-        _ => error.message(),
+        Some(code) => open_failure(code),
+        None => Err(OpenError {
+            detail: error.message(),
+        }),
     }
 }
 
@@ -106,9 +76,10 @@ fn shell_open(target: &OsStr) -> Result<(), OpenError> {
     // outlive the call; the other pointers are null, which the API allows; no
     // window handle is passed, and `fMask` asks for no process handle, so
     // nothing is left to close.
-    unsafe { ShellExecuteExW(&raw mut info) }.map_err(|e| OpenError {
-        detail: shell_error_detail(&e),
-    })
+    match unsafe { ShellExecuteExW(&raw mut info) } {
+        Ok(()) => Ok(()),
+        Err(e) => shell_failure(&e),
+    }
 }
 
 /// A parsed item id list, freed on drop.
@@ -247,39 +218,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn documented_codes_have_their_own_text() {
-        for code in [0, 2, 3, 5, 8, 11, 26, 27, 28, 29, 30, 31, 32, 1155] {
-            assert!(
-                !shell_execute_detail(code).starts_with("The shell reported"),
-                "code {code} is documented"
-            );
-        }
-        assert_eq!(
-            shell_execute_detail(31),
-            "No application is associated with this file type."
-        );
-    }
-
-    #[test]
     fn a_failed_shell_execute_is_described_from_its_last_error() {
         let failed = |code: u32| {
-            shell_error_detail(&windows::core::Error::from_hresult(HRESULT::from_win32(
+            shell_failure(&windows::core::Error::from_hresult(HRESULT::from_win32(
                 code,
             )))
         };
         assert_eq!(
-            failed(ERROR_NO_ASSOCIATION.0),
+            failed(1155).unwrap_err().detail,
             "No application is associated with this file type."
         );
-        assert_eq!(failed(ERROR_FILE_NOT_FOUND.0), "The file was not found.");
-        // A code with no sentence of its own falls back to what Windows says.
-        let unknown = windows::core::Error::from_hresult(HRESULT::from_win32(1223));
-        assert_eq!(shell_error_detail(&unknown), unknown.message());
-    }
-
-    #[test]
-    fn an_unknown_code_is_named() {
-        assert_eq!(shell_execute_detail(17), "The shell reported error 17.");
+        assert_eq!(failed(2).unwrap_err().detail, "The file was not found.");
+        // Cancelling the "open with" dialog is not a failure.
+        assert_eq!(failed(1223), Ok(()));
     }
 
     #[test]

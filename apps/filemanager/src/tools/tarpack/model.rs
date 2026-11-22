@@ -14,9 +14,7 @@
 //! arriving late would show a state the backend no longer holds.
 
 use std::ffi::{OsStr, OsString};
-use std::future::Future as _;
 use std::path::{Path, PathBuf};
-use std::task::{Poll, Waker};
 use std::time::Duration;
 
 use fm_core::watch::FileWatcher;
@@ -169,6 +167,12 @@ pub enum BuildOutcome {
     /// The build failed. Its sentence is [`text::error_copy`], with the
     /// error's message as the detail.
     Err(TarpackError),
+    /// The build job panicked. Its sentence is [`text::UNEXPECTED`], with the
+    /// panic message as the detail.
+    Unexpected {
+        /// The panic message.
+        detail: String,
+    },
 }
 
 /// A key the Tar Packager acts on (`useTarpackShortcuts.ts`). The view maps
@@ -237,10 +241,6 @@ enum Watch {
 type Backend = Box<dyn TarpackBackend>;
 
 /// The Tar Packager's state and behaviour.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "independent view flags (changed on disk, errors open, progress lost, shortcuts open)"
-)]
 pub struct TarpackModel {
     worker: Worker<Backend>,
     session: Option<TarpackSession>,
@@ -275,7 +275,6 @@ pub struct TarpackModel {
     /// The last file the progress named, with its phase: the label keeps it
     /// while directory and long-name records name none.
     progress_last: Option<(BuildPhase, Option<String>)>,
-    progress_unavailable: bool,
     result: Option<BuildOutcome>,
     /// The output named in the open overwrite confirmation.
     confirming: Option<String>,
@@ -377,7 +376,6 @@ impl TarpackModel {
             focus_hint: None,
             progress: None,
             progress_last: None,
-            progress_unavailable: false,
             result: None,
             confirming: None,
             format_notice: None,
@@ -712,12 +710,13 @@ impl TarpackModel {
                 self.errors_expanded = true;
             }
         }
+        if origin != Origin::Other && self.result.take().is_some() && origin == Origin::Reload {
+            // Loading starts clean: the build result goes, so Show in folder
+            // never points at another manifest's archive. After a reload,
+            // focus inside it moves to Reload.
+            self.focus_hint = Some(FocusHint::Reload);
+        }
         if origin == Origin::Reload {
-            // A reload starts clean: the build result and the format notice
-            // go too, and focus inside either result moves to Reload.
-            if self.result.take().is_some() {
-                self.focus_hint = Some(FocusHint::Reload);
-            }
             self.format_notice = None;
         }
         if !parts.is_empty() {
@@ -1234,17 +1233,22 @@ impl TarpackModel {
 }
 
 /// What a build that never settled normally is reported as.
-fn stopped(panic: &JobPanicked) -> TarpackError {
-    TarpackError::new(
-        TarpackErrorKind::Io,
-        format!("{}: {}", text::BUILD_STOPPED, panic.0),
-    )
+fn stopped(panic: &JobPanicked) -> BuildFailure {
+    BuildFailure::Panicked(panic.0.clone())
+}
+
+/// Why a build did not write an archive.
+enum BuildFailure {
+    /// The backend answered with an error.
+    Tarpack(TarpackError),
+    /// A call panicked, with the panic message.
+    Panicked(String),
 }
 
 /// A build, as the model's task reports it: what it came to, and whether the
 /// backend's state is unknown (a call panicked), so the session is fetched
 /// again.
-type Settled = (Result<BuildSummary, TarpackError>, bool);
+type Settled = (Result<BuildSummary, BuildFailure>, bool);
 
 /// The Worker's answer to `begin_build`.
 type Begun = Task<Result<Result<Box<dyn BuildWork>, TarpackError>, JobPanicked>>;
@@ -1293,13 +1297,6 @@ impl TarpackModel {
     #[must_use]
     pub fn progress(&self) -> Option<&Progress> {
         self.progress.as_ref()
-    }
-
-    /// The progress events cannot be read: the view says the build runs
-    /// without a bar. The build still finishes.
-    #[must_use]
-    pub fn progress_unavailable(&self) -> bool {
-        self.progress_unavailable
     }
 
     fn source_file(&self, id: &str) -> Option<&str> {
@@ -1490,7 +1487,6 @@ impl TarpackModel {
         self.result = None;
         self.progress = None;
         self.progress_last = None;
-        self.progress_unavailable = false;
         self.format_notice = None;
         self.blocker = Some(DropBlocker::Building);
         cx.notify();
@@ -1524,7 +1520,7 @@ impl TarpackModel {
     ) -> Option<Settled> {
         let work = match begin.await {
             Ok(Ok(work)) => work,
-            Ok(Err(e)) => return Some((Err(e), false)),
+            Ok(Err(e)) => return Some((Err(BuildFailure::Tarpack(e)), false)),
             Err(panicked) => {
                 Self::abort(this, cx).await;
                 return Some((Err(stopped(&panicked)), true));
@@ -1552,7 +1548,7 @@ impl TarpackModel {
                     .update(cx, |m, cx| m.worker.run(move |b| b.finish_build(work), cx))
                     .ok()?;
                 match finish.await {
-                    Ok(result) => Some((result, false)),
+                    Ok(result) => Some((result.map_err(BuildFailure::Tarpack), false)),
                     Err(panicked) => {
                         Self::abort(this, cx).await;
                         Some((Err(stopped(&panicked)), true))
@@ -1567,25 +1563,17 @@ impl TarpackModel {
     }
 
     /// Takes the progress events into the model as they arrive, then the
-    /// job's result. If the events end while the job still runs, they cannot
-    /// be read: [`TarpackModel::progress_unavailable`] is set (without a
-    /// redraw: a job that ends a moment later would flash it) and the job
-    /// is still waited for. `None`: the model is gone.
+    /// job's result. The job owns the progress sender, so the events end
+    /// only with the job. `None`: the model is gone.
     pub(super) async fn watch_build<W: 'static>(
         this: WeakEntity<Self>,
         progress: async_channel::Receiver<Progress>,
         job: Task<Result<W, JobPanicked>>,
         cx: &mut AsyncApp,
     ) -> Option<Result<W, JobPanicked>> {
-        let mut job = std::pin::pin!(job);
         while let Ok(event) = progress.recv().await {
             this.update(cx, |m, cx| m.progress_event(event, cx)).ok()?;
         }
-        let mut probe = std::task::Context::from_waker(Waker::noop());
-        if let Poll::Ready(result) = job.as_mut().poll(&mut probe) {
-            return Some(result);
-        }
-        this.update(cx, |m, _| m.progress_unavailable = true).ok()?;
         Some(job.await)
     }
 
@@ -1610,14 +1598,13 @@ impl TarpackModel {
     fn build_done(
         &mut self,
         overwrite: bool,
-        outcome: Result<BuildSummary, TarpackError>,
+        outcome: Result<BuildSummary, BuildFailure>,
         refetch: bool,
         cx: &mut Context<Self>,
     ) {
         self.blocker = None;
         self.progress = None;
         self.progress_last = None;
-        self.progress_unavailable = false;
         self.focus_hint = Some(FocusHint::CreateArchive);
         match outcome {
             Ok(summary) => {
@@ -1625,7 +1612,13 @@ impl TarpackModel {
                 self.result = Some(BuildOutcome::Ok(summary));
                 self.announce(sentence, cx);
             }
-            Err(e) if e.kind == TarpackErrorKind::OutputExists && !overwrite => {
+            Err(BuildFailure::Panicked(detail)) => {
+                self.result = Some(BuildOutcome::Unexpected { detail });
+                self.announce(text::UNEXPECTED.to_string(), cx);
+            }
+            Err(BuildFailure::Tarpack(e))
+                if e.kind == TarpackErrorKind::OutputExists && !overwrite =>
+            {
                 let output = self
                     .session
                     .as_ref()
@@ -1635,8 +1628,10 @@ impl TarpackModel {
                 self.blocker = Some(DropBlocker::Confirming);
                 self.focus_hint = None;
             }
-            Err(e) if e.kind == TarpackErrorKind::ManifestChangedOnDisk => self.file_changed(cx),
-            Err(e) => {
+            Err(BuildFailure::Tarpack(e)) if e.kind == TarpackErrorKind::ManifestChangedOnDisk => {
+                self.file_changed(cx);
+            }
+            Err(BuildFailure::Tarpack(e)) => {
                 let entries = self
                     .session
                     .as_ref()

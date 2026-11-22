@@ -1744,6 +1744,47 @@ fn real_drop_assigns_files(cx: &mut TestAppContext) {
     assert_eq!(lines[0].kind, text::LineKind::Matched);
 }
 
+#[gpui::test]
+fn open_clears_build_result(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (model, fake, _, _) = real_ready(cx, dir.path());
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(result_of(cx, &model).is_some());
+    let other = write_manifest(dir.path(), "other.toml", GATEWAY);
+    fake.answer_pick(pick(&other));
+    act(cx, &model, TarpackModel::open);
+    wait_for(cx, |cx| manifest_path(cx, &model) == Some(display(&other)));
+    assert!(result_of(cx, &model).is_none());
+}
+
+#[gpui::test]
+fn open_recent_clears_build_result(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (model, _fake, _, manifest) = real_ready(cx, dir.path());
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(result_of(cx, &model).is_some());
+    assert_eq!(read(cx, &model, |m| m.recent().len()), 1);
+    act(cx, &model, |m, cx| m.open_recent(0, cx));
+    wait_for(cx, |cx| result_of(cx, &model).is_none());
+    assert_eq!(manifest_path(cx, &model), Some(display(&manifest)));
+}
+
+#[gpui::test]
+fn create_from_example_clears_build_result(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (model, fake, _, _) = real_ready(cx, dir.path());
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(result_of(cx, &model).is_some());
+    let target = dir.path().join("new.toml");
+    fake.answer_save(pick(&target));
+    act(cx, &model, TarpackModel::create_from_example);
+    wait_for(cx, |cx| manifest_path(cx, &model) == Some(display(&target)));
+    assert!(result_of(cx, &model).is_none());
+}
+
 // ---- activating ----
 
 #[gpui::test]
@@ -2979,7 +3020,6 @@ fn build_text_matches_ts_sources() {
         text::CREATE_ARCHIVE_HINT,
         text::FORMAT_LABEL,
         text::BUILDING_ARCHIVE,
-        text::PROGRESS_UNAVAILABLE,
         text::FINISHING,
         text::VERIFYING_ANNOUNCEMENT,
         text::OVERWRITE_CONFIRM,
@@ -3476,8 +3516,16 @@ fn progress_names_the_last_file_of_the_phase(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn progress_unavailable_when_the_events_stop_early(cx: &mut TestAppContext) {
-    let (model, _fake, _backend) = start_fixture(cx, TarpackFixture::Ready);
+fn progress_channel_closing_before_result_is_not_a_failure(cx: &mut TestAppContext) {
+    // The job's result arrives after its channel closed, as in a normal
+    // build: nothing special is shown and the result is kept.
+    let (model, _fake, _backend) = start_fixture(cx, TarpackFixture::Result);
+    build(cx, &model);
+    settled(cx, &model);
+    assert!(matches!(result_of(cx, &model), Some(BuildOutcome::Ok(_))));
+    assert!(error_of(cx, &model).is_none());
+    assert!(read(cx, &model, |m| m.progress().is_none()));
+
     let (tx, rx) = async_channel::unbounded::<Progress>();
     let (finish, finished) = async_channel::bounded::<u8>(1);
     drop(tx);
@@ -3496,14 +3544,10 @@ fn progress_unavailable_when_the_events_stop_early(cx: &mut TestAppContext) {
         .detach();
     });
     cx.run_until_parked();
-    assert_eq!(*done.borrow(), None, "the job is still running");
-    assert!(
-        read(cx, &model, TarpackModel::progress_unavailable),
-        "its events cannot be read"
-    );
+    assert_eq!(*done.borrow(), None, "the job is still waited for");
     finish.try_send(7).expect("room");
     cx.run_until_parked();
-    assert_eq!(*done.borrow(), Some(7), "the job is still waited for");
+    assert_eq!(*done.borrow(), Some(7));
 }
 
 #[gpui::test]
@@ -3847,16 +3891,11 @@ fn panicked_build_aborts_and_reports(cx: &mut TestAppContext) {
     backend.panic_in_build();
     build(cx, &model);
     settled(cx, &model);
-    let Some(BuildOutcome::Err(e)) = result_of(cx, &model) else {
-        panic!("a failure");
+    let Some(BuildOutcome::Unexpected { detail }) = result_of(cx, &model) else {
+        panic!("an unexpected failure");
     };
-    assert_eq!(e.kind, TarpackErrorKind::Io);
-    assert!(
-        e.message.starts_with("the build stopped unexpectedly"),
-        "{}",
-        e.message
-    );
-    assert!(e.message.contains("the build exploded"), "{}", e.message);
+    assert!(detail.contains("the build exploded"), "{detail}");
+    assert_eq!(say(cx, &model).as_deref(), Some(text::UNEXPECTED));
     let calls = backend.calls();
     assert!(calls.contains(&Call::AbortBuild));
     assert!(!calls.contains(&Call::FinishBuild));
@@ -3872,11 +3911,8 @@ fn a_panic_in_the_checks_or_the_end_aborts_too(cx: &mut TestAppContext) {
         backend.panic_on(command);
         build(cx, &model);
         settled(cx, &model);
-        let Some(BuildOutcome::Err(e)) = result_of(cx, &model) else {
-            panic!("{command:?}: a failure");
-        };
         assert!(
-            e.message.starts_with("the build stopped unexpectedly"),
+            matches!(result_of(cx, &model), Some(BuildOutcome::Unexpected { .. })),
             "{command:?}"
         );
         assert!(backend.calls().contains(&Call::AbortBuild), "{command:?}");
@@ -3948,6 +3984,19 @@ fn reveal_failure_shows_opener_failed(cx: &mut TestAppContext) {
         fake.calls(),
         [PlatformCall::Reveal(PathBuf::from(OUTPUT_PATH))]
     );
+}
+
+#[gpui::test]
+fn cancelled_open_shows_no_banner(cx: &mut TestAppContext) {
+    // The platform answers `Ok(())` when the user cancels the system dialog.
+    let (model, fake, _) = start_fixture(cx, TarpackFixture::Result);
+    build(cx, &model);
+    settled(cx, &model);
+    fake.answer_open(Ok(()));
+    act(cx, &model, TarpackModel::reveal_output);
+    wait_for_calls(cx, &fake, 1);
+    cx.run_until_parked();
+    assert!(error_of(cx, &model).is_none());
 }
 
 #[gpui::test]

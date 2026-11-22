@@ -713,10 +713,6 @@ pub fn display_folder(path: &str) -> Option<String> {
     Some(cps[..end].iter().collect())
 }
 
-/// What the result's detail says when the build's thread panicked or the
-/// backend stopped answering; the panic's message follows.
-pub const BUILD_STOPPED: &str = "the build stopped unexpectedly";
-
 // ---- the build bar ----
 
 pub const OUTPUT_LABEL: &str = "Output:";
@@ -860,8 +856,6 @@ pub fn format_changed_notice(format: ArchiveFormat) -> String {
 
 /// The progress bar's accessible name.
 pub const BUILDING_ARCHIVE: &str = "Building archive";
-/// Shown instead of the bar when its events cannot be read.
-pub const PROGRESS_UNAVAILABLE: &str = "Creating the archive\u{2026} (progress is unavailable)";
 /// The label of the last moment of verifying.
 pub const FINISHING: &str = "Finishing\u{2026}";
 /// Announced while the archive is verified.

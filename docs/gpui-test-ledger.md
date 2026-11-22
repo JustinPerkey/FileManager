@@ -238,7 +238,7 @@ its heading's count.
 | plural files and manifest-errors-only headings | M7b | `tools::tarpack::tests::report_text_matches_today` | done |
 | Show in folder calls onReveal | M7b | `tools::tarpack::tests::reveal_uses_held_path` (the button calling `reveal_output` is the view's own test) | done |
 | error result uses errorMessage and collapsed details | U | model half: `tools::tarpack::tests::build_error_is_result_with_message` (the sentence and the detail); the collapsed Details are the view's | open |
-| a rejected clipboard write says Couldn't copy, never Copied | M7b | dropped: `Platform::copy_text` returns nothing, so a refused write cannot be reported; "Copied" is the view's transient note (`text::COPIED`) | dropped |
+| a rejected clipboard write says Couldn't copy, never Copied | M7b | dropped: GPUI's clipboard write reports no failure (`Platform::copy_text` returns nothing); "Copied" is the view's transient note (`text::COPIED`) | dropped |
 
 ## `tools/tarpack/DiagnosticList.test.tsx` (2)
 
@@ -427,7 +427,7 @@ its heading's count.
 | building with errors: no dialog, build(false) once, left-out result and announcement | M7b | `tools::tarpack::tests::build_with_errors_reports_left_out` | done |
 | a failed %s build announces its errorMessage | M7b | `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::panicked_build_aborts_and_reports` | done |
 | %s announces no error message | M7b | `tools::tarpack::tests::existing_output_asks_and_confirm_overwrites` (`OutputExists` says nothing), `tools::tarpack::tests::changed_on_disk_during_build_marks_changed` (only the changed-on-disk sentence) | done |
-| onBuildProgress rejecting: the build still runs, no progressbar, unavailable text | M7b | `tools::tarpack::tests::progress_unavailable_when_the_events_stop_early` (`progress_unavailable`, and the job is still waited for); the text is `text::PROGRESS_UNAVAILABLE` | done |
+| onBuildProgress rejecting: the build still runs, no progressbar, unavailable text | M7b | dropped: GPUI's progress channel cannot fail before the job ends (the job owns the sender); the Tauri listen failure has no equivalent. `tools::tarpack::tests::progress_channel_closing_before_result_is_not_a_failure` shows a normal build whose channel closes first has no special state | dropped |
 | during a build, header and table controls are disabled; describedby has no dangling ids | U | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui`; disabled controls and the ids are the view's | open |
 | describedby ids all exist while building with errors | U | view | open |
 | a saveFileDialog rejection from Choose shows the error banner | M7b | `tools::tarpack::tests::output_dialog_failure_is_the_dialog_banner` | done |
@@ -538,3 +538,4 @@ its heading's count.
 | Escape while the shortcuts popover is open neither dismisses a result nor is prevented | M7b | `tools::tarpack::tests::escape_ignored_while_shortcuts_open` (not dismissing; letting the key through is the view's binding) | done |
 | without developer mode, Ctrl+E is claimed but opens nothing | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` (opens nothing; the claim is the view's binding) | done |
 | Reload clears the build result | M7b | `tools::tarpack::tests::reload_clears_the_build_result` | done |
+| Open, open recent and create from the example clear the build result (and its Show in folder) | M7b | changed: Load clears the result too (2026-11-22); the Tauri app kept it, so Show in folder could point at the previous manifest's archive. `tools::tarpack::tests::open_clears_build_result`, `open_recent_clears_build_result`, `create_from_example_clears_build_result` | done |
