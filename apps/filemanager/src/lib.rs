@@ -83,6 +83,8 @@ fn open_main_window(cx: &mut App) -> gpui::Result<()> {
             ..Default::default()
         },
         |window, cx| {
+            #[cfg(windows)]
+            platform::win_dialog::capture_owner(window);
             let shell = Shell::open(window, cx);
             cx.new(|cx| Root::new(shell, window, cx))
         },

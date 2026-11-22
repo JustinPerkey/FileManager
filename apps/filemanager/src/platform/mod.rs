@@ -8,6 +8,8 @@
 pub mod fake;
 pub mod gpui;
 pub mod path_loss;
+#[cfg(windows)]
+pub mod win_dialog;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn records_dialog_specs(cx: &mut TestAppContext) {
+    fn records_specs(cx: &mut TestAppContext) {
         let fake = FakePlatform::new();
         drop(cx.update(|cx| fake.pick(open_spec(), cx)));
         drop(cx.update(|cx| fake.pick_save(save_spec(), cx)));

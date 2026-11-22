@@ -131,9 +131,13 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               platform (GpuiPlatform) and the path-loss logger, main window
   src/assets.rs, fonts.rs     embedded icons (icons! list); system fonts (Segoe UI, mono
                               Cascadia Mono else Consolas)
-  src/platform/               Platform trait (pick, pick_save, open, reveal, copy_text;
-                              global PlatformHandle), gpui.rs (real; dialogs temporary
-                              until M3c), fake.rs (scripted, for tests and screenshots),
+  src/platform/               Platform trait (pick(OpenSpec), pick_save(SaveSpec), open,
+                              reveal, copy_text; global PlatformHandle), gpui.rs (real),
+                              win_dialog.rs (Windows only: the common item dialog over the
+                              `windows` crate, filters, default extension, exact OsString
+                              paths; the only `unsafe` in the app; manual check in
+                              docs/gpui-dialogs-check.md, examples/dialog_check.rs),
+                              fake.rs (scripted, logs specs, for tests and screenshots),
                               path_loss.rs (log::Log that reports dropped names GPUI skips)
   src/jobs.rs                 Worker (backend off the UI thread) and spawn_thread (long
                               jobs with progress); models never block the UI thread
