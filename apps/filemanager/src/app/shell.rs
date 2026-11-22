@@ -732,7 +732,7 @@ mod tests {
     }
 
     /// A notification occludes the Shell where it sits; a drop there is
-    /// still delivered, once. The grid covers the window, toast included.
+    /// still delivered, once.
     #[gpui::test]
     fn a_drop_over_a_notification_is_delivered_exactly_once(cx: &mut TestAppContext) {
         use gpui_component::notification::Notification;
@@ -743,20 +743,23 @@ mod tests {
             window.push_notification(Notification::new().message("A toast"), cx);
         });
         cx.run_until_parked();
-        let mut expected = 0;
-        for y in (10_u16..400).step_by(40) {
-            for x in (10_u16..1000).step_by(45) {
-                drop_at(
-                    cx,
-                    gpui::point(gpui::px(f32::from(x)), gpui::px(f32::from(y))),
-                );
-                expected += 1;
-                assert_eq!(
-                    states[0].borrow().dropped.len(),
-                    expected,
-                    "drop at ({x}, {y})"
-                );
-            }
+        let size = cx.update(|window, _| window.viewport_size());
+        assert_eq!(
+            (size.width, size.height),
+            (gpui::px(1920.0), gpui::px(1080.0)),
+            "the toast points below assume the default test window"
+        );
+        // The toast blocks the Shell's hitbox at x 1525..1900, y 0..5.
+        for (n, (x, y)) in [(1525.0, 5.0), (1600.0, 3.0), (1700.0, 3.0)]
+            .into_iter()
+            .enumerate()
+        {
+            drop_at(cx, gpui::point(gpui::px(x), gpui::px(y)));
+            assert_eq!(
+                states[0].borrow().dropped.len(),
+                n + 1,
+                "drop at ({x}, {y})"
+            );
         }
     }
 }
