@@ -275,14 +275,14 @@ test("a typed path's error is announced", async () => {
   );
 });
 
-test("a repeated typed-path error is re-announced even when the frame fires before React renders", async () => {
+test("the same error from a second typed path is re-announced even when the frame fires before React renders", async () => {
   const user = userEvent.setup();
   await load(empty);
-  // The slot keeps no path, so the same typed text is sent again on every Enter.
-  vi.mocked(sc.setText).mockResolvedValue({
+  // Like the backend: the typed path is echoed back in the slot, with a NotAbsolute error.
+  vi.mocked(sc.setText).mockImplementation(async (path) => ({
     ...empty,
-    text: { path: "", error: { kind: "NotAbsolute", message: "week.txt is not a full path" } },
-  });
+    text: { path: path ?? "", error: { kind: "NotAbsolute", message: `${path} is not a full path` } },
+  }));
   const sentence = "Enter the full path, starting with the drive letter";
   await user.type(textBox(), "week.txt{Enter}");
   const region = screen.getByRole("status");
@@ -314,8 +314,9 @@ test("a repeated typed-path error is re-announced even when the frame fires befo
   try {
     g.IS_REACT_ACT_ENVIRONMENT = false;
     obs.observe(region, { childList: true, characterData: true, subtree: true });
-    textBox().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    await waitFor(() => expect(sc.setText).toHaveBeenCalledTimes(2));
+    await user.clear(textBox());
+    await user.type(textBox(), "month.txt{Enter}");
+    await waitFor(() => expect(sc.setText).toHaveBeenLastCalledWith("month.txt"));
     // Settle: the command resolves, React renders, the frames fire (all within a few ticks).
     await new Promise((r) => setTimeout(r, 50));
     obs.disconnect();
