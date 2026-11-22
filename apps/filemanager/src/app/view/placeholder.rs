@@ -10,6 +10,7 @@ use gpui_component::button::Button;
 use gpui_component::v_flex;
 
 use crate::app::drop::DropTarget;
+use crate::app::probe::Tag as _;
 use crate::app::shell::Shell;
 
 pub fn chrome(shell: Entity<Shell>, _window: &mut Window, cx: &mut App) -> AnyView {
@@ -27,14 +28,18 @@ impl Render for Placeholder {
         let nav = shell.tools().iter().map(|slot| {
             let id = slot.id;
             let selector = format!("tool-nav-{}", id.id());
-            div().debug_selector(move || selector.clone()).child(
-                Button::new(id.id()).label(slot.label).on_click({
+            div()
+                .debug_selector({
+                    let selector = selector.clone();
+                    move || selector
+                })
+                .child(Button::new(id.id()).label(slot.label).on_click({
                     let shell = self.shell.clone();
                     move |_: &ClickEvent, window, cx| {
                         shell.update(cx, |shell, cx| shell.select(id, window, cx));
                     }
-                }),
-            )
+                }))
+                .tag(selector)
         });
         let overlay = match shell.drag_over() {
             Some(DropTarget::Enabled { label }) => Some(label.clone()),

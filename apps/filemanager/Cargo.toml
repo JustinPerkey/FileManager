@@ -14,6 +14,17 @@ path = "src/lib.rs"
 name = "filemanager-gpui"
 path = "src/main.rs"
 
+# The screenshot harness. Never part of the release exe: it needs the `shoot`
+# feature, which turns on GPUI's test-support.
+[[bin]]
+name = "filemanager-shoot"
+path = "src/bin/filemanager-shoot.rs"
+required-features = ["shoot"]
+
+[features]
+default = []
+shoot = ["gpui/test-support", "gpui_platform/test-support", "dep:image"]
+
 [dependencies]
 fm-core = { path = "../../crates/fm-core" }
 fm-dbmanager = { path = "../../crates/fm-dbmanager" }
@@ -26,6 +37,7 @@ gpui-component = { workspace = true }
 gpui-kit-assets = { workspace = true }
 async-channel = { workspace = true }
 log = { workspace = true }
+image = { workspace = true, optional = true }
 
 [dev-dependencies]
 # test-support must stay a dev-dependency feature: it must not reach the exe.

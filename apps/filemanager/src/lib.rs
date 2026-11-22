@@ -15,44 +15,69 @@ pub mod assets;
 pub mod fonts;
 pub mod jobs;
 pub mod platform;
+#[cfg(feature = "shoot")]
+pub mod shoot;
 pub mod tools;
 
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui::{px, size, App, AppContext as _, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
+use gpui::{
+    px, size, App, AppContext as _, Bounds, TitlebarOptions, WindowBounds, WindowHandle,
+    WindowOptions,
+};
 use gpui_component::Root;
 
 use crate::app::dev_mode::DevMode;
 use crate::app::shell::{PathLossFeed, Shell};
+use crate::tools::BackendSet;
 
 /// How long `--self-check` lets the window live after opening it.
 const SELF_CHECK_MS: u64 = 500;
+
+/// What differs between the shipped app and a harness run: the platform that
+/// answers dialogs and opens things, and which backend each tool uses.
+pub struct AppSetup {
+    /// Installed as the app's [`platform::Platform`].
+    pub platform: Rc<dyn platform::Platform>,
+    /// Real or fixture backends, per tool.
+    pub backends: BackendSet,
+    /// Quit by itself after the first frame (`--self-check`).
+    pub self_check: bool,
+}
+
+impl AppSetup {
+    /// The shipped app: the real platform and the real backends.
+    #[must_use]
+    pub fn real(self_check: bool) -> Self {
+        Self {
+            platform: Rc::new(platform::gpui::GpuiPlatform),
+            backends: BackendSet::default(),
+            self_check,
+        }
+    }
+}
 
 /// Opens the main window and runs until it closes. Returns the process exit
 /// code: non-zero if the window could not be opened. With `self_check` the app
 /// quits by itself shortly after the window has rendered its first frame.
 #[must_use]
 pub fn run(self_check: bool) -> i32 {
+    run_with(AppSetup::real(self_check))
+}
+
+/// [`run`] with the platform and backends chosen by `setup`.
+#[must_use]
+pub fn run_with(setup: AppSetup) -> i32 {
     let failed = Rc::new(Cell::new(false));
     let failed_in = failed.clone();
     gpui_platform::application()
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
-            gpui_component::init(cx);
-            fonts::init(cx);
-            DevMode::init(cx);
-            platform::set_platform(cx, platform::gpui::GpuiPlatform);
-            cx.set_global(PathLossFeed(platform::path_loss::install()));
-            cx.on_window_closed(|cx, closed| {
-                platform::release_owner(closed);
-                if cx.windows().is_empty() {
-                    cx.quit();
-                }
-            })
-            .detach();
-            if let Err(e) = open_main_window(cx) {
+            let self_check = setup.self_check;
+            init_app(cx, setup);
+            if let Err(e) = open_main_window(cx, MAIN_SIZE) {
                 eprintln!("could not open the window: {e:#}");
                 failed_in.set(true);
                 cx.quit();
@@ -71,8 +96,34 @@ pub fn run(self_check: bool) -> i32 {
     i32::from(failed.get())
 }
 
-fn open_main_window(cx: &mut App) -> gpui::Result<()> {
-    let bounds = Bounds::centered(None, size(px(1000.0), px(700.0)), cx);
+/// The default window size, in logical pixels.
+pub const MAIN_SIZE: (f32, f32) = (1000.0, 700.0);
+
+/// Everything the app sets up before its window opens: widgets, fonts, dev
+/// mode, the platform and backend choice, the path-loss feed, and the quit on
+/// last window closed.
+pub fn init_app(cx: &mut App, setup: AppSetup) {
+    gpui_component::init(cx);
+    fonts::init(cx);
+    DevMode::init(cx);
+    platform::set_platform_rc(cx, setup.platform);
+    cx.set_global(setup.backends);
+    cx.set_global(PathLossFeed(platform::path_loss::install()));
+    cx.on_window_closed(|cx, closed| {
+        platform::release_owner(closed);
+        if cx.windows().is_empty() {
+            cx.quit();
+        }
+    })
+    .detach();
+}
+
+/// Opens the main window at `size` (logical pixels).
+///
+/// # Errors
+/// If the window cannot be opened.
+pub fn open_main_window(cx: &mut App, size_px: (f32, f32)) -> gpui::Result<WindowHandle<Root>> {
+    let bounds = Bounds::centered(None, size(px(size_px.0), px(size_px.1)), cx);
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -89,6 +140,5 @@ fn open_main_window(cx: &mut App) -> gpui::Result<()> {
             let shell = Shell::open(window, cx);
             cx.new(|cx| Root::new(shell, window, cx))
         },
-    )?;
-    Ok(())
+    )
 }
