@@ -77,6 +77,44 @@ test("open and reload announce, repeat on same count, and clear announces No err
   expect(screen.queryByRole("region")).toBeNull();
 });
 
+test("a repeated sentence is re-announced even when the frame fires before React renders", async () => {
+  await mount(failed);
+  await waitFor(() => expect(announcer()).toHaveTextContent("2 files will be left out"));
+  vi.mocked(tp.reloadManifest).mockResolvedValue(failed);
+  const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const realRaf = globalThis.requestAnimationFrame;
+  const realCaf = globalThis.cancelAnimationFrame;
+  // The frame fires in a microtask: after the announce() call, before React's scheduler (a macrotask) renders.
+  const cancelled = new Set<number>();
+  let next = 1;
+  globalThis.requestAnimationFrame = (cb) => {
+    const id = next++;
+    queueMicrotask(() => {
+      if (!cancelled.has(id)) cb(0);
+    });
+    return id;
+  };
+  globalThis.cancelAnimationFrame = (id) => void cancelled.add(id);
+  const seen: string[] = [];
+  const obs = new MutationObserver(() => seen.push(announcer().textContent ?? ""));
+  try {
+    g.IS_REACT_ACT_ENVIRONMENT = false;
+    obs.observe(announcer(), { childList: true, characterData: true, subtree: true });
+    const reload = screen.getByRole("button", { name: "Reload" });
+    reload.click();
+    await new Promise((r) => setTimeout(r, 50));
+    obs.disconnect();
+    expect(seen).toContain("");
+    expect(seen[seen.length - 1]).toContain("2 files will be left out");
+    expect(seen.indexOf("")).toBeLessThan(seen.length - 1);
+  } finally {
+    obs.disconnect();
+    g.IS_REACT_ACT_ENVIRONMENT = true;
+    globalThis.requestAnimationFrame = realRaf;
+    globalThis.cancelAnimationFrame = realCaf;
+  }
+});
+
 test("report re-expands after reload even if collapsed; no focus stolen", async () => {
   const user = userEvent.setup();
   await mount(failed);
