@@ -147,6 +147,16 @@ then waits until released), an `OutputExists` first answer
 (`tarpack-result`, `-result-partial`), the dev-mode states (`-dev`,
 `-dev-result`), and the ready state for `-buildbar` and `-shortcuts`.
 
+**Fixture timing rule (planner, 2026-11-22, after M4).** The harness's
+`Step::WaitIdle` is a short fixed settle, not idle detection: it does not
+await `Worker` jobs, `spawn_thread` jobs or async loads. So every fixture
+backend state a scenario shows must answer **synchronously** (the backend
+method returns at once, so the Worker call resolves inside the settle), or
+the scenario that shows it must add an explicit `Step::Wait(ms)` long
+enough for the job. Fixtures that simulate long work (progress, a running
+step) are timed on purpose; document each fixture's timing in its doc
+comment so the scenario author knows which `Wait` it needs.
+
 ### Rules that bind this task
 
 - **Destructive operations are never silent:** an existing output is

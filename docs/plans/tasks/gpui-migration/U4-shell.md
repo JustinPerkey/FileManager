@@ -84,6 +84,18 @@ Up/Down move focus to the previous/next nav item and wrap, Home/End jump
 the focused tool (`Shell::select`). Ctrl+Alt+Shift+D is the Shell's own
 binding (developer mode); do not rebind it.
 
+**Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
+harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
+names (`apps/filemanager/src/app/probe.rs`); GPUI's debug selectors cannot be
+read outside `VisualTestContext`, so they do not work in the harness. Every
+element a scenario clicks or clips therefore carries `.tag("<name>")` as the
+**outermost (last) call of its builder chain**, using the names this plan
+lists (where this plan says "debug selector", read "tag"). If a
+`VisualTestContext` view test also clicks the element, add
+`.debug_selector(..)` with the same name as well.
+Keep the `tool-nav-<id>` tags that M4 added in
+`apps/filemanager/src/app/view/placeholder.rs` when you replace the placeholder.
+
 ## Files
 
 Create: `apps/filemanager/src/app/view/{sidebar.rs,drop_overlay.rs,notice.rs,close_prompt.rs,tests.rs}`.

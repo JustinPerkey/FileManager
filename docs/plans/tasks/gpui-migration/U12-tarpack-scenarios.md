@@ -18,7 +18,7 @@ cannot run fails the job.
 
 Harness (M4, `apps/filemanager/src/shoot/`): `Scenario { name, size,
 setup: fn(&mut AppSetup), steps, clip }`, where `clip: Option<&'static str>`
-crops the PNG to that debug selector's bounds (added on the planner's
+crops the PNG to that tag's bounds (`.tag("<name>")`) (added on the planner's
 request R1; **if `clip` does not exist when you start, stop and report the
 gap**). `Step::{SelectTool(ToolId), Click(sel), Keys("ctrl-alt-shift-d"),
 Type, DragEnter(&[paths]), Drop(&[paths]), Watcher(ToolId), Call(fn),
@@ -57,6 +57,16 @@ Every scenario: 1366×800, starts with `SelectTool(ToolId::Tarpack)`.
 | `tarpack-changed` | ready | `Watcher(ToolId::Tarpack)`, `WaitIdle` | — |
 | `tarpack-dev` | ready | `Keys("ctrl-alt-shift-d")`, `WaitIdle` | `tarpack-header` |
 | `tarpack-dev-result` | ready | `Keys("ctrl-alt-shift-d")`, `Click("tarpack-build")`, `WaitIdle` | `tarpack-build-result` |
+
+**Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
+harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
+names (`apps/filemanager/src/app/probe.rs`); GPUI's debug selectors cannot be
+read outside `VisualTestContext`, so they do not work in the harness. Every
+element a scenario clicks or clips therefore carries `.tag("<name>")` as the
+**outermost (last) call of its builder chain**, using the names this plan
+lists (where this plan says "debug selector", read "tag"). If a
+`VisualTestContext` view test also clicks the element, add
+`.debug_selector(..)` with the same name as well.
 
 ## Files
 

@@ -395,10 +395,13 @@ Ownership:
   has `required-features = ["shoot"]`. The release build
   (`cargo build --release -p filemanager-gpui`) has neither (D14); CI checks
   that with `cargo tree`.
-- The harness runs in the **dev profile**: GPUI records debug selectors only
-  in debug builds, and the dev profile reuses the test build's artifacts.
+- The harness runs in the **dev profile**, because that build reuses the
+  test build's artifacts (no second release build of the GPUI graph in CI).
+  Steps click and clip by `.tag("<name>")` names (`app/probe.rs`, test and
+  `shoot` builds only), not GPUI debug selectors, which only
+  `VisualTestContext` can read (decided 2026-11-22, after M4).
 - It opens the real `Shell` with fixture backends and `FakePlatform`, plays a
-  scenario (select tool, click by debug selector, keys, inject a drop or a
+  scenario (select tool, click by tag, keys, inject a drop or a
   watcher event, script dialog answers, wait until idle), renders with
   `Window::render_to_image`, and writes `<out>/<name>.png`. It takes an
   optional name filter and prefix.
@@ -521,6 +524,7 @@ recommendation was go-with-conditions; the human decided go (D10–D14).
 | M3b2 | [`M3-app-b2-path-loss.md`](../tasks/gpui-migration/M3-app-b2-path-loss.md) | Review follow-up: path-loss signal only during or just after a drag; notice for the unreadable-name skip (D29); verifies the modal drop refusal built in M3b's fix | M3b | no |
 | M3c | [`M3-app-c-file-dialogs.md`](../tasks/gpui-migration/M3-app-c-file-dialogs.md) | Our own Windows common item dialog wrapper (filters, default extension, initial folder, `OsString` paths) behind `Platform` (D24) | M3b | no |
 | M4 | [`M4-screenshot-harness.md`](../tasks/gpui-migration/M4-screenshot-harness.md) | Feature `shoot`, `filemanager-shoot`, scenario API, CI upload | M3b (may run beside M3c) | contract for every U scenario task |
+| M4b | [`M4b-harness-followups.md`](../tasks/gpui-migration/M4b-harness-followups.md) | Review follow-ups: only last-frame tags resolve, `.tag()` last in the chain, `parse()` tests, 60 s child timeout, `--only no-such` CI check, release-graph negative control, docs | M4 | no |
 | M5 | [`M5-pipeline-model.md`](../tasks/gpui-migration/M5-pipeline-model.md) | Pipeline backend, model, copy, fixtures | M4, M3c | **depends on UI plan** (views) |
 | M6 | [`M6-schedule-model.md`](../tasks/gpui-migration/M6-schedule-model.md) | Schedule Creator backend, model, copy, fixtures | M5 | **depends on UI plan** |
 | M7a | [`M7-tarpack-a-manifest-model.md`](../tasks/gpui-migration/M7-tarpack-a-manifest-model.md) | Tar Packager backend; model for manifest, recent, watcher, assignments, drop | M6 | **depends on UI plan** |
@@ -764,7 +768,7 @@ Constraints already established
 
 | # | Request | Applied in |
 |---|---|---|
-| R1 | `Scenario::clip` (crop to a debug selector's bounds) | M4; M8's size check reads "size or clip" |
+| R1 | `Scenario::clip` (crop to a tagged element's bounds; built with `.tag(..)` names, not debug selectors) | M4; M8's size check reads "size or clip" |
 | R2 | ui-implementer may add icon SVGs and `icons!` lines | M3a ownership rule |
 | R3 | `--dark` calls `fm_app::theme::set_override(Some(ThemeMode::Dark), cx)` | M4 |
 | R4 | `EditorInput`; reference picker in the model with its own list query; `request_delete_of` | M12b, M12c |
