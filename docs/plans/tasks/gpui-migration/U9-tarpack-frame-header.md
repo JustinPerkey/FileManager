@@ -58,8 +58,8 @@ itself is the Shell's (overlay from the model's drop target).
 
 **Focus hints**: `take_focus_hint()` if present (request R5), else act on a
 changed `focus_hint()` and report the gap. `Report` → the errors region's
-report; `Reload` → the Reload button; `AfterResult` → the header's first
-button. Announcements are not rendered.
+report; `Reload` → the Reload button; `AfterResult` → the first tabbable
+element after the drop result (the build bar), as today, not the header. Announcements are not rendered.
 
 ### Widgets and tokens
 
@@ -100,7 +100,7 @@ slots for U10/U11 (`table_slot`, `result_slot`, `bar_slot` functions in
 5. **Banners** (8 px apart, in this order): command error (`error()`,
    `Tone::Error`, Details, dismissible, re-shown on a new generation);
    changed on disk (`Tone::Warn`, "The manifest changed on disk.", action
-   **Reload**); state warning (`Tone::Warn`, dismissible →
+   **Reload**); state warning (`Tone::Info`, as today, dismissible →
    `dismiss_state_warning`).
 6. **Errors region** (manifest has errors): `surface`, 1 px `danger`
    border, radius 6, padding 8/12; a row (8/12 gaps): `x-circle` in danger,

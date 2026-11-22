@@ -1,6 +1,6 @@
 # M7a — Tar Packager, part A: backend trait; model for the manifest, recent list, watcher, assignments and drop
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21). **Review follow-up (2026-11-22):** the first run landed as f5542ff and 30bd7d7; the next run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: M6 (landed)
 
 ## Goal
@@ -11,6 +11,112 @@ loading and restoring, opening (dialog, recent, create from example),
 reloading, the "changed on disk" watcher, the manifest's errors, entry
 assignment by browse, clear and drop, with the copy ported verbatim and
 fixtures for the manifest-side screenshots. Part B adds the build side.
+
+## Review follow-up (2026-11-22)
+
+The review of f5542ff and 30bd7d7 did not approve M7a yet. **This run does
+only this section.** Everything else in this plan is built. Read the code
+first: `apps/filemanager/src/tools/tarpack/`, `src/platform/`, and
+`crates/fm-tarpack/src/session/`.
+
+### Decisions
+
+1. **Opener and reveal failures are reported.**
+   - Today the Tauri app reports `OpenerFailed` as "Windows could not open
+     it.", but `Platform::open_with_system` and `Platform::reveal` return
+     `()`, so a failure never reaches the model.
+   - Change both to return `Task<Result<(), OpenError>>`, with
+     `pub struct OpenError { pub detail: String }`, in
+     `apps/filemanager/src/platform/mod.rs`.
+   - **On Windows, our own thin wrapper**, `platform/win_shell.rs`
+     (`#[cfg(windows)]`, the `windows` crate). GPUI's calls return nothing,
+     so they cannot be used.
+     - `open_with_system` uses `ShellExecuteW(None, "open", path, …, SW_SHOWNORMAL)`.
+       A return value of 32 or less is an error; map the documented
+       `SE_ERR_*` and `ERROR_*` codes to the detail text.
+     - `reveal` uses `SHParseDisplayName` plus `SHOpenFolderAndSelectItems`.
+       If that fails with "file not found", fall back to `ShellExecuteW` on
+       the parent folder, as GPUI does. A failed `HRESULT` is the error.
+     - Paths go in as wide strings from `OsStr::encode_wide`.
+     - Both run on a background thread initialised with `CoInitializeEx`
+       (apartment-threaded), never on the UI thread.
+     - Each `unsafe` block has a `// SAFETY:` comment.
+   - Off Windows, keep GPUI's calls and return `Ok(())`.
+   - **`FakePlatform`** gains scripted answers for open and reveal
+     (`answer_open(Err(..))`; the default is `Ok(())`), and still logs every
+     call.
+   - **Callers.** The model maps an `Err` to the banner
+     `ViewError::Tarpack(TarpackError { kind: OpenerFailed, message: detail })`,
+     with copy from `text.rs` ("Windows could not open it."). This milestone
+     updates `edit` and every other existing caller. Part B (`reveal_output`)
+     and the Database Manager (Edit config, kind `OpenerFailed`) use the same
+     result.
+2. **Browse starts in the assigned folder, from the stored path.**
+   - Add `fn assigned_path(&self, id: &str) -> Option<PathBuf>` to the
+     backend trait, backed by a new `Core::assigned_path`, which reads the
+     `PathBuf` that `Assignments` already holds. That accessor and its test
+     are the only `crates/` change allowed here.
+   - `browse` starts in that path's parent.
+   - Remove the use of the display string `SessionEntry::assigned` for this.
+     The old React `assignedFolder` refused lossy (U+FFFD) display paths; with
+     the real `PathBuf` there is nothing to refuse.
+   - Port its other cases as model tests: drive root, nested, forward-slash
+     and UNC parents, and "no parent" means no start folder.
+   - In `docs/gpui-test-ledger.md`, move rows 501–503 and 505
+     (assignedFolder/displayFolder) from `U` to `M7a`, with these tests.
+     displayFolder's "shows a lossy folder as is" half stays `U` if a view
+     renders it.
+3. **`open_recent` cannot open the wrong manifest.**
+   - The signature becomes
+     `open_recent(index, expected_display: &str) -> Result<Option<TarpackSession>, TarpackError>`.
+   - The backend checks that the display string of `recent_paths()[index]`
+     equals `expected_display`. If it does not (the list was reordered before
+     the model's copy refreshed), it returns `Ok(None)` and opens nothing.
+   - The model then refreshes its recent list and shows the banner
+     `ViewError::RecentChanged`, a new variant whose copy in `text.rs` is
+     "The recent list changed. Choose the manifest again."
+   - Successful results that change the recent list also refresh the model's
+     copy.
+4. **Screenshot fixtures match the reference images.**
+   - Today's mock gateway manifest
+     (`docs/manual/screenshots/mock.js`) has 5 entries: the example's 3, plus
+     `gateway-ca` and `gateway-unit`, with their specific diagnostics.
+   - The fixture manifest for every `tarpack-*` state appends those two
+     entries and diagnostics, as `gateway_with_errors` already does, so the
+     screenshots match the geometry target. Port the entries and diagnostic
+     texts exactly from `mock.js`.
+
+### Also in this run
+
+- Tests for:
+  - discarding a stale command result (only the newest applies);
+  - refetching the session after a command panics: add a command-panic hook
+    to `FixtureTarpack`, e.g. `panic_on(Command)`;
+  - refetching after a drop panics;
+  - the watcher re-arming on open, reload and create;
+  - ignoring events from a superseded watcher (an event from the old
+    watcher after a re-arm changes nothing).
+- Move `default_start_dir()` (the Documents and home lookup) off the UI
+  thread: compute it on the Worker or with `cx.background_spawn`, before
+  opening the dialog.
+- Move `directories` to `[workspace.dependencies]` and use
+  `{ workspace = true }` in every crate that uses it.
+- Fix the `DETAILS` doc comment so it says what the constant is for.
+- In `docs/gpui-test-ledger.md`, the row "open and reload announce, repeat
+  on same count, and clear announces No errors" should name the model test
+  that proves the **repeat** (a reload with the same count announces again,
+  through `announcement_generation`, not only the text). Add that test if it
+  is missing.
+
+### Follow-up acceptance
+
+- Every item above has a named test, apart from the live Windows shell
+  calls. For those, add steps to `docs/gpui-dialogs-check.md`: Edit with no
+  `.toml` handler shows the banner, and Reveal opens Explorer with the file
+  selected.
+- `cargo tree -p filemanager-gpui -i rfd` still finds nothing. fmt (linux
+  job), clippy pedantic (both jobs, with and without `--features shoot`),
+  and `cargo test --workspace` pass.
 
 ## Context
 
