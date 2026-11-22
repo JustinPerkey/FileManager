@@ -93,8 +93,8 @@ impl ScheduleModel {
     pub fn request_apply(&mut self, cx);                    // opens the confirmation
     pub fn pending(&self) -> Option<(&str, &str)>;          // text and XML display paths in the confirmation
     pub fn confirm(&mut self, cx);  pub fn cancel(&mut self, cx);
-    pub fn result(&self) -> Option<&ApplySummary>;
-    pub fn already_applied(&self) -> bool;                  // the same pair was applied before: duplicate warning
+    pub fn result(&self) -> Option<&ApplySummary>;  pub fn dismiss_result(&mut self, cx); // the result banner is dismissible, as today
+    pub fn already_applied(&self) -> bool;                  // the same pair was applied before: the duplicate warning, shown in the confirmation body
     pub fn announcement(&self) -> Option<&str>;
     pub fn take_focus_hint(&mut self) -> Option<FocusHint>; // cleared on read; Outcome | AddButton, after applying ends
 }
@@ -109,8 +109,12 @@ file: "Text" (`*.txt`) then "All files" (`*.*`); the XML file: "XML"
 (`*.xml`) then "All files" (`*.*`) — starting in the folder of the slot's
 current file if any; a pick `Err` shows the `PickError` copy; the confirmation records the two display paths
 shown and `confirm` applies exactly those (`expected_text`/`expected_xml`);
-the result sentence; the duplicate guard (`already_applied` when the current
-pair equals the last successfully applied pair); errors from apply
+the result sentence; `dismiss_result` clears the result (it does not touch
+the "applied" pair); the duplicate guard (`already_applied` when the current
+pair equals the last successfully applied pair), whose warning is part of
+the **confirmation body**, as today, never a separate banner (it is true
+right after a successful apply, so a banner would sit beside the success
+result); errors from apply
 (`ParseNotImplemented`, `MergeNotImplemented`, `FilesChanged`, …) are the
 banner, and "nothing was changed" copy comes from `text.rs`.
 
@@ -127,7 +131,11 @@ the session. An apply in progress continues and its result lands.
 
 **`fixtures.rs`:** `FixtureSchedule` constructors for `empty()`, `ready()`
 (both files valid), `bad()` (a slot with an error), and an apply outcome
-that is `MergeNotImplemented` (for `schedule-notimpl`); `confirm` is reached
+that defaults to **`ParseNotImplemented`** (for `schedule-notimpl`, as
+today's mock and manual caption "reading schedule files is not implemented
+yet" show: `Core::apply` parses before it merges, and the parse hook is the
+stub that fails first; corrected 2026-11-22 from `MergeNotImplemented`);
+`confirm` is reached
 by scenario steps from `ready()`. Fake display paths only.
 
 **Fixture timing rule (planner, 2026-11-22, after M4).** The harness's
@@ -192,7 +200,7 @@ Do not touch: `crates/` (report a needed change instead), `apps/desktop/`,
 - `apply_reason_and_can_apply`.
 - `apply_confirms_with_shown_paths_and_applies_exactly_those`,
   `cancel_applies_nothing`, `result_sentence_after_apply`,
-  `same_pair_twice_warns_duplicate`, `apply_error_is_banner_and_session_kept`,
+  `same_pair_twice_warns_duplicate`, `dismiss_result_clears_result_keeps_applied_pair`, `apply_error_is_banner_and_session_kept`,
   `session_command_clears_result_and_error`.
 - `drop_target_enabled_and_disabled_reasons`, `drop_sets_slots_and_announces`,
   `ambiguous_drop_is_error`.

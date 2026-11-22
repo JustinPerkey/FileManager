@@ -21,7 +21,7 @@ setup: fn(&mut AppSetup), steps }`, `Step::{SelectTool(ToolId), Click(sel),
 Keys, Type, DragEnter, Drop, Watcher(ToolId), Call(fn), WaitIdle, Wait(ms)}`.
 Pattern to follow: `src/shoot/scenarios/pipeline.rs` (U6). Fixtures (M6,
 `tools/schedule/fixtures.rs`): `FixtureSchedule::{empty, ready, bad}` and an
-apply outcome `MergeNotImplemented`, selected through
+apply outcome `ParseNotImplemented` (the fixture's default), selected through
 `FixtureId::Schedule(..)` in `AppSetup`. Selectors (U7): `schedule-apply`,
 `dialog-confirm`. Command:
 `cargo run -p filemanager-gpui --features shoot --bin filemanager-shoot -- --out shots --only schedule- [--dark]`.
@@ -34,7 +34,7 @@ All at 1000×700; every scenario starts with `SelectTool(ToolId::Schedule)`.
 | `schedule-ready` | `ready()` | `WaitIdle` | both paths set; Add to XML… enabled |
 | `schedule-bad` | `bad()` (a relative text path) | `WaitIdle` | the slot error and red border |
 | `schedule-confirm` | `ready()` | `Click("schedule-apply")`, `WaitIdle` | the confirmation naming both paths |
-| `schedule-notimpl` | `ready()`, apply → `MergeNotImplemented` | `Click("schedule-apply")`, `WaitIdle`, `Click("dialog-confirm")`, `WaitIdle` | the error banner saying it is not written yet and nothing changed |
+| `schedule-notimpl` | `ready()`, apply → `ParseNotImplemented` | `Click("schedule-apply")`, `WaitIdle`, `Click("dialog-confirm")`, `WaitIdle` | the error banner saying it is not written yet and nothing changed |
 
 **Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
 harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`

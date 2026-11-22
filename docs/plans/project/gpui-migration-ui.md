@@ -309,8 +309,10 @@ reference for its tool's view and scenario tasks.
 - Apply row: 12 px top padding and a 1 px rule above; **Add to XML…**
   (primary; busy "Adding…"), the reason in muted beside it.
 - Result: info banner with the result sentence and the backup path line,
-  dismissible; the duplicate warning as a warn banner.
-- Confirmation: modal naming both paths; confirm "Update".
+  dismissible (`dismiss_result`).
+- Confirmation: modal naming both paths; confirm "Update"; when the same
+  pair was applied before, the duplicate warning is part of its body, as
+  today (planner correction, 2026-11-22: not a banner beside the result).
 - Drop: overlay label/reason from the model's drop target.
 - Keyboard as the Pipeline; focus after apply follows `focus_hint`.
 - Copy: `tools/schedule/text.rs`.
@@ -442,7 +444,7 @@ the PNG stem, with a fixture state from the tool's `fixtures.rs` and the
 | `schedule-ready` | 1000×700 | `ready()` | SelectTool, WaitIdle |
 | `schedule-bad` | 1000×700 | `bad()` | SelectTool, WaitIdle |
 | `schedule-confirm` | 1000×700 | `ready()` | SelectTool, Click `schedule-apply`, WaitIdle |
-| `schedule-notimpl` | 1000×700 | `ready()`, apply → MergeNotImplemented | …confirm, Click `dialog-confirm`, WaitIdle |
+| `schedule-notimpl` | 1000×700 | `ready()`, apply → ParseNotImplemented | …confirm, Click `dialog-confirm`, WaitIdle |
 | `tarpack-empty` | 1366×800 | empty | SelectTool, WaitIdle |
 | `tarpack-loaded` | 1366×800 | loaded | SelectTool, WaitIdle |
 | `tarpack-recent` | 1366×800 | loaded | Click `tarpack-recent`, WaitIdle |
