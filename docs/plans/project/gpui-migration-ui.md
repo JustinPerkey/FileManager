@@ -536,7 +536,7 @@ Every U task fills its rows of `docs/gpui-test-ledger.md` (created in M3a):
 
 - **V1** The danger button is the outline variant `DESIGN.md` planned
   (`danger` label and border, no fill), not the spike's filled one.
-- **V2** Announcements (visually hidden today) are not rendered.
+- **V2** Announcements (visually hidden today) are not rendered. *(Planner note, 2026-11-22: so the Tar Packager announcer race fix, `tasks/tarpack/U8-announce-race-fix.md`, applies to the Tauri frontend only and ends at the cutover; the GPUI port has no announcer to carry it.)*
 - **V3** Developer mode has no visible indicator, as today.
 - **V4** The path-loss notice is a warn banner at the top of the tool area,
   above the current tool's view, until dismissed.
