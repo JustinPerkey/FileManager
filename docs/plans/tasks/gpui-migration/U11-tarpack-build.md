@@ -56,8 +56,7 @@ list wording, "Reveal in Explorer", the shortcuts list. Developer mode:
 `crate::app::dev_mode::DevMode::is_on(cx)`, observe with
 `cx.observe_global::<DevMode>`.
 
-**Focus hints**: `take_focus_hint()` if present (request R5), else a
-changed `focus_hint()`. After a build the result's heading takes focus as
+**Focus hints**: `take_focus_hint()` (consumable; built in M7a/M7b). After a build the result's heading takes focus as
 today (hint from the model).
 
 ### Widgets and tokens
