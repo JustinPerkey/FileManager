@@ -132,7 +132,7 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| dark hooks define identical values | U | `theme::tests::tokens_match_tokens_css` (the GPUI app has one dark set, checked against the dark block) | done |
+| dark hooks define identical values | U | `theme::tests::tokens_match_tokens_css` (both dark blocks of tokens.css, the media query and `[data-theme=dark]`, equal each other and `DARK`) | done |
 | ${name}: %s on %s meets 4.5:1 | U | `theme::tests::contrast_pairs_meet_4_5` | done |
 | %s defines the overlay shadow | U | `theme::tests::tokens_match_tokens_css` (shadow alpha, both themes) | done |
 | %s defines --scrim | U | `theme::tests::tokens_match_tokens_css` (scrim alpha, both themes) | done |

@@ -9,7 +9,9 @@ pub mod tokens;
 #[cfg(test)]
 mod tests;
 
-use gpui::{px, App, Global, Hsla, Rgba, SharedString, Window, WindowAppearance};
+use std::collections::HashSet;
+
+use gpui::{px, App, Global, Hsla, Rgba, SharedString, Window, WindowAppearance, WindowId};
 use gpui_component::{Theme, ThemeColor, ThemeMode};
 
 use self::tokens::{Colors, Rgb};
@@ -22,6 +24,12 @@ pub const DISABLED_OPACITY: f32 = 0.55;
 pub const QUIET_DISABLED_OPACITY: f32 = 0.45;
 /// Opacity of a disabled input.
 pub const INPUT_DISABLED_OPACITY: f32 = 0.6;
+
+/// Alpha of the text selection fill. Selected text cannot be recoloured in
+/// GPUI, so it stays `text`; a full-accent fill would fail contrast. This is
+/// the same cap gpui-component applies when it loads a theme file, which
+/// `apply` bypasses by writing the slots directly.
+pub const SELECTION_ALPHA: f32 = 0.3;
 
 /// Black, the base of the scrim.
 const BLACK: Rgb = Rgb(0, 0, 0);
@@ -80,6 +88,8 @@ pub struct Palette {
     pub drop_overlay: Hsla,
     /// `--scrim`, alpha included.
     pub scrim: Hsla,
+    /// Accent at [`SELECTION_ALPHA`]: the text selection fill.
+    pub selection: Hsla,
     /// Accent at 88% over text: hover and pressed primary fill.
     pub primary_hover: Hsla,
     /// Danger at 88% over text: hover and pressed danger fill.
@@ -107,6 +117,7 @@ impl Palette {
             focus_ring: hsla(t.focus_ring),
             drop_overlay: hsla_a(t.drop_overlay.0, t.drop_overlay.1),
             scrim: hsla_a(BLACK, t.scrim_alpha),
+            selection: hsla_a(t.accent, SELECTION_ALPHA),
             primary_hover: hsla(t.accent.over(HOVER_MIX, t.text)),
             danger_hover: hsla(t.danger.over(HOVER_MIX, t.text)),
         }
@@ -230,7 +241,6 @@ fn set_accent_slots(c: &mut ThemeColor, p: &Palette) {
         &mut c.primary,
         &mut c.button_primary,
         &mut c.sidebar_primary,
-        &mut c.selection,
         &mut c.link,
         &mut c.info,
         &mut c.progress_bar,
@@ -241,6 +251,7 @@ fn set_accent_slots(c: &mut ThemeColor, p: &Palette) {
         *slot = p.accent;
     }
     c.ring = p.focus_ring;
+    c.selection = p.selection;
     for slot in [
         &mut c.primary_hover,
         &mut c.primary_active,
@@ -286,6 +297,10 @@ fn set_accent_slots(c: &mut ThemeColor, p: &Palette) {
 struct Appearance {
     system: Option<ThemeMode>,
     forced: Option<ThemeMode>,
+    /// Windows [`init`] has registered an observer on.
+    observed: HashSet<WindowId>,
+    /// How many observers [`init`] registered in all.
+    registrations: usize,
 }
 
 impl Global for Appearance {}
@@ -300,15 +315,28 @@ fn reapply(cx: &mut App) {
 }
 
 /// Applies the theme for `window`'s appearance and follows the system's light
-/// or dark setting from now on, refreshing the window on each change.
+/// or dark setting from now on. Applying the theme refreshes every window.
+///
+/// Call it once per window (the chrome does, on its first line). A second
+/// call for the same window only re-applies the theme and registers no second
+/// observer.
 pub fn init(window: &mut Window, cx: &mut App) {
     follow(window.appearance(), cx);
+    let id = window.window_handle().window_id();
+    let state = cx.default_global::<Appearance>();
+    if !state.observed.insert(id) {
+        return;
+    }
+    state.registrations += 1;
     window
-        .observe_window_appearance(|window, cx| {
-            follow(window.appearance(), cx);
-            window.refresh();
-        })
+        .observe_window_appearance(|window, cx| follow(window.appearance(), cx))
         .detach();
+}
+
+/// How many appearance observers [`init`] has registered.
+#[cfg(test)]
+fn observer_registrations(cx: &App) -> usize {
+    cx.try_global::<Appearance>().map_or(0, |a| a.registrations)
 }
 
 /// Records the system's appearance and applies the theme it (or an override)

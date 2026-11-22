@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use gpui::{TestAppContext, VisualTestContext, WindowAppearance};
+use gpui::{Hsla, TestAppContext, VisualTestContext, WindowAppearance};
 use gpui_component::{ActiveTheme as _, ThemeMode};
 
 use super::tokens::{self, Colors, Rgb, DARK, LIGHT};
-use super::{apply, follow, hsla, palette, set_override};
+use super::{apply, follow, hsla, hsla_a, observer_registrations, palette, set_override};
 
 fn manifest() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -105,6 +105,12 @@ fn tokens_match_tokens_css() {
     let dark = block(&css, ":root[data-theme=\"dark\"]");
     check(&LIGHT, &light);
     check(&DARK, &dark);
+    // The `prefers-color-scheme: dark` block carries the same values.
+    let media = block(&css, ":root:not([data-theme=\"light\"])");
+    assert_eq!(
+        media, dark,
+        "media dark block differs from [data-theme=dark]"
+    );
     // The dark block overrides every colour token the light block has.
     for k in light
         .keys()
@@ -207,6 +213,10 @@ fn luminance(c: Rgb) -> f64 {
     0.2126 * lin(c.0) + 0.7152 * lin(c.1) + 0.0722 * lin(c.2)
 }
 
+fn tokens_selection() -> f32 {
+    super::SELECTION_ALPHA
+}
+
 fn contrast(a: Rgb, b: Rgb) -> f64 {
     let (la, lb) = (luminance(a), luminance(b));
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
@@ -230,6 +240,19 @@ fn contrast_pairs_meet_4_5() {
             pairs.push((fg, ("surface", t.surface)));
         }
         pairs.push((("danger", t.danger), ("surface-sunken", t.surface_sunken)));
+        // Derived fills, composited as `apply` and the widgets do.
+        let on_fill = ("accent-text", t.accent_text);
+        for (fname, fill) in [("ok", t.ok), ("warn", t.warn), ("danger", t.danger)] {
+            pairs.push((on_fill, (fname, fill)));
+        }
+        pairs.push((on_fill, ("primary-hover", t.accent.over(0.88, t.text))));
+        pairs.push((on_fill, ("danger-hover", t.danger.over(0.88, t.text))));
+        let selection = |under: Rgb| t.accent.over(tokens_selection(), under);
+        pairs.push((
+            ("text", t.text),
+            ("selection over surface", selection(t.surface)),
+        ));
+        pairs.push((("text", t.text), ("selection over bg", selection(t.bg))));
         for ((fname, fg), (bname, bg)) in pairs {
             let ratio = contrast(fg, bg);
             assert!(ratio >= 4.5, "{name}: {fname} on {bname} is {ratio:.2}");
@@ -250,23 +273,63 @@ fn setup(cx: &mut TestAppContext) {
     cx.update(gpui_component::init);
 }
 
+/// One row per slot `apply` sets: the slot's name, its value, the token it
+/// must hold (computed here from `tokens.rs`, not from the `Palette`).
 #[gpui::test]
-fn apply_sets_slots_from_tokens(cx: &mut TestAppContext) {
+fn apply_sets_every_slot(cx: &mut TestAppContext) {
     setup(cx);
     for (mode, t) in [(ThemeMode::Light, &LIGHT), (ThemeMode::Dark, &DARK)] {
         cx.update(|cx| apply(mode, cx));
+        let name = if mode.is_dark() { "dark" } else { "light" };
+        let hover = |c: Rgb| hsla(c.over(0.88, t.text));
         cx.read(|cx| {
             let th = cx.theme();
+            let mut rows: Vec<(&str, Hsla, Hsla)> = Vec::new();
+            macro_rules! slots {
+                ($want:expr => $($slot:ident),+ $(,)?) => {
+                    $(rows.push((stringify!($slot), th.$slot, $want));)+
+                };
+            }
+            slots!(hsla(t.bg) => background, list_head);
+            slots!(hsla(t.text) => foreground, caret, popover_foreground, accent_foreground,
+                button_foreground, secondary_foreground, sidebar_foreground,
+                sidebar_accent_foreground);
+            slots!(hsla(t.border) => border, input, sidebar_border, table_row_border,
+                window_border, title_bar_border, scrollbar_thumb);
+            slots!(hsla(t.surface_sunken) => muted, accent, sidebar, button_hover,
+                button_active, secondary_hover, secondary_active, list_hover, list_active,
+                table_hover, table_active, scrollbar, title_bar);
+            slots!(hsla(t.text_muted) => muted_foreground, table_head_foreground,
+                scrollbar_thumb_hover);
+            slots!(hsla(t.surface) => popover, button, secondary, sidebar_accent,
+                list_even, table, table_even, table_head);
+            rows.push(("colors.list", th.colors.list, hsla(t.surface)));
+            slots!(hsla(t.accent) => primary, button_primary, sidebar_primary, link, info,
+                progress_bar, drag_border, list_active_border, table_active_border);
+            slots!(hsla(t.focus_ring) => ring);
+            slots!(hsla_a(t.accent, 0.3) => selection);
+            slots!(hover(t.accent) => primary_hover, primary_active, button_primary_hover,
+                button_primary_active, link_hover, link_active);
+            slots!(hsla(t.accent_text) => primary_foreground, button_primary_foreground,
+                sidebar_primary_foreground, info_foreground, success_foreground,
+                warning_foreground, danger_foreground, button_danger_foreground);
+            slots!(hsla(t.danger) => danger, button_danger);
+            slots!(hover(t.danger) => danger_hover, danger_active, button_danger_hover,
+                button_danger_active);
+            slots!(hsla(t.ok) => success);
+            slots!(hsla(t.warn) => warning);
+            slots!(hsla_a(Rgb(0, 0, 0), t.scrim_alpha) => overlay);
+            slots!(hsla_a(t.drop_overlay.0, t.drop_overlay.1) => drop_target);
+            for (slot, got, want) in rows {
+                assert_eq!(got, want, "{name}: {slot}");
+            }
             assert_eq!(th.is_dark(), mode.is_dark());
-            assert_eq!(th.background, hsla(t.bg));
-            assert_eq!(th.sidebar, hsla(t.surface_sunken));
-            assert_eq!(th.primary, hsla(t.accent));
-            assert_eq!(th.primary_hover, hsla(t.accent.over(0.88, t.text)));
-            assert_eq!(th.table_row_border, hsla(t.border));
-            assert_eq!(th.popover, hsla(t.surface));
-            assert_eq!(th.muted_foreground, hsla(t.text_muted));
-            assert_eq!(th.overlay.a, t.scrim_alpha);
             assert_eq!(th.font_size, gpui::px(tokens::REM));
+            assert_eq!(th.mono_font_size, gpui::px(14.0));
+            assert_eq!(th.radius, gpui::px(tokens::RADIUS));
+            assert_eq!(th.radius_lg, gpui::px(tokens::RADIUS));
+            assert!(!th.shadow);
+            assert_eq!(th.font_family.as_ref(), tokens::FONT_UI);
             assert_eq!(palette(cx).bg, hsla(t.bg));
         });
     }
@@ -308,4 +371,15 @@ fn appearance_change_reapplies(cx: &mut TestAppContext) {
     vcx.update(|_, cx| follow(WindowAppearance::VibrantLight, cx));
     assert!(!is_dark(vcx));
     assert_eq!(vcx.update(|_, cx| cx.theme().background), hsla(LIGHT.bg));
+}
+
+#[gpui::test]
+fn init_twice_registers_one_observer(cx: &mut TestAppContext) {
+    setup(cx);
+    let window = cx.add_window(|_, _| gpui::Empty);
+    let vcx = &mut VisualTestContext::from_window(window.into(), cx);
+    vcx.update(super::init);
+    vcx.update(super::init);
+    assert_eq!(vcx.update(|_, cx| observer_registrations(cx)), 1);
+    assert!(!is_dark(vcx));
 }
