@@ -160,6 +160,32 @@ enough for the job. Fixtures that simulate long work (progress, a running
 step) are timed on purpose; document each fixture's timing in its doc
 comment so the scenario author knows which `Wait` it needs.
 
+**From the M7a re-review (2026-11-22).**
+
+- **Opener call: switch now.** `apps/filemanager/src/platform/win_shell.rs`
+  calls `ShellExecuteW` on a thread that ends right after the call.
+  Microsoft recommends `ShellExecuteExW` with `SEE_MASK_NOASYNC` when the
+  calling thread can end before an asynchronous (DDE or shell-extension)
+  handler finishes. This milestone adds reveal's caller, so switch both
+  uses now: `open_with_system`, and reveal's fallback that opens the parent
+  folder.
+  - Fill `SHELLEXECUTEINFOW` with `fMask = SEE_MASK_NOASYNC`, verb "open",
+    the wide path, and `nShow = SW_SHOWNORMAL`.
+  - A `FALSE` return is the error, from `GetLastError`, mapped to the
+    detail text.
+  - Keep Windows' own UI for "no app is associated" (do not set
+    `SEE_MASK_FLAG_NO_UI`).
+  - Add the `// SAFETY:` comments, and update the doc comment.
+- **Recent index past the end (optional).** `RealTarpack::open_recent` with
+  an index past the end of the list returns `ManifestUnreadable` today.
+  This is harmless, because the list never shrinks. If time allows, make it
+  return `Ok(None)`, so the model shows the RecentChanged banner like any
+  other mismatch. Test: `open_recent_past_the_end_is_recent_changed`.
+- **Manual check.** Run 4 of `docs/gpui-dialogs-check.md` (Edit with no
+  handler, and Reveal selecting the file) needs the Edit button (U9) and the
+  reveal caller (this milestone, rendered in U11). It is due once those
+  views exist. Say in the PR that it is pending.
+
 ### Rules that bind this task
 
 - **Destructive operations are never silent:** an existing output is

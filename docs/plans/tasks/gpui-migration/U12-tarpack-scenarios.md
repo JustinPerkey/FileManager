@@ -30,7 +30,10 @@ dropped and withheld shots, and build fixtures (slow build with progress at
 fixed points, output exists, full and partial summaries). The fixture
 manifest has today's mock's 5 entries (the example's 3 plus `gateway-ca` and
 `gateway-unit`, with mock.js's diagnostics; M7a's review follow-up), so the
-shots match the reference geometry. The gateway
+shots match the reference geometry. **Row order differs:** the fixture rows follow
+`example.toml` (bin, conf, start), not the mock's (bin, start, conf), so the
+CRLF → LF marker and the Missing row sit on different rows than in today's
+`tarpack-*.png`. Do not treat that as a regression in row-wise comparisons. The gateway
 manifest is `C:\Packages\gateway\manifest.toml`; dropped paths below are
 fake and never touched.
 

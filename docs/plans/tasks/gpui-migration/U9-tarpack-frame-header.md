@@ -196,6 +196,12 @@ Loading (skeleton after 150 ms), restore failure, empty (with and without
 recent), loaded, manifest errors (collapsed/expanded), warnings, changed on
 disk, state warning, command error, drop pending, drop result.
 
+**Manual check due (M7a re-review, 2026-11-22).** Once this task's Edit in
+editor button exists, Run 4 of `docs/gpui-dialogs-check.md` (Edit with no
+`.toml` handler shows "Windows could not open it.") becomes runnable. Note
+in the PR that the hand check is due, for the human's next Windows 11
+session.
+
 ## Out of scope
 
 The entry table (U10); output, build, results, shortcut bindings (U11);

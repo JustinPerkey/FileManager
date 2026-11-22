@@ -185,6 +185,11 @@ Not buildable (reason), left-out note, ready, building with progress,
 progress unavailable, overwrite confirmation, success, partial success,
 failure, developer mode on/off, help open.
 
+**Manual check due (M7a re-review, 2026-11-22).** Once this task's Reveal
+button exists, the reveal half of Run 4 of `docs/gpui-dialogs-check.md`
+(Explorer opens with the archive selected) becomes runnable. Note in the PR
+that the hand check is due.
+
 ## Out of scope
 
 Scenarios (U12); model behaviour (M7b).

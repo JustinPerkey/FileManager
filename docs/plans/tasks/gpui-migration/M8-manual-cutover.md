@@ -70,6 +70,14 @@ What exists now:
    belongs to a UI task is now settled by it; check that none of the three
    tools' rows is `open`, and list any that are in the PR as a blocker.
 
+**Warning text (note from the M7a re-review, 2026-11-22).** Today's mock
+`gateway-svc` warning names an entry that is not in the list. The
+regenerated images reproduce that, because the fixture copies the mock. If
+the manual's text describes that warning, choose a self-consistent warning
+for the fixture, and the mock while it exists. That is a fixture change in
+`apps/filemanager/src/tools/tarpack/fixtures.rs` (yours). Record it in the
+PR so the side-by-side review expects the difference.
+
 ### Rules that bind this task
 
 - Screenshots use fixture backends and the fake platform only; no real
