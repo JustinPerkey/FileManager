@@ -54,15 +54,15 @@ Every scenario: 1366×800, starts with `SelectTool(ToolId::Tarpack)`.
 | `tarpack-ready` | ready | `WaitIdle` | — |
 | `tarpack-buildbar` | ready | `WaitIdle` | `tarpack-build-bar` |
 | `tarpack-building` | ready, slow build | `Click("tarpack-build")`, then wait until the fixture's fixed progress point shows (`Wait` long enough; the fixture holds the build there) | — |
-| `tarpack-result` | ready | `Click("tarpack-build")`, `WaitIdle` | — |
-| `tarpack-result-partial` | partial | `Click("tarpack-build")`, `WaitIdle` | `tarpack-build-result` |
-| `tarpack-replace` | ready, output exists | `Click("tarpack-build")`, `WaitIdle` | — |
+| `tarpack-result` | ready | `Click("tarpack-build")`, `Wait(300)` (the build fixture's doc; `WaitIdle` does not await the build) | — |
+| `tarpack-result-partial` | partial | `Click("tarpack-build")`, `Wait(300)` (the build fixture's doc; `WaitIdle` does not await the build) | `tarpack-build-result` |
+| `tarpack-replace` | ready, output exists | `Click("tarpack-build")`, `Wait(300)` (the build fixture's doc; `WaitIdle` does not await the build) | — |
 | `tarpack-errors` | errors | `WaitIdle` | — |
 | `tarpack-withheld` | withheld | `WaitIdle` | — |
 | `tarpack-missing` | missing | `WaitIdle` | — |
 | `tarpack-changed` | ready | `Watcher(ToolId::Tarpack)`, `WaitIdle` | — |
 | `tarpack-dev` | ready | `Keys("ctrl-alt-shift-d")`, `WaitIdle` | `tarpack-header` |
-| `tarpack-dev-result` | ready | `Keys("ctrl-alt-shift-d")`, `Click("tarpack-build")`, `WaitIdle` | `tarpack-build-result` |
+| `tarpack-dev-result` | ready | `Keys("ctrl-alt-shift-d")`, `Click("tarpack-build")`, `Wait(300)` (the build fixture's doc; `WaitIdle` does not await the build) | `tarpack-build-result` |
 
 **Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
 harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`

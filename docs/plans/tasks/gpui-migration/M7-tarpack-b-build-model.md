@@ -1,6 +1,6 @@
 # M7b — Tar Packager, part B: model for output, format, build, progress, overwrite, results and shortcuts
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21). **Review follow-up (2026-11-22):** the first run landed as 573cc1d; the next run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: M7a (landed)
 
 ## Goal
@@ -10,6 +10,91 @@ building with progress off the UI thread, the confirmed overwrite, the
 success and failure results with their report text, reveal and copy, the
 developer-mode extras, and the shortcut predicates, with the copy ported
 verbatim and fixtures for the build-side screenshots.
+
+## Review follow-up (2026-11-22)
+
+The review of 573cc1d did not approve M7b yet. **The next run does only
+this section.** Everything else in this plan is built. Read the code first:
+`apps/filemanager/src/platform/win_shell.rs` and
+`apps/filemanager/src/tools/tarpack/{model.rs,text.rs,fixtures.rs,tests.rs}`.
+
+### Fixes (no decision needed)
+
+- **`win_shell.rs` error mapping.**
+  - `shell_error_detail` reuses the old `SE_ERR_*` table, but
+    `ShellExecuteExW` reports Win32 error codes from `GetLastError`, so
+    codes 26–32 are mis-described (32 is `ERROR_SHARING_VIOLATION`, 31 is
+    `ERROR_GEN_FAILURE`, …).
+  - Drop the `SE_ERR_*` table and map directly the codes `ShellExecuteEx`
+    reports:
+    - 2 `ERROR_FILE_NOT_FOUND`
+    - 3 `ERROR_PATH_NOT_FOUND`
+    - 5 `ERROR_ACCESS_DENIED`
+    - 8 `ERROR_NOT_ENOUGH_MEMORY`
+    - 32 `ERROR_SHARING_VIOLATION`
+    - 1155 `ERROR_NO_ASSOCIATION`
+    - 1156 `ERROR_DDE_FAIL`
+    - 1157 `ERROR_DLL_NOT_FOUND`
+  - Any other code gets "Windows error <n>". Keep the mapping a pure
+    function so it is testable on every platform.
+  - Test: `shell_error_detail_maps_shellexecuteex_codes`.
+- **Cancelling is not a failure.**
+  - `ERROR_CANCELLED` (1223) is what the user gets by cancelling Windows'
+    "How do you want to open this file?" dialog. It is `Ok(())`, with no
+    banner.
+  - Test: `cancelled_open_is_ok` (on the pure result mapping), plus a model
+    test where `FakePlatform` answers `Ok(())` and no banner appears.
+
+### Decisions (planner, 2026-11-22)
+
+1. **`progress_unavailable` is removed.**
+   - In GPUI the progress channel cannot end before the job does, because
+     the job owns the sender. So the flag can only be set by a race: the
+     channel closes before the result task runs, which the reviewer showed
+     happens on a normal build.
+   - Remove the setter and `TarpackModel::progress_unavailable()`, and
+     remove the "progress unavailable" copy from `text.rs` if nothing else
+     uses it.
+   - In `docs/gpui-test-ledger.md`, mark row 430 ("onBuildProgress
+     rejecting…") `dropped: GPUI's progress channel cannot fail before the
+     job ends (the job owns the sender); the Tauri listen failure has no
+     equivalent`.
+   - Test: `progress_channel_closing_before_result_is_not_a_failure` (a
+     normal fixture build whose channel closes first shows no special state).
+2. **A panicked build is an `Unexpected` result, not `Io`.**
+   - Add `BuildOutcome::Unexpected { detail: String }`. A panicked build job
+     still calls `abort_build`, then sets this result.
+   - Its copy is `text::UNEXPECTED` ("Something went wrong. See Details."),
+     with the panic message as Details. The announcement is the same copy.
+   - Today's (and Tauri's) `Io` "the build stopped unexpectedly" showed
+     "A file could not be read or written.", which misleads.
+   - Test: `panicked_build_aborts_and_reports` now expects `Unexpected`.
+3. **"Couldn't copy" stays dropped.**
+   - `Platform::copy_text` returns nothing, and GPUI's clipboard write
+     cannot report a failure, so there is no failure to show.
+   - The "Copied" confirmation stays.
+   - Ledger: the "Couldn't copy" row is `dropped: GPUI's clipboard write
+     reports no failure`.
+4. **Load clears the last build result.**
+   - Opening a manifest, opening a recent one, and creating one from the
+     example now clear the build result (and its Show in folder), as Reload
+     does. Otherwise, after opening a different manifest, Show in folder
+     would point at the previous manifest's archive.
+   - This is a deliberate change from the Tauri app (which kept it); record
+     it in the ledger row of the case it changes, as
+     `changed: Load clears the result too (2026-11-22)`.
+   - Tests: `open_clears_build_result`, `open_recent_clears_build_result`,
+     `create_from_example_clears_build_result`.
+5. **Scenario timing** (U12, not this run): `tarpack-result`,
+   `-result-partial`, `-replace` and `-dev-result` wait `Wait(300)` after
+   clicking Create archive, as the build fixture's doc says. Check that
+   `fixtures.rs`'s doc comment states that number.
+
+### Follow-up acceptance
+
+- Every item above has its named test.
+- fmt (linux job), clippy pedantic (both jobs, with and without
+  `--features shoot`), and `cargo test --workspace` pass.
 
 ## Context
 
