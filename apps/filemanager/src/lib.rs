@@ -4,10 +4,8 @@
 // The domain crates the tools will use. The placeholder tools do not call them
 // yet, and Cargo's `cargo::unused_dependencies` manifest lint warns about an
 // unused dependency; these lines go once the tools use the crates.
-use fm_core as _;
 use fm_dbmanager as _;
 use fm_schedule as _;
-use fm_tarpack as _;
 
 pub mod app;
 pub mod assets;

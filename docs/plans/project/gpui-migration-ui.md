@@ -328,7 +328,7 @@ reference for its tool's view and scenario tasks.
   **Reload**, **Edit in editor** (developer mode), **Keyboard shortcuts**
   (quiet, keyboard icon). Actions wrap under the title when narrow.
 - Banners in order: command error, changed on disk (warn, **Reload**),
-  state warning (warn, dismissible). Skeleton (two bars) only after 150 ms
+  state warning (info, as today; dismissible). Skeleton (two bars) only after 150 ms
   of loading.
 - Errors region: `surface`, 1 px `danger` border; heading (lg 600) with
   x-circle, consequence line, **Show errors**/**Hide errors**; the report

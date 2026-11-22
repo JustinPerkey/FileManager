@@ -114,8 +114,11 @@ impl TarpackModel {
   sets `changed_on_disk` (announced once), no result. Any other error:
   `result = Err(e)`, announcement = its message from `text.rs`.
 - **Results.** `reveal_output` uses `reveal_target()` (the path held in
-  state, never a display string) and `Platform::reveal`; a failure is the
-  `OpenerFailed` banner. `copy_report` copies `reportText`. The extraction
+  state, never a display string) and `Platform::reveal`, which returns
+  `Task<Result<(), OpenError>>` (M7a's follow-up added it: our own
+  `SHOpenFolderAndSelectItems` wrapper on Windows). An `Err` is the
+  `OpenerFailed` banner ("Windows could not open it.", from `text.rs`), with
+  the detail shown as Details. Test: `reveal_failure_shows_opener_failed`. `copy_report` copies `reportText`. The extraction
   command is shown and copyable only while developer mode is on; turning
   developer mode off hides it at once (observe the global).
 - **Shortcuts** (`useTarpackShortcuts.ts`): all inactive while building or

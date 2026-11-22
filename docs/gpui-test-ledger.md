@@ -84,8 +84,8 @@ its heading's count.
 |---|---|---|---|
 | Ctrl+Alt+Shift+D toggles developer mode and announces it | M3a | `app::dev_mode::tests::chord_toggles` (announcement strings are constants in `app/text.rs`; the aria-live announcer itself is the UI's decision); focus independence: `chord_works_without_focus`, `chord_works_after_focus_is_lost`, `chord_works_with_focus_in_a_dialog`; held chord: `held_chord_toggles_once` | done |
 | other chords leave developer mode off | M3a | `app::dev_mode::tests::chord_toggles` (the other-chord assertions) | done |
-| without developer mode, Edit in editor and the extraction command are hidden | M7a or U |  | open |
-| the shortcuts list names Ctrl+E only in developer mode | M7a or U |  | open |
+| without developer mode, Edit in editor and the extraction command are hidden | M7a | `tools::tarpack::tests::can_edit_needs_dev_mode_and_manifest` | done |
+| the shortcuts list names Ctrl+E only in developer mode | U |  | open |
 
 ## `app/useAnnouncer.test.tsx` (5)
 
@@ -244,31 +244,31 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing for an empty list | M7a or U |  | open |
-| items have accessible position text and verbatim message | M7a or U |  | open |
+| renders nothing for an empty list | U |  | open |
+| items have accessible position text and verbatim message | U |  | open |
 
 ## `tools/tarpack/DropResult.test.tsx` (18)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| matched line | M7a or U |  | open |
-| unmatched reason %s has its copy and icon | M7a or U |  | open |
-| plural phrases | M7a or U |  | open |
-| two items with one reason share one line | M7a or U |  | open |
-| ambiguous: an entry with two candidates | M7a or U |  | open |
-| ambiguous: two entries sharing one candidate | M7a or U |  | open |
-| ambiguous: an id not in entries falls back to the file name, never the id | M7a or U |  | open |
-| notUnicode plural copy | M7a or U |  | open |
-| U+FFFD paths render | M7a or U |  | open |
-| more than 8 names: 8 shown, full count, and the same in dropResultText | M7a or U |  | open |
-| failed entries: noEntry reads not matched and the hint follows; also after folderNoMatch alone | M7a or U |  | open |
-| combined outcome: order, and dropResultText matches the rendered lines | M7a or U |  | open |
-| dismiss by keyboard; no live role; axe clean | M7a or U |  | open |
-| an outcome with nothing in it says so | M7a or U |  | open |
-| empty outcome: text and icon are muted, no disclosure | M7a or U |  | open |
-| Full paths: collapsed, expands, lists every path past the cap | M7a or U |  | open |
-| Full paths is absent for matched-only outcomes | M7a or U |  | open |
-| DropPending: one muted line, no button, no live role | M7a or U |  | open |
+| matched line | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| unmatched reason %s has its copy and icon | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| plural phrases | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| two items with one reason share one line | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| ambiguous: an entry with two candidates | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| ambiguous: two entries sharing one candidate | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| ambiguous: an id not in entries falls back to the file name, never the id | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| notUnicode plural copy | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| U+FFFD paths render | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| more than 8 names: 8 shown, full count, and the same in dropResultText | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| failed entries: noEntry reads not matched and the hint follows; also after folderNoMatch alone | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| combined outcome: order, and dropResultText matches the rendered lines | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| dismiss by keyboard; no live role; axe clean | U |  | open |
+| an outcome with nothing in it says so | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
+| empty outcome: text and icon are muted, no disclosure | U |  | open |
+| Full paths: collapsed, expands, lists every path past the cap | U |  | open |
+| Full paths is absent for matched-only outcomes | U |  | open |
+| DropPending: one muted line, no button, no live role | U |  | open |
 
 ## `tools/tarpack/EntryStatus.test.tsx` (1)
 
@@ -332,24 +332,24 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing with no errors or warnings | M7a or U |  | open |
-| count heading, singular and plural | M7a or U |  | open |
-| keyed on errorCount, not errors.length | M7a or U |  | open |
-| consequence lines | M7a or U |  | open |
-| report groups: whole manifest, then files with errors | M7a or U |  | open |
-| toggle has aria-expanded/controls and works by keyboard | M7a or U |  | open |
-| collapsed body stays mounted but hidden | M7a or U |  | open |
-| warnings render collapsed alongside errors, verbatim | M7a or U |  | open |
-| warnings only | M7a or U |  | open |
+| renders nothing with no errors or warnings | U |  | open |
+| count heading, singular and plural | M7a | `tools::tarpack::tests::manifest_copy_matches_today` | done |
+| keyed on errorCount, not errors.length | U |  | open |
+| consequence lines | M7a | `tools::tarpack::tests::manifest_copy_matches_today` | done |
+| report groups: whole manifest, then files with errors | M7a | `tools::tarpack::tests::manifest_copy_matches_today` | done |
+| toggle has aria-expanded/controls and works by keyboard | U |  | open |
+| collapsed body stays mounted but hidden | U |  | open |
+| warnings render collapsed alongside errors, verbatim | U |  | open |
+| warnings only | U |  | open |
 
 ## `tools/tarpack/ManifestHeader.test.tsx` (4)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| each action calls its handler | M7a or U |  | open |
-| Recent is hidden when empty | M7a or U |  | open |
-| Recent menu opens, moves, and closes with Escape returning focus | M7a or U |  | open |
-| Tab closes the menu and focus is not lost to body | M7a or U |  | open |
+| each action calls its handler | U |  | open |
+| Recent is hidden when empty | U |  | open |
+| Recent menu opens, moves, and closes with Escape returning focus | U |  | open |
+| Tab closes the menu and focus is not lost to body | U |  | open |
 
 ## `tools/tarpack/MiddlePath.test.tsx` (2)
 
@@ -385,27 +385,27 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| drop calls assignDropped with the dropped paths, renders session and outcome, announces the result | M7a or U |  | open |
-| overlay axe check while visible | M7a or U |  | open |
-| Browse assigns the chosen file, starting in the current folder | M7a or U |  | open |
-| Browse on an unassigned row has no default path; cancel makes no call | M7a or U |  | open |
-| Clear calls clear with the id and keeps its title | M7a or U |  | open |
-| a NotAFile rejection shows the copy and leaves the table unchanged | M7a or U |  | open |
-| a non-TarpackError rejection from assign shows the Io copy | M7a or U |  | open |
-| a rejected drop shows an error banner and no result | M7a or U |  | open |
-| with errorCount > 0 and passed entries, drop and Browse work | M7a or U |  | open |
-| silence on assign: Browse and Clear leave the announcer alone; a drop announces only its result | M7a or U |  | open |
-| disabled (%s): overlay shows the reason and a drop makes no call | M7a or U |  | open |
-| building disables drops | M7a or U |  | open |
-| focus after Dismiss goes to the first tabbable after the result (the build bar) | M7a or U |  | open |
-| one drop at a time: pending state, disabled reason, 150 ms line, 1 s announcement, resolve | M7a or U |  | open |
-| a rejected drop clears the previous result and shows the banner | M7a or U |  | open |
-| a result keeps its hasFailedEntries when the session later changes | M7a or U |  | open |
-| view-level axe with the result visible and Full paths expanded | M7a or U |  | open |
-| the file list stays outside the controls fieldset and survives a drop | M7a or U |  | open |
-| during a build the row buttons are disabled | M7a or U |  | open |
-| Reload clears the drop result | M7a or U |  | open |
-| Reload with focus in the drop result moves focus to Reload | M7a or U |  | open |
+| drop calls assignDropped with the dropped paths, renders session and outcome, announces the result | M7a | `tools::tarpack::tests::drop_assigns_and_reports_lines` | done |
+| overlay axe check while visible | U |  | open |
+| Browse assigns the chosen file, starting in the current folder | M7a | `tools::tarpack::tests::browse_starts_in_assigned_folder` | done |
+| Browse on an unassigned row has no default path; cancel makes no call | M7a | `tools::tarpack::tests::browse_starts_in_assigned_folder` | done |
+| Clear calls clear with the id and keeps its title | M7a | `tools::tarpack::tests::assign_and_clear_update_entries` | done |
+| a NotAFile rejection shows the copy and leaves the table unchanged | M7a | `tools::tarpack::tests::assign_and_clear_update_entries` | done |
+| a non-TarpackError rejection from assign shows the Io copy | - | dropped: a typed `Result<_, TarpackError>` cannot carry a non-TarpackError; a panicked backend call is `Unexpected` | dropped |
+| a rejected drop shows an error banner and no result | M7a | `tools::tarpack::tests::drop_error_clears_pending` | done |
+| with errorCount > 0 and passed entries, drop and Browse work | M7a | `tools::tarpack::tests::drop_with_failed_entries_keeps_the_flag` | done |
+| silence on assign: Browse and Clear leave the announcer alone; a drop announces only its result | M7a | `tools::tarpack::tests::assign_and_clear_update_entries`, `tools::tarpack::tests::drop_assigns_and_reports_lines` | done |
+| disabled (%s): overlay shows the reason and a drop makes no call | M7a | `tools::tarpack::tests::drop_target_reasons` | done |
+| building disables drops | M7a | `tools::tarpack::tests::drop_target_reasons` | done |
+| focus after Dismiss goes to the first tabbable after the result (the build bar) | U |  | open |
+| one drop at a time: pending state, disabled reason, 150 ms line, 1 s announcement, resolve | M7a | `tools::tarpack::tests::drop_ignored_while_pending`, `tools::tarpack::tests::pending_shown_after_150ms_and_announced_after_1s` | done |
+| a rejected drop clears the previous result and shows the banner | M7a | `tools::tarpack::tests::drop_error_clears_pending` | done |
+| a result keeps its hasFailedEntries when the session later changes | M7a | `tools::tarpack::tests::drop_with_failed_entries_keeps_the_flag` | done |
+| view-level axe with the result visible and Full paths expanded | U |  | open |
+| the file list stays outside the controls fieldset and survives a drop | U |  | open |
+| during a build the row buttons are disabled | U |  | open |
+| Reload clears the drop result | M7a | `tools::tarpack::tests::reload_clears_changed_and_results` | done |
+| Reload with focus in the drop result moves focus to Reload | M7a | `tools::tarpack::tests::reload_clears_changed_and_results` | done |
 
 ## `tools/tarpack/TarpackView.build.test.tsx` (24)
 
@@ -440,50 +440,50 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| restore announces %s | M7a or U |  | open |
-| open and reload announce, repeat on same count, and clear announces No errors | M7a or U |  | open |
-| a repeated sentence is re-announced even when the frame fires before React renders | M7a or U |  | open |
-| report re-expands after reload even if collapsed; no focus stolen | M7a or U |  | open |
-| showErrors expands and focuses the report body; no-op without errors | M7a or U |  | open |
-| showErrors does nothing with zero errors | M7a or U |  | open |
-| announce() sets the announcer text | M7a or U |  | open |
-| changed-on-disk is announced once, not again on a second event | M7a or U |  | open |
-| a restore with a state warning and errors makes one combined announcement | M7a or U |  | open |
-| no focus change on open or reload with errors | M7a or U |  | open |
-| 200 failed entries: all render, the report is the only tab stop and scrolls | M7a or U |  | open |
+| restore announces %s | M7a | `tools::tarpack::tests::restores_last_manifest_on_start`, `tools::tarpack::tests::manifest_sentences_match_today` | done |
+| open and reload announce, repeat on same count, and clear announces No errors | M7a | `tools::tarpack::tests::open_uses_platform_and_announces`, `tools::tarpack::tests::reload_clears_changed_and_results`; the repeat: `tools::tarpack::tests::a_reload_with_the_same_error_count_announces_again` (same sentence, `announcement_generation` +1 each time) | done |
+| a repeated sentence is re-announced even when the frame fires before React renders | M7a | `tools::tarpack::tests::state_warning_announced_once_and_dismissal_sticks` | done |
+| report re-expands after reload even if collapsed; no focus stolen | M7a | `tools::tarpack::tests::load_expands_errors_when_present` | done |
+| showErrors expands and focuses the report body; no-op without errors | M7a | `tools::tarpack::tests::show_errors_expands_and_hints_focus` | done |
+| showErrors does nothing with zero errors | M7a | `tools::tarpack::tests::show_errors_noop_without_errors` | done |
+| announce() sets the announcer text | M7a | `tools::tarpack::tests::open_uses_platform_and_announces` | done |
+| changed-on-disk is announced once, not again on a second event | M7a | `tools::tarpack::tests::watcher_marks_changed_on_disk_once`, `tools::tarpack::tests::inject_file_changed_marks_changed` | done |
+| a restore with a state warning and errors makes one combined announcement | M7a | `tools::tarpack::tests::state_warning_announced_once_and_dismissal_sticks` | done |
+| no focus change on open or reload with errors | M7a | `tools::tarpack::tests::load_expands_errors_when_present` | done |
+| 200 failed entries: all render, the report is the only tab stop and scrolls | U |  | open |
 
 ## `tools/tarpack/TarpackView.states.test.tsx` (17)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| loading: announcer mounted, hidden text, busy, skeleton delayed | M7a or U |  | open |
-| no-manifest state opens via dialog with a toml filter | M7a or U |  | open |
-| loaded state has no error region and no axe violations | M7a or U |  | open |
-| errors with entries shown, and withheld | M7a or U |  | open |
-| changed on disk banner appears, Reload clears it | M7a or U |  | open |
-| ManifestUnreadable from Open keeps the session; Details is a disclosure | M7a or U |  | open |
-| ManifestUnreadable from Reload | M7a or U |  | open |
-| PathExists from Create from example leaves the no-manifest state | M7a or U |  | open |
-| OpenerFailed from Edit in editor and state warning | M7a or U |  | open |
-| a rejected first session() shows the no-manifest state with the banner | M7a or U |  | open |
-| a non-TarpackError rejection shows the Io copy with the thrown text | M7a or U |  | open |
-| a rejected dialog is reported, not left unhandled | M7a or U |  | open |
-| banners render in fixed order and Details open passes axe | M7a or U |  | open |
-| changed-on-disk banner has no axe violations | M7a or U |  | open |
-| root section has the tarpack class in loading, no-manifest and loaded states | M7a or U |  | open |
-| skeleton has no axe violations after the delay | M7a or U |  | open |
-| the same command error twice re-mounts the alert so it is announced again | M7a or U |  | open |
+| loading: announcer mounted, hidden text, busy, skeleton delayed | M7a | `tools::tarpack::tests::skeleton_only_after_150ms` | done |
+| no-manifest state opens via dialog with a toml filter | M7a | `tools::tarpack::tests::open_passes_manifest_filter` | done |
+| loaded state has no error region and no axe violations | U |  | open |
+| errors with entries shown, and withheld | M7a | `tools::tarpack::tests::fixtures_build_each_manifest_state` | done |
+| changed on disk banner appears, Reload clears it | M7a | `tools::tarpack::tests::reload_clears_changed_and_results` | done |
+| ManifestUnreadable from Open keeps the session; Details is a disclosure | M7a | `tools::tarpack::tests::open_failure_keeps_the_session` | done |
+| ManifestUnreadable from Reload | M7a | `tools::tarpack::tests::open_failure_keeps_the_session` | done |
+| PathExists from Create from example leaves the no-manifest state | M7a | `tools::tarpack::tests::create_from_example_refuses_existing_file` | done |
+| OpenerFailed from Edit in editor and state warning | M7a | `tools::tarpack::tests::edit_opens_manifest_path` | done |
+| a rejected first session() shows the no-manifest state with the banner | M7a | `tools::tarpack::tests::restore_failure_sets_load_failed` | done |
+| a non-TarpackError rejection shows the Io copy with the thrown text | - | dropped: a typed `Result` cannot carry a non-TarpackError; a panicked backend call is `Unexpected` (`restore_failure_sets_load_failed`) | dropped |
+| a rejected dialog is reported, not left unhandled | M7a | `tools::tarpack::tests::open_error_shows_dialog_failure_copy` | done |
+| banners render in fixed order and Details open passes axe | U |  | open |
+| changed-on-disk banner has no axe violations | U |  | open |
+| root section has the tarpack class in loading, no-manifest and loaded states | - | dropped: a CSS class of the web view | dropped |
+| skeleton has no axe violations after the delay | U |  | open |
+| the same command error twice re-mounts the alert so it is announced again | M7a | `tools::tarpack::tests::open_failure_keeps_the_session` | done |
 
 ## `tools/tarpack/errorMessages.test.ts` (6)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| %s has a message | M7a or U |  | open |
-| there are 17 kinds including NoEntries | M7a or U |  | open |
-| source is filled from the entry id | M7a or U |  | open |
-| reads 'A file' when the entry id is omitted or unknown | M7a or U |  | open |
-| toTarpackError passes a valid error through unchanged | M7a or U |  | open |
-| toTarpackError turns %s into Io | M7a or U |  | open |
+| %s has a message | M7a | `tools::tarpack::tests::text_covers_every_error_kind`, `tools::tarpack::tests::text_matches_ts_sources` | done |
+| there are 17 kinds including NoEntries | M7a | `tools::tarpack::tests::text_covers_every_error_kind` | done |
+| source is filled from the entry id | M7a | `tools::tarpack::tests::text_covers_every_error_kind` | done |
+| reads 'A file' when the entry id is omitted or unknown | M7a | `tools::tarpack::tests::text_covers_every_error_kind` | done |
+| toTarpackError passes a valid error through unchanged | - | dropped: no untyped JS rejection to normalise; the backend returns `Result<_, TarpackError>` | dropped |
+| toTarpackError turns %s into Io | - | dropped: no untyped JS rejection to normalise; the backend returns `Result<_, TarpackError>` | dropped |
 
 ## `tools/tarpack/pathParts.test.ts` (14)
 
@@ -498,11 +498,11 @@ its heading's count.
 | name of exactly 32 code points is kept, 33 is capped | U |  | open |
 | an astral character at the cap is not split | U |  | open |
 | U+FFFD is preserved | U |  | open |
-| assignedFolder: drive root keeps its separator | U |  | open |
-| assignedFolder: nested, forward-slash and UNC paths | U |  | open |
-| assignedFolder: undefined without a separator or with U+FFFD | U |  | open |
+| assignedFolder: drive root keeps its separator | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows paths run in the Windows job; the Unix job runs the `/` root) | done |
+| assignedFolder: nested, forward-slash and UNC paths | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows job) | done |
+| assignedFolder: undefined without a separator or with U+FFFD | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (no parent: no start folder), `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode` (the stored path has nothing to refuse: a lossy display name still starts in its exact folder). `C:a.txt` is not ported: `Path::parent` gives `C:` and the dialog accepts it | done |
 | fileName is what follows the last separator | U |  | open |
-| displayFolder shows a lossy folder as is; assignedFolder refuses it | U |  | open |
+| displayFolder shows a lossy folder as is; assignedFolder refuses it | U | `displayFolder` half: the view renders it (U). The `assignedFolder` half is `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode`: it no longer refuses, it uses the stored `PathBuf` | open |
 
 ## `tools/tarpack/reportText.test.ts` (4)
 

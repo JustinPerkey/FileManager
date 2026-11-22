@@ -91,8 +91,8 @@ pub trait Platform: 'static {
         -> Task<Result<Option<PathBuf>, PickError>>;      // one item; None = cancelled
     fn pick_save(&self, spec: SaveSpec, cx: &mut App)
         -> Task<Result<Option<PathBuf>, PickError>>;
-    fn open_with_system(&self, path: &Path, cx: &mut App);
-    fn reveal(&self, path: &Path, cx: &mut App);
+    fn open_with_system(&self, path: &Path, cx: &mut App);   // later (M7a follow-up): -> Task<Result<(), OpenError>>
+    fn reveal(&self, path: &Path, cx: &mut App);             // same
     fn copy_text(&self, text: &str, cx: &mut App);
 }
 ```

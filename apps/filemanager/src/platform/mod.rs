@@ -11,6 +11,8 @@ pub mod gpui;
 pub mod path_loss;
 #[cfg(windows)]
 pub mod win_dialog;
+#[cfg(windows)]
+pub mod win_shell;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -59,20 +61,31 @@ pub enum PickError {
     Failed { detail: String },
 }
 
+/// The system could not open a file or show it in the file manager.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenError {
+    /// What the system said, for the "Details" of the error banner.
+    pub detail: String,
+}
+
 /// The outcome of a dialog: `Ok(None)` is a cancel.
 pub type PickResult = Result<Option<PathBuf>, PickError>;
 
 /// The OS operations models use. None of the methods blocks the calling
-/// (UI) thread: dialogs return a task, the rest are fire and forget.
+/// (UI) thread: dialogs and the shell calls return a task, the clipboard is
+/// fire and forget.
 pub trait Platform: 'static {
     /// Shows an open dialog for one item; `None` is a cancel.
     fn pick(&self, spec: OpenSpec, cx: &mut App) -> Task<PickResult>;
     /// Shows a save dialog; `None` is a cancel.
     fn pick_save(&self, spec: SaveSpec, cx: &mut App) -> Task<PickResult>;
-    /// Opens `path` with the system's default application.
-    fn open_with_system(&self, path: &Path, cx: &mut App);
-    /// Shows `path` in the system file manager.
-    fn reveal(&self, path: &Path, cx: &mut App);
+    /// Opens `path` with the system's default application. The task answers
+    /// when the system has taken or refused the request; the caller reports
+    /// an `Err`.
+    fn open_with_system(&self, path: &Path, cx: &mut App) -> Task<Result<(), OpenError>>;
+    /// Shows `path` in the system file manager. Answers like
+    /// [`Platform::open_with_system`].
+    fn reveal(&self, path: &Path, cx: &mut App) -> Task<Result<(), OpenError>>;
     /// Puts `text` on the clipboard.
     fn copy_text(&self, text: &str, cx: &mut App);
 }

@@ -6,7 +6,7 @@
 //! extension and a start folder, and returns paths as exact `OsString`s, so a
 //! name that is not valid Unicode survives. Each dialog runs on its own
 //! apartment-threaded thread, so the UI thread never blocks. All `unsafe` in
-//! the app lives in this file.
+//! the app lives in this file and in `win_shell`.
 
 use std::ffi::{c_void, OsStr, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};

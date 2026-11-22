@@ -216,6 +216,18 @@ impl Core {
             .ok_or_else(|| TarpackError::new(K::NoManifest, "no manifest is loaded"))
     }
 
+    /// The file assigned to the entry `id`, as the path that was stored: a
+    /// dialog can start in its folder without parsing a display string.
+    /// `None` when nothing is loaded or the entry has no assignment.
+    #[must_use]
+    pub fn assigned_path(&self, id: &str) -> Option<PathBuf> {
+        self.loaded
+            .as_ref()?
+            .assignments
+            .get(id)
+            .map(Path::to_path_buf)
+    }
+
     /// The loaded manifest's path, for the watcher and the editor.
     #[must_use]
     pub fn manifest_path(&self) -> Option<&Path> {
@@ -248,6 +260,14 @@ impl Core {
             .iter()
             .map(|p| display(p))
             .collect()
+    }
+
+    /// The recent manifests as stored paths, most recent first, in the order
+    /// of [`Core::recent_manifests`]. Open one by this path, never by
+    /// parsing its display string.
+    #[must_use]
+    pub fn recent_paths(&self) -> Vec<PathBuf> {
+        self.remembered.recent_manifests.clone()
     }
 
     fn load_manifest(&mut self, path: &Path) -> Result<(), TarpackError> {

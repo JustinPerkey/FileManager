@@ -62,10 +62,12 @@ Read first:
   the path and whether it was created. A permission failure (another user's
   account owns the directory) is `Io` with a message saying so. The model's
   `edit_config(cx)` is allowed only when `DevMode::is_on`; it runs the core
-  call on the Worker, then `Platform::open_with_system(path)`, and shows the
-  notice "Created a starter config at <display>." when created. GPUI's
-  `open_with_system` reports no failure, so `OpenerFailed` is not raised
-  here (record this in the PR).
+  call on the Worker, then `Platform::open_with_system(path)`, which returns
+  `Task<Result<(), OpenError>>` (added in the Tar Packager's M7a follow-up);
+  an `Err` is the banner for kind `OpenerFailed` with the detail. It shows the
+  notice "Created a starter config at <display>." when created. Test:
+  `edit_config_opener_failure_shows_opener_failed` (`FakePlatform` answers
+  `Err`).
 - Model API: `can_edit_config(cx) -> bool`, `edit_config(cx)`,
   `config_reloaded_notice()` (the re-check notice is the M12b `notice`).
 - Copy in `text.rs` for the sentences above.

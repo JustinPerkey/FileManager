@@ -27,7 +27,10 @@ Fixtures (M7a/M7b, `tools/tarpack/fixtures.rs`, through
 `FixtureId::Tarpack(..)`): the manifest states (empty, loaded, partial,
 ready, missing, errors, withheld, recent list), drop outcomes for the
 dropped and withheld shots, and build fixtures (slow build with progress at
-fixed points, output exists, full and partial summaries). The gateway
+fixed points, output exists, full and partial summaries). The fixture
+manifest has today's mock's 5 entries (the example's 3 plus `gateway-ca` and
+`gateway-unit`, with mock.js's diagnostics; M7a's review follow-up), so the
+shots match the reference geometry. The gateway
 manifest is `C:\Packages\gateway\manifest.toml`; dropped paths below are
 fake and never touched.
 
@@ -43,7 +46,7 @@ Every scenario: 1366×800, starts with `SelectTool(ToolId::Tarpack)`.
 | `tarpack-recent` | loaded | `Click("tarpack-recent")`, `WaitIdle` | — |
 | `tarpack-shortcuts` | loaded | `Click("tarpack-shortcuts")`, `WaitIdle` | — |
 | `tarpack-drag` | loaded | `DragEnter(&[r"C:\Builds\gateway"])`, `WaitIdle` | — |
-| `tarpack-dropped` | loaded | `Drop(&[r"C:\Builds\gateway\release\gateway", r"C:\Builds\gateway\scripts\start.sh", r"C:\Builds\gateway\config\gateway.conf", r"C:\Builds\gateway\README.md"])`, `WaitIdle` | — |
+| `tarpack-dropped` | loaded | `Drop(&[r"C:\Builds\gateway\release\gateway", r"C:\Builds\gateway\scripts\start.sh", r"C:\Builds\gateway\config\gateway.conf", r"C:\Builds\gateway\README.md"])`, `Wait(200)` (a drop goes Worker → `spawn_thread` → Worker; `WaitIdle` does not await it) | — |
 | `tarpack-partial` | partial | `WaitIdle` | — |
 | `tarpack-ready` | ready | `WaitIdle` | — |
 | `tarpack-buildbar` | ready | `WaitIdle` | `tarpack-build-bar` |
