@@ -525,6 +525,7 @@ recommendation was go-with-conditions; the human decided go (D10–D14).
 | M3c | [`M3-app-c-file-dialogs.md`](../tasks/gpui-migration/M3-app-c-file-dialogs.md) | Our own Windows common item dialog wrapper (filters, default extension, initial folder, `OsString` paths) behind `Platform` (D24) | M3b | no |
 | M4 | [`M4-screenshot-harness.md`](../tasks/gpui-migration/M4-screenshot-harness.md) | Feature `shoot`, `filemanager-shoot`, scenario API, CI upload | M3b (may run beside M3c) | contract for every U scenario task |
 | M4b | [`M4b-harness-followups.md`](../tasks/gpui-migration/M4b-harness-followups.md) | Review follow-ups: only last-frame tags resolve, `.tag()` last in the chain, `parse()` tests, 60 s child timeout, `--only no-such` CI check, release-graph negative control, docs | M4 | no |
+| M4c | [`M4c-shoot-dark.md`](../tasks/gpui-migration/M4c-shoot-dark.md) | `--dark` calls `theme::set_override(Some(Dark))` before the first frame; remove the "no effect" notes | U1 | no (before U6's dark shots) |
 | M5 | [`M5-pipeline-model.md`](../tasks/gpui-migration/M5-pipeline-model.md) | Pipeline backend, model, copy, fixtures | M4, M3c | **depends on UI plan** (views) |
 | M6 | [`M6-schedule-model.md`](../tasks/gpui-migration/M6-schedule-model.md) | Schedule Creator backend, model, copy, fixtures | M5 | **depends on UI plan** |
 | M7a | [`M7-tarpack-a-manifest-model.md`](../tasks/gpui-migration/M7-tarpack-a-manifest-model.md) | Tar Packager backend; model for manifest, recent, watcher, assignments, drop | M6 | **depends on UI plan** |

@@ -127,7 +127,8 @@ second call). The spike's mapping, kept slot for slot:
 | `muted_foreground`, `table_head_foreground`, `scrollbar_thumb_hover` | `text_muted` |
 | `popover`, `button`, `secondary`, `sidebar_accent`, `colors.list`, `list_even`, `table`, `table_even`, `table_head` | `surface` |
 | `list_head` | `bg` |
-| `primary`, `button_primary`, `sidebar_primary`, `selection`, `link`, `info`, `ring`, `progress_bar`, `drag_border`, `list_active_border`, `table_active_border` | `accent` (`ring` = `focus_ring`, equal values) |
+| `primary`, `button_primary`, `sidebar_primary`, `link`, `info`, `ring`, `progress_bar`, `drag_border`, `list_active_border`, `table_active_border` | `accent` (`ring` = `focus_ring`, equal values) |
+| `selection` | `accent` at **alpha 0.3** (planner correction after the U1 review, 2026-11-22; to be confirmed by the ui-designer). Selected text keeps `text` (A10), and on full `accent` that is 2.61:1 light and 2.05:1 dark. At 0.3 over `surface` it is 10.55:1 and 7.61:1. gpui-component applies the same 0.3 cap itself, but only when it loads a theme config, which we bypass by writing slots directly. Today's CSS used `accent` with `accent_text` text, which GPUI cannot set |
 | `primary_hover/active`, `button_primary_hover/active`, `link_hover/active` | accent mixed 88% with text |
 | `primary_foreground`, `button_primary_foreground`, `sidebar_primary_foreground`, `info_foreground`, `success_foreground`, `warning_foreground`, `danger_foreground`, `button_danger_foreground` | `accent_text` |
 | `danger`, `button_danger` | `danger`; hover/active: danger mixed 88% with text |
@@ -382,7 +383,7 @@ reference for its tool's view and scenario tasks.
 | A7 | Plain text is not selectable. Values the user copies have Copy buttons (report, SHA-256, extraction command, paths in the build result); read-only form values are read-only inputs, which are selectable | risk 6 |
 | A8 | `tabular-nums`: applied through GPUI font features (`tnum`) where the pinned GPUI exposes them on text; otherwise proportional digits | risk 6 |
 | A9 | The focus ring is gpui-component's, in `focus_ring`; its thickness and offset may differ from 2 px / 2 px | gap 9 |
-| A10 | The selection's text colour is not set (only its fill) | gap 9 |
+| A10 | The selection's text colour is not set (only its fill), so the fill is `accent` at alpha 0.3 to keep `text` readable (2026-11-22) | gap 9 |
 | A11 | The drop border is dashed if the pinned GPUI has a dashed border style; otherwise a solid 2 px accent line | risk 6 |
 | A12 | gpui-component's dialog close icon ("Close") is hidden where the API allows it; otherwise it stays, labelled | B8 |
 | A13 | Motion: no fade-in on the drop overlay and no progress-fill transition (they were 120 ms) | — |

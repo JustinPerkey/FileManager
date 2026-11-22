@@ -1,6 +1,6 @@
 # U1 — Theme: tokens, gpui-component mapping, live light and dark
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21). **Review follow-up (2026-11-22):** the next run does only the section "Review follow-up" below; it must land before U2.
 Project: gpui-migration   Depends on: M3a (landed)
 
 ## Goal
@@ -11,6 +11,49 @@ token of `apps/desktop/src/styles/tokens.css` in `src/theme/tokens.rs`,
 mapped onto gpui-component's theme, following the system's light or dark
 appearance live, with tests that keep the tokens, `DESIGN.md` and the
 contrast pairs honest.
+
+## Review follow-up (2026-11-22)
+
+The U1 review approved it pending CI, but found the items below. **This
+run does only this section.** It must land before U2 adds the first text
+input. Read `apps/filemanager/src/theme/` first.
+
+1. **Selected text must be readable (P1).**
+   - Set the `selection` slot to `accent` at **alpha 0.3**, not full
+     opacity. Selected text cannot be recoloured in GPUI, so it stays
+     `text`. On full `accent` that is 2.61:1 (light) and 2.05:1 (dark); at
+     0.3 over `surface` it is 10.55:1 and 7.61:1.
+   - gpui-component applies the same 0.3 cap itself, but only when it loads
+     a theme config (`schema.rs`, around lines 1043–1073). `apply` writes
+     the slots directly, so the cap never applies.
+   - `list_active` and `table_active` stay `surface_sunken`, as the slot
+     table says (no cap needed).
+2. **Table-driven slot test.** `apply_sets_every_slot`: one row per slot
+   `apply` sets, giving the slot, the expected token (or derived value), and
+   both modes. It replaces the sampled `apply_sets_slots_from_tokens`.
+3. **Contrast for derived pairs.** Extend `contrast_pairs_meet_4_5`, both
+   themes, with `text::contrast` on composited colours (use
+   `over_composites_like_a_browser`'s compositing):
+   - `accent_text` on the `ok`, `warn` and `danger` fills;
+   - `accent_text` on `primary_hover` and on `danger_hover`;
+   - `text` on `selection` composited over `surface`, and over `bg`.
+
+   If a pair fails 4.5:1, stop and report it with the measured ratio. Do
+   not change a token; that is the ui-designer's decision.
+4. **The `tokens.css` dark media block.** `tokens_match_tokens_css` also
+   compares the `@media (prefers-color-scheme: dark)` block with
+   `[data-theme="dark"]`, value by value. Or, if that block is only a hook
+   with no values, reword the ledger row "dark hooks define identical
+   values" to say what is actually checked.
+5. **Drop the redundant `window.refresh()`** in the appearance observer.
+   Applying the theme already notifies.
+6. **For U4:** `theme::init` must be called once per window. Add a doc
+   comment on `theme::init` saying so. Make a second call a no-op, so a
+   chrome that calls it twice does not register two observers. Test:
+   `init_twice_registers_one_observer`.
+
+Follow-up acceptance: the named tests pass; fmt (linux job), clippy
+pedantic and `cargo test --workspace` pass.
 
 ## Context
 
@@ -74,7 +117,8 @@ change reloads colours). `th.font_size` **stays 16 px**: gpui-component's
 | `muted_foreground`, `table_head_foreground`, `scrollbar_thumb_hover` | text_muted |
 | `popover`, `button`, `secondary`, `sidebar_accent`, `colors.list`, `list_even`, `table`, `table_even`, `table_head` | surface |
 | `list_head` | bg |
-| `primary`, `button_primary`, `sidebar_primary`, `selection`, `link`, `info`, `ring`, `progress_bar`, `drag_border`, `list_active_border`, `table_active_border` | accent (`ring` from focus_ring) |
+| `primary`, `button_primary`, `sidebar_primary`, `link`, `info`, `ring`, `progress_bar`, `drag_border`, `list_active_border`, `table_active_border` | accent (`ring` from focus_ring) |
+| `selection` | accent at **alpha 0.3** (selected text stays `text`; see the Review follow-up) |
 | `primary_hover/active`, `button_primary_hover/active`, `link_hover/active` | `accent.over(0.88, text)` |
 | `primary_foreground`, `button_primary_foreground`, `sidebar_primary_foreground`, `info_foreground`, `success_foreground`, `warning_foreground`, `danger_foreground`, `button_danger_foreground` | accent_text |
 | `danger`, `button_danger` / their hover and active | danger / `danger.over(0.88, text)` |
