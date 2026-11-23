@@ -29,7 +29,35 @@ pub struct Model {
     /// Parallel to `schema.tables`; `None` for a hidden table or a junction
     /// used as many-to-many that is not listed.
     tables: Vec<Option<ResolvedTable>>,
+    /// Parallel to `schema.tables`, hidden and unlisted tables included.
+    facts: Vec<TableFacts>,
     diagnostics: Vec<ConfigDiagnostic>,
+}
+
+/// What a delete's impact needs to know about any table, listed or not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableFacts {
+    /// The configured display name, else the SQL name.
+    pub display_name: String,
+    /// The config hides the table.
+    pub hidden: bool,
+    /// Set when the table is used as many-to-many.
+    pub junction: Option<JunctionFacts>,
+    /// Per column: its display name, or its SQL name when the column is
+    /// hidden.
+    pub column_names: Vec<String>,
+}
+
+/// A table used as many-to-many.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JunctionFacts {
+    /// The two relation columns.
+    pub columns: [usize; 2],
+    /// The relation's mode is `hidden`.
+    pub relation_hidden: bool,
+    /// Columns beyond the relation columns (and a rowid alias): link fields,
+    /// visible or hidden.
+    pub link_data: bool,
 }
 
 impl Model {
@@ -58,6 +86,12 @@ impl Model {
     #[must_use]
     pub fn table_at(&self, schema_index: usize) -> Option<&ResolvedTable> {
         self.tables.get(schema_index)?.as_ref()
+    }
+
+    /// What the delete impact needs about the table at `schema_index`.
+    #[must_use]
+    pub fn facts(&self, schema_index: usize) -> &TableFacts {
+        &self.facts[schema_index]
     }
 
     /// Every resolved table, in schema order.

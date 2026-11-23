@@ -351,7 +351,7 @@ const RACE_RETRIES: u32 = 3;
 /// deleted and the loop retakes it; after `RACE_RETRIES` tries the answer is
 /// `Busy`. `after_backup` is a test seam that runs between the copy and the
 /// lock.
-fn begin_guarded<'c>(
+pub(super) fn begin_guarded<'c>(
     conn: &'c Connection,
     database: &Path,
     backup: &mut Option<PathBuf>,

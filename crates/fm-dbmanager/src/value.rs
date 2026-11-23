@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::rules::{duration, FieldKind, FieldRule};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum DbValue {
     Null,

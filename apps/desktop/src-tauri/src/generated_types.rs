@@ -66,6 +66,8 @@ const EXPORTERS: &[Exporter] = &[
     <fm_dbmanager::session::LinkRemove as ts_rs::TS>::export_all,
     <fm_dbmanager::session::LinkRef as ts_rs::TS>::export_all,
     <fm_dbmanager::session::LinkError as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::DeleteImpact as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::DeleteResult as ts_rs::TS>::export_all,
 ];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");

@@ -76,7 +76,8 @@ crates/
                               reference resolution, one BEGIN IMMEDIATE transaction;
                               `links.rs`: many-to-many link adds, updates and removes in
                               that same transaction, strict conflicts;
-                              `backup.rs`: the one backup before a session's first write);
+                              `backup.rs`: the one backup before a session's first write;
+                              `delete.rs`: the delete impact preview and the confirmed delete);
                               `session/sql.rs` is the only module that assembles SQL text
     src/value.rs              DbValue (boundary value; integers, reals, durations as strings)
     src/rules/                FieldRule/FieldKind/FieldIssue types, pure validate, and

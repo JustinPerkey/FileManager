@@ -38,17 +38,17 @@ fn eq_filters<'a>(eqs: &Eqs<'a>) -> Vec<Filter<'a>> {
 }
 
 impl<'a> Reader<'a> {
-    fn table(&self, name: &str) -> Result<&'a ResolvedTable, SessionError> {
+    pub(super) fn table(&self, name: &str) -> Result<&'a ResolvedTable, SessionError> {
         self.model
             .table(name)
             .ok_or_else(|| SessionError::UnknownTable(name.to_owned()))
     }
 
-    fn schema_table(&self, rt: &ResolvedTable) -> &'a Table {
+    pub(super) fn schema_table(&self, rt: &ResolvedTable) -> &'a Table {
         &self.model.schema().tables[rt.schema_index]
     }
 
-    fn fetch(&self, q: &Query) -> Result<Vec<Vec<Cell>>, SessionError> {
+    pub(super) fn fetch(&self, q: &Query) -> Result<Vec<Vec<Cell>>, SessionError> {
         let mut stmt = self.conn.prepare(&q.sql)?;
         let n = stmt.column_count();
         let rows = stmt.query_map(params_from_iter(q.params.iter()), |r| {
@@ -94,7 +94,7 @@ impl<'a> Reader<'a> {
         sel
     }
 
-    fn order(rt: &ResolvedTable, st: &'a Table) -> Vec<(&'a Ident, bool)> {
+    pub(super) fn order(rt: &ResolvedTable, st: &'a Table) -> Vec<(&'a Ident, bool)> {
         let mut order: Vec<(&Ident, bool)> = rt
             .order
             .iter()
@@ -104,7 +104,7 @@ impl<'a> Reader<'a> {
         order
     }
 
-    fn key_conditions(st: &'a Table, key: &ObjectKey) -> Result<Eqs<'a>, SessionError> {
+    pub(super) fn key_conditions(st: &'a Table, key: &ObjectKey) -> Result<Eqs<'a>, SessionError> {
         conditions(st, key).ok_or(SessionError::UnknownObject)
     }
 

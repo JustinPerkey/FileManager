@@ -3,6 +3,7 @@
 
 mod backup;
 mod cell;
+mod delete;
 mod key;
 mod label;
 mod links;
@@ -25,6 +26,7 @@ use crate::model::{resolve, Model, TableView};
 use crate::rules::FieldError;
 use crate::schema::introspect;
 
+pub use delete::{DeleteImpact, DeleteResult, ImpactGroup, OnDeleteAction};
 pub use types::{
     FieldChange, FieldInput, FieldValue, LinkAdd, LinkChange, LinkError, LinkRef, LinkRemove,
     LinkTarget, LinkUpdate, ListQuery, M2mOption, M2mPage, M2mQuery, ObjectKey, ObjectPage,
@@ -69,10 +71,17 @@ pub enum SessionError {
     BackupFailed {
         detail: String,
     },
-    /// A constraint the app cannot attribute to one field; SQLite's message.
+    /// A constraint the app cannot attribute to one field; SQLite's message,
+    /// or the app's own when it detects the problem itself.
     Constraint {
         message: String,
     },
+    /// What a delete would affect changed since the caller's preview; this
+    /// is the fresh impact. Nothing was deleted.
+    ImpactChanged(Box<DeleteImpact>),
+    /// The delete would fail, or the database refused it. Nothing was
+    /// deleted.
+    DeleteBlocked(Box<DeleteImpact>),
 }
 
 impl fmt::Display for SessionError {
@@ -104,6 +113,12 @@ impl fmt::Display for SessionError {
             }
             SessionError::Constraint { message } => {
                 write!(f, "The database refused the change: {message}")
+            }
+            SessionError::ImpactChanged(_) => {
+                f.write_str("What this delete affects changed; review it again.")
+            }
+            SessionError::DeleteBlocked(_) => {
+                f.write_str("Other data depends on this object, so it cannot be deleted.")
             }
         }
     }

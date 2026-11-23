@@ -9,7 +9,7 @@ use crate::value::DbValue;
 ///
 /// A rowid table is keyed by its rowid (a decimal string);
 /// a `WITHOUT ROWID` table by its primary-key values in key order.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ObjectKey {
     Rowid { value: String },
