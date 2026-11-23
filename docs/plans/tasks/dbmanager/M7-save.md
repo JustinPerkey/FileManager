@@ -6,7 +6,7 @@ writes carry the config hash (the config now reloads automatically), and
 `pickable` tables are never written.
 Project: dbmanager   Depends on: M6 (landed)
 
-**Review follow-up (2026-11-22):** the first run landed as f53c588; the next run does only the section "Review follow-up" below.
+**Follow-ups:** the first run landed as f53c588; the first follow-up as 266234d. The next run does only the section "Second follow-up (2026-11-23)".
 
 **Note (2026-11-21): the UI is moving to GPUI.** This domain milestone is
 unchanged, with one condition. If `apps/desktop/src-tauri/src/generated_types.rs`
@@ -17,6 +17,77 @@ removed Tauri and ts-rs), skip every ts-rs step: no `ts_rs::TS` derive, no
 where this plan needs it for something other than the TypeScript boundary.
 Wherever this plan says the Tauri commands or the UI error type come later,
 read "the GPUI app's Database Manager model comes later".
+
+## Second follow-up (2026-11-23)
+
+The first follow-up landed as 266234d, apart from moving the backup. A probe
+showed `Backup::new(&tx, …).step(256)` returns `StepResult::Busy` from the
+connection holding `BEGIN IMMEDIATE`, so the backup stayed before `BEGIN`.
+**The next run does only this section.**
+
+### Decisions (planner, 2026-11-23)
+
+1. **Keep the backup before `BEGIN`, and detect the race.** I chose this
+   over a second read-only connection under the write lock, which would
+   block other writers for the length of a backup.
+   - Just before taking the backup, read `PRAGMA data_version` on the
+     session's connection. Take the backup. Then `BEGIN IMMEDIATE`.
+   - After `BEGIN IMMEDIATE`, read `data_version` again on the same
+     connection. If it changed, another connection committed between the
+     backup and the lock, so the backup misses that commit:
+     - roll back;
+     - delete that backup file (it was never announced);
+     - retry the save from the backup step, up to 3 times;
+     - then give up with `Busy`.
+   - Put the pragma text in `sql.rs`, like `schema_version`.
+   - **Stray backups are accepted.** A backup taken before a `SchemaChanged`,
+     `Conflict` or `UnknownObject` is kept. It is a valid pre-write copy, and
+     the announced flag reports it on the next successful write. Document
+     this, and the race guard, in `backup.rs`'s doc comment, replacing the
+     comment that says why the backup cannot be taken inside the transaction.
+   - Tests (temp dirs):
+     - `commit_between_backup_and_begin_retakes_backup`: a test hook, for
+       example a `cfg(test)` callback run after the backup and before
+       `BEGIN`, commits a change through a second connection once. The save
+       still succeeds, exactly one `.bak` remains, and it contains that
+       change.
+     - `repeated_interleaved_commits_give_busy`: the hook commits every
+       time. Expect `Busy` and no `.bak`.
+     - `stray_backup_after_conflict_is_announced_later`: a first save hits a
+       `Conflict` after the backup, then a second save succeeds with
+       `backup_created: Some`.
+2. **The `INTEGER … DESC` exemption is confirmed.** A table whose single PK
+   column is declared exactly `INTEGER PRIMARY KEY DESC` is not a rowid
+   alias (the SQLite quirk). Its objects are keyed by the rowid, as this
+   plan's write rules already say ("the new object's key is always the
+   rowid"), so the new key is read back by `last_insert_rowid()` and the PK
+   value is not required. Keep the exemption, and name it in the rule's doc
+   comment with the reason.
+3. **Hidden primary keys must not make creates fail after the INSERT.**
+   - The rule: a table cannot offer create when a PK column that a create
+     requires is not supplied-able. That covers a WITHOUT ROWID table (whose
+     PK is always required) and a rowid table's declared non-alias PK
+     without a default. Not supplied-able means hidden, read-only, or
+     generated.
+   - In that case `TableView.can_create` is **false**, and model resolution
+     (`src/model/`) adds one **warning** diagnostic on the table, for
+     example: "creating objects is off: primary key column `code` is hidden;
+     make it editable or create-only to allow creating". This holds even if
+     the column has a default in a WITHOUT ROWID table, whose key cannot be
+     read back after the insert.
+   - `save` then refuses such a create up front with `NotEditable`, since
+     `can_create` is false, and never inserts.
+   - Tests: `without_rowid_hidden_pk_disables_create`,
+     `rowid_hidden_pk_without_default_disables_create`,
+     `hidden_pk_with_default_in_rowid_table_still_creates` (read back by
+     rowid), and the diagnostic's text and line/col where the config names
+     the column.
+   - Add a row to the diagnostics table in `docs/dbmanager-config.md`.
+
+### Acceptance
+
+- The named tests pass. fmt, clippy pedantic and `cargo test --workspace`
+  pass. If ts-rs still exists, `generated_types_are_current` passes.
 
 ## Review follow-up (2026-11-22)
 
@@ -55,31 +126,11 @@ their tests first.
 
 ### Decisions (planner, 2026-11-22)
 
-1. **The backup moves inside the write transaction.** The new order of steps
-   6–8 is:
-   - **6.** `BEGIN IMMEDIATE`, then re-check `schema_version` →
-     `SchemaChanged`.
-   - **7.** On an update, re-read the row: missing → `UnknownObject`;
-     version differs → `Conflict { current }`. Roll back in both cases.
-   - **8.** **Backup**, if this is the session's first write. It reads the
-     database through the same connection while the IMMEDIATE transaction
-     holds the write lock, so no other program can commit between the backup
-     and the write. A failure rolls back: `BackupFailed`, or `Busy` per P1.
-   - Steps 9 onward are unchanged (resolve references, write, re-read,
-     COMMIT).
+1. ~~**The backup moves inside the write transaction.**~~ *Superseded,
+   2026-11-23: see "Second follow-up" below.* The run stopped as instructed,
+   because SQLite returns `Busy` for an online backup from the connection
+   that holds `BEGIN IMMEDIATE`. The backup stays before `BEGIN`.
 
-   Why: no stray backup on `SchemaChanged`, `Conflict` or `UnknownObject`,
-   and no race between the backup and `BEGIN`. The P1 bounded-step loop
-   stays as a guard.
-
-   Proving it is part of this run. Test `backup_taken_inside_transaction`:
-   the backup file holds the pre-write state, and no `.bak` exists after a
-   `Conflict` or a `SchemaChanged` on a first save. **If SQLite refuses the
-   online backup from the connection that holds the write transaction, stop
-   and report.** Keep step 6's old position until the planner decides
-   again.
-
-   M8 and M9 follow the same order.
 2. **Creates where the PK is not a rowid alias and is omitted or NULL.**
    Today these fail after INSERT with "the saved object's key cannot be
    determined". Instead:
