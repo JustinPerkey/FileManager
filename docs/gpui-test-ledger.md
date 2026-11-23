@@ -503,8 +503,8 @@ its heading's count.
 | assignedFolder: drive root keeps its separator | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows paths run in the Windows job; the Unix job runs the `/` root) | done |
 | assignedFolder: nested, forward-slash and UNC paths | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows job) | done |
 | assignedFolder: undefined without a separator or with U+FFFD | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (no parent: no start folder), `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode` (the stored path has nothing to refuse: a lossy display name still starts in its exact folder). `C:a.txt` is not ported: `Path::parent` gives `C:` and the dialog accepts it | done |
-| fileName is what follows the last separator | U |  | open |
-| displayFolder shows a lossy folder as is; assignedFolder refuses it | U | `displayFolder` half: the view renders it (U). The `assignedFolder` half is `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode`: it no longer refuses, it uses the stored `PathBuf` | open |
+| fileName is what follows the last separator | U10 | (the entry table renders each row's file name; U10 ports this case as a view-helper test) | open |
+| displayFolder shows a lossy folder as is; assignedFolder refuses it | U10 | `displayFolder` half: U10 renders the row's folder and ports this case. The `assignedFolder` half is `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode`: it no longer refuses, it uses the stored `PathBuf` | open |
 
 ## `tools/tarpack/reportText.test.ts` (4)
 
