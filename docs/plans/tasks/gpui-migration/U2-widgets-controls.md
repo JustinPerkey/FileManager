@@ -247,3 +247,23 @@ read-only, invalid, not set, open/closed. No data loading here.
 ## Out of scope
 
 Dialogs, menus, popovers (U3); any tool view.
+
+## Accepted deviations (as built; U2 review, 2026-11-23)
+
+These are recorded for the record and for the tasks that use the widgets.
+They are not work for a run.
+
+- `text_area(&Entity<TextareaState>)` exists beside `text_input`, because
+  gpui-component 0.10 has no multiline `InputState`.
+- `select`: values are `SharedString` ids, the open state is kept per id,
+  and it has `.on_pick(..)` and `.width(..)`.
+- The typography helpers in `text.rs` return a `Typo` element.
+- A busy button uses gpui-component's `Spinner`, not `Button::loading()`.
+- `Disclosure::debug_selector`, `FmButton::icon_flip` and `Banner::id`
+  exist.
+- Chords are `&[&str]` (`kbd::chord`, `.shortcut`).
+- `middle_truncate` rules:
+  - a truncated result is exactly `max` characters;
+  - it keeps at least 3 head characters;
+  - the separator stays with the name;
+  - the whole name is kept while it and the head still fit.

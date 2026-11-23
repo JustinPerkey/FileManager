@@ -18,7 +18,8 @@ The U1 review approved it pending CI, but found the items below. **This
 run does only this section.** It must land before U2 adds the first text
 input. Read `apps/filemanager/src/theme/` first.
 
-1. **Selected text must be readable (P1).**
+1. **Selected text must be readable (P1).** (Alpha 0.3 confirmed by the
+   ui-designer, 2026-11-23.)
    - Set the `selection` slot to `accent` at **alpha 0.3**, not full
      opacity. Selected text cannot be recoloured in GPUI, so it stays
      `text`. On full `accent` that is 2.61:1 (light) and 2.05:1 (dark); at
