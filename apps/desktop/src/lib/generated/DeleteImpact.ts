@@ -8,7 +8,10 @@ export type DeleteImpact = { table: string, key: ObjectKey, label: string, versi
  */
 groups: Array<ImpactGroup>, 
 /**
- * Any group blocks.
+ * Any group blocks. Can also be `true` with no group marked `blocks`:
+ * SQLite rejected the delete for a reason the preview did not predict
+ * (an unpredicted foreign key failure), or the impact was truncated at
+ * the cap. Callers need a generic "this object cannot be deleted" message.
  */
 blocked: boolean, truncated: boolean, 
 /**
