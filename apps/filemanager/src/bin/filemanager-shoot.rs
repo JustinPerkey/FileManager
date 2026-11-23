@@ -13,7 +13,7 @@
 
 use std::process::{Command, ExitCode};
 
-use fm_app::shoot::cli::{parse, run_children, Args, CHILD_TIMEOUT};
+use fm_app::shoot::cli::{child_args, parse, run_children, Args, CHILD_TIMEOUT};
 use fm_app::shoot::{run_scenario, scenarios};
 
 const USAGE: &str =
@@ -46,9 +46,6 @@ fn main() -> ExitCode {
                 .collect()
         }
     };
-    if args.dark {
-        eprintln!("note: --dark has no effect yet (the theme override is not available)");
-    }
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => {
@@ -61,15 +58,7 @@ fn main() -> ExitCode {
         args.child_timeout.unwrap_or(CHILD_TIMEOUT),
         |name| {
             let mut cmd = Command::new(&exe);
-            cmd.arg("--child")
-                .arg(name)
-                .arg("--out")
-                .arg(&args.out)
-                .arg("--prefix")
-                .arg(&args.prefix);
-            if args.dark {
-                cmd.arg("--dark");
-            }
+            cmd.args(child_args(name, &args));
             cmd
         },
     );
@@ -86,7 +75,7 @@ fn child(name: &str, args: &Args) -> ExitCode {
         println!("FAIL {name}: no such scenario");
         return ExitCode::FAILURE;
     };
-    match run_scenario(&scenario, &args.out, &args.prefix) {
+    match run_scenario(&scenario, &args.out, &args.prefix, args.dark) {
         Ok(_) => {
             println!("ok {name}");
             ExitCode::SUCCESS

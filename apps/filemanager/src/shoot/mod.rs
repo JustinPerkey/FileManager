@@ -28,9 +28,9 @@
 //!   jobs, thread jobs or async loads (GPUI exposes no "no task is pending"),
 //!   so fixtures must answer synchronously, or the scenario adds
 //!   `Step::Wait(ms)`.
-//! - `--dark` is a no-op until the theme task provides
-//!   `fm_app::theme::set_override`; the harness records the request and the
-//!   binary says so.
+//! - `--dark` renders every scenario in the dark theme: [`run_scenario`]
+//!   forces it with `theme::set_override` before the window opens, so even the
+//!   first frame is dark. Without it the theme follows the system.
 //! - Capture is Windows only: elsewhere GPUI cannot render to an image.
 
 pub mod cli;
@@ -44,8 +44,10 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{AnyWindowHandle, App, AsyncApp, Bounds, Pixels};
+use gpui_component::ThemeMode;
 
 use crate::app::probe;
+use crate::theme;
 use crate::tools::ToolId;
 use crate::{assets, AppSetup};
 
@@ -105,13 +107,19 @@ const IDLE_FRAMES: usize = 3;
 pub type Failure = String;
 
 /// Runs `scenario` in a fresh app and writes its PNG. Blocks until the app has
-/// quit. Returns the PNG's path.
+/// quit. Returns the PNG's path. `dark` forces the dark theme from the first
+/// frame; otherwise the theme follows the system.
 ///
 /// # Errors
 /// The first thing that went wrong: a selector that does not resolve, a wait
 /// that timed out, a display scale other than 100%, a capture or write
 /// failure, a window that did not open.
-pub fn run_scenario(scenario: &Scenario, out_dir: &Path, prefix: &str) -> Result<PathBuf, Failure> {
+pub fn run_scenario(
+    scenario: &Scenario,
+    out_dir: &Path,
+    prefix: &str,
+    dark: bool,
+) -> Result<PathBuf, Failure> {
     probe::reset();
     let mut setup = AppSetup::real(false);
     // Fixtures and a scripted platform: no real dialogs, no real files.
@@ -124,7 +132,7 @@ pub fn run_scenario(scenario: &Scenario, out_dir: &Path, prefix: &str) -> Result
     gpui_platform::application()
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
-            crate::init_app(cx, setup);
+            init_scenario_app(cx, setup, dark);
             let handle = match crate::open_main_window(cx, size) {
                 Ok(handle) => handle,
                 Err(e) => {
@@ -144,6 +152,15 @@ pub fn run_scenario(scenario: &Scenario, out_dir: &Path, prefix: &str) -> Result
         });
     let outcome = result.borrow_mut().take();
     outcome.unwrap_or_else(|| Err("the app quit before the scenario finished".into()))
+}
+
+/// Builds the app for a scenario. With `dark`, the override is set before
+/// any window exists, so the first frame is already dark.
+fn init_scenario_app(cx: &mut App, setup: AppSetup, dark: bool) {
+    crate::init_app(cx, setup);
+    if dark {
+        theme::set_override(Some(ThemeMode::Dark), cx);
+    }
 }
 
 async fn drive(

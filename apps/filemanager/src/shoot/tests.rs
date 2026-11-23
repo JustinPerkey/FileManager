@@ -196,6 +196,35 @@ fn child_timeout_is_reported() {
     );
 }
 
+fn is_dark(cx: &TestAppContext) -> bool {
+    use gpui_component::ActiveTheme;
+    cx.read(|cx| cx.theme().is_dark())
+}
+
+#[gpui::test]
+fn dark_flag_sets_override_before_first_frame(cx: &mut TestAppContext) {
+    use crate::platform::fake::FakePlatform;
+    let mut setup = AppSetup::real(false);
+    setup.platform = Rc::new(FakePlatform::new());
+    (sample().setup)(&mut setup);
+    cx.update(|cx| init_scenario_app(cx, setup, true));
+    // Dark before any window exists, and still dark once the first one opens
+    // and reads the (light) system appearance.
+    assert!(is_dark(cx));
+    cx.update(|cx| crate::open_main_window(cx, (1000.0, 700.0)).expect("window opens"));
+    assert!(is_dark(cx));
+}
+
+#[gpui::test]
+fn without_the_dark_flag_the_theme_follows_the_system(cx: &mut TestAppContext) {
+    use crate::platform::fake::FakePlatform;
+    let mut setup = AppSetup::real(false);
+    setup.platform = Rc::new(FakePlatform::new());
+    cx.update(|cx| init_scenario_app(cx, setup, false));
+    cx.update(|cx| crate::open_main_window(cx, (1000.0, 700.0)).expect("window opens"));
+    assert!(!is_dark(cx));
+}
+
 #[cfg(windows)]
 mod capture {
     use super::*;
@@ -217,17 +246,25 @@ mod capture {
     #[test]
     fn capture_writes_png() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let path = run_scenario(&sample(), dir.path(), "t-").expect("sample renders");
+        let path = run_scenario(&sample(), dir.path(), "t-", false).expect("sample renders");
         assert_eq!(path, dir.path().join("t-shell-sample.png"));
         let (w, h) = image::image_dimensions(&path).expect("a PNG");
         assert_eq!((w, h), (1000, 700));
     }
 
     #[test]
+    fn dark_run_writes_png() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = run_scenario(&sample(), dir.path(), "dark-", true).expect("renders dark");
+        assert_eq!(path, dir.path().join("dark-shell-sample.png"));
+        assert_eq!(image::image_dimensions(&path).expect("a PNG"), (1000, 700));
+    }
+
+    #[test]
     fn clip_crops_to_element_bounds() {
         let dir = tempfile::tempdir().expect("temp dir");
         let s = scenario("clip", Some("tool-nav-pipeline"), &[Step::WaitIdle]);
-        let path = run_scenario(&s, dir.path(), "").expect("renders");
+        let path = run_scenario(&s, dir.path(), "", false).expect("renders");
         let b = probe::bounds("tool-nav-pipeline").expect("tagged");
         let (_, _, w, h) = device_rect(b, 1.0, (1000, 700));
         assert_eq!(image::image_dimensions(&path).expect("a PNG"), (w, h));
@@ -237,7 +274,7 @@ mod capture {
     fn unknown_clip_fails_the_scenario() {
         let dir = tempfile::tempdir().expect("temp dir");
         let s = scenario("bad-clip", Some("no-such-element"), &[]);
-        let err = run_scenario(&s, dir.path(), "").expect_err("fails");
+        let err = run_scenario(&s, dir.path(), "", false).expect_err("fails");
         assert!(err.contains("no-such-element"), "{err}");
         assert!(!dir.path().join("bad-clip.png").exists());
     }
@@ -246,7 +283,7 @@ mod capture {
     fn missing_click_selector_fails_the_run() {
         let dir = tempfile::tempdir().expect("temp dir");
         let s = scenario("bad-click", None, &[Step::Click("no-such-element")]);
-        let err = run_scenario(&s, dir.path(), "").expect_err("fails");
+        let err = run_scenario(&s, dir.path(), "", false).expect_err("fails");
         assert!(err.contains("no-such-element"), "{err}");
     }
 }
