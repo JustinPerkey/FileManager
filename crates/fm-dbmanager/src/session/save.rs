@@ -5,13 +5,14 @@
 use rusqlite::types::Value;
 use rusqlite::{params_from_iter, Connection, ErrorCode, OptionalExtension, TransactionBehavior};
 
+use super::backup::ensure_backup;
 use super::key::conditions;
 use super::read::Reader;
 use super::sql;
 use super::types::{FieldChange, FieldInput, ObjectKey, SaveRequest, SaveResult};
 use super::{Session, SessionError};
 use crate::config::{FieldMode, TableMode};
-use crate::model::{Model, ResolvedField};
+use crate::model::{Model, ResolvedField, ResolvedTable};
 use crate::rules::{validate, FieldError, FieldIssue, FieldIssueCode};
 use crate::schema::{Identity, Table};
 use crate::value::DbValue;
@@ -61,11 +62,13 @@ fn push_issue(errors: &mut Vec<FieldError>, column: &str, issue: FieldIssue) {
 /// Steps 3 to 5 over any resolved field set: unknown, duplicate, not
 /// editable and wrongly typed changes, `validate` of each plain value (only
 /// changed fields are validated), and, on a create, every
-/// `required_on_create` field left out. All issues are returned together.
+/// `required_on_create` field, and every field whose column index is in
+/// `also_required`, left out or set to NULL. All issues are returned together.
 pub(crate) fn check_changes<'a>(
     fields: &'a [ResolvedField],
     changes: &[FieldChange],
     phase: Phase,
+    also_required: &[usize],
 ) -> (Vec<Checked<'a>>, Vec<FieldError>) {
     let mut checked: Vec<Checked<'a>> = Vec::new();
     let mut errors: Vec<FieldError> = Vec::new();
@@ -115,6 +118,15 @@ pub(crate) fn check_changes<'a>(
                     continue;
                 }
                 match validate(&field.rule, value) {
+                    Ok(DbValue::Null)
+                        if phase == Phase::Create && also_required.contains(&field.column) =>
+                    {
+                        push_issue(
+                            &mut errors,
+                            column,
+                            issue(FieldIssueCode::Required, "A value is required."),
+                        );
+                    }
                     Ok(v) => checked.push(Checked {
                         field,
                         input: Input::Value(v),
@@ -145,7 +157,9 @@ pub(crate) fn check_changes<'a>(
     }
     if phase == Phase::Create {
         for f in fields {
-            if f.required_on_create && !seen.contains(&f.name.as_str()) {
+            if (f.required_on_create || also_required.contains(&f.column))
+                && !seen.contains(&f.name.as_str())
+            {
                 push_issue(
                     &mut errors,
                     &f.name,
@@ -272,7 +286,33 @@ pub(crate) fn map_constraint(
             }
         }
     }
-    SessionError::Constraint(message)
+    SessionError::Constraint { message }
+}
+
+/// Columns a create must supply beyond `required_on_create`: the primary key
+/// of a `WITHOUT ROWID` table, and the declared primary key of a rowid table
+/// that is not a rowid alias and has no default (`INTEGER PRIMARY KEY DESC`
+/// excepted).
+fn required_key_columns(st: &Table) -> Vec<usize> {
+    match &st.identity {
+        Identity::PrimaryKey { columns } => columns.clone(),
+        Identity::Rowid {
+            alias_column: None, ..
+        } => st
+            .primary_key
+            .iter()
+            .copied()
+            .filter(|&c| {
+                let col = &st.columns[c];
+                // `INTEGER PRIMARY KEY DESC` is an ordinary nullable column
+                // that the plan keeps optional on create.
+                let desc_integer =
+                    st.primary_key.len() == 1 && col.declared_type.eq_ignore_ascii_case("INTEGER");
+                col.default_sql.is_none() && !desc_integer
+            })
+            .collect(),
+        Identity::Rowid { .. } => Vec::new(),
+    }
 }
 
 fn to_db_value(v: &Value) -> Option<DbValue> {
@@ -320,17 +360,10 @@ fn saved_key(
 }
 
 impl Session {
-    /// Saves one object's field changes (an update, or a create when
-    /// `request.key` is `None`) in one transaction, after the session's
-    /// one-time backup. Nothing is written unless everything is.
-    ///
-    /// # Errors
-    ///
-    /// Read-only database, stale config, unknown or not editable table,
-    /// invalid changes, a stale version, a failed backup, a changed schema, a
-    /// busy database or a constraint failure. Every error leaves the
-    /// database as it was.
-    pub fn save(&mut self, request: &SaveRequest) -> Result<SaveResult, SessionError> {
+    /// Steps 1 and 2: the refusals that need no field checks. Returns the
+    /// table (cloned, so the session can be borrowed mutably later) and the
+    /// phase.
+    fn permitted(&self, request: &SaveRequest) -> Result<(ResolvedTable, Phase), SessionError> {
         // Steps 1 and 2.
         if self.database.read_only_reason().is_some() {
             return Err(SessionError::ReadOnlyDatabase);
@@ -353,11 +386,36 @@ impl Session {
             Phase::Create => rt.can_create,
         };
         if !permitted {
-            return Err(SessionError::NotEditable(request.table.clone()));
+            return Err(SessionError::NotEditable {
+                reason: match phase {
+                    Phase::Update => "This table cannot be changed.".to_owned(),
+                    Phase::Create => "New objects cannot be created in this table.".to_owned(),
+                },
+            });
         }
 
+        Ok((rt, phase))
+    }
+
+    /// Saves one object's field changes (an update, or a create when
+    /// `request.key` is `None`) in one transaction, after the session's
+    /// one-time backup. Nothing is written unless everything is.
+    ///
+    /// # Errors
+    ///
+    /// Read-only database, stale config, unknown or not editable table,
+    /// invalid changes, a stale version, a failed backup, a changed schema, a
+    /// busy database or a constraint failure. Every error leaves the
+    /// database as it was.
+    pub fn save(&mut self, request: &SaveRequest) -> Result<SaveResult, SessionError> {
+        let (rt, phase) = self.permitted(request)?;
+
         // Steps 3 to 5.
-        let (checked, errors) = check_changes(&rt.fields, &request.changes, phase);
+        let also_required = match phase {
+            Phase::Create => required_key_columns(&self.model.schema().tables[rt.schema_index]),
+            Phase::Update => Vec::new(),
+        };
+        let (checked, errors) = check_changes(&rt.fields, &request.changes, phase, &also_required);
         if !errors.is_empty() {
             return Err(SessionError::Validation { fields: errors });
         }
@@ -374,22 +432,29 @@ impl Session {
             });
         }
 
-        // Step 6.
-        let backup_created = self.ensure_backup()?.map(|p| p.display().to_string());
-
-        // Steps 7 to 12.
+        // Steps 6 to 12.
+        #[cfg(test)]
+        let stamp = self.backup_stamp.clone();
+        #[cfg(not(test))]
+        let stamp: Option<String> = None;
         let Session {
-            database, model, ..
+            database,
+            model,
+            backup,
+            backup_announced,
+            ..
         } = self;
         let schema_version = model.schema().schema_version;
         let st = &model.schema().tables[rt.schema_index];
         let table_name = st.name.as_str();
         let changed: Vec<&str> = request.changes.iter().map(|c| c.column.as_str()).collect();
+        let db_path = database.path().to_path_buf();
+        // Step 6: the backup, once per session, before the transaction.
+        ensure_backup(backup, stamp.as_deref(), database.conn(), &db_path)?;
         let tx = database
             .conn_mut()
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current: i64 = tx.query_row("PRAGMA schema_version", [], |r| r.get(0))?;
-        if current != schema_version {
+        if sql::schema_version(&tx)? != schema_version {
             return Err(SessionError::SchemaChanged);
         }
         let reader = Reader { conn: &tx, model };
@@ -416,12 +481,21 @@ impl Session {
             }
             None => sql::insert(&st.name, values),
         };
-        tx.execute(&write.sql, params_from_iter(write.params.iter()))
-            .map_err(|e| map_constraint(e, table_name, &changed))?;
-        let key = saved_key(st, &bound, tx.last_insert_rowid(), request.key.as_ref())?;
-        let object = reader.object(&request.table, &key)?;
+        let written = tx.execute(&write.sql, params_from_iter(write.params.iter()));
+        if let Err(e) = written {
+            return Err(map_constraint(e, table_name, &changed));
+        }
+        let key = saved_key(st, &bound, tx.last_insert_rowid(), request.key.as_ref());
+        let object = key.and_then(|k| reader.object(&request.table, &k));
+        let object = object?;
         tx.commit()
             .map_err(|e| map_constraint(e, table_name, &changed))?;
+        let backup_created = if *backup_announced {
+            None
+        } else {
+            *backup_announced = true;
+            backup.as_ref().map(|p| p.display().to_string())
+        };
         Ok(SaveResult {
             object,
             backup_created,

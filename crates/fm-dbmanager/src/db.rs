@@ -8,7 +8,7 @@ use std::time::Duration;
 
 const READ_ONLY_FILE: &str = "the file is read-only";
 const READ_ONLY_FOLDER: &str = "the folder is read-only, so changes cannot be saved";
-const BUSY_TIMEOUT: Duration = Duration::from_secs(3);
+pub(crate) const BUSY_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Why a database could not be opened.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -4,15 +4,21 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use rusqlite::backup::Backup;
-use rusqlite::Connection;
+use rusqlite::backup::{Backup, StepResult};
+use rusqlite::{Connection, ErrorCode};
 
 use super::{Session, SessionError};
+use crate::db::BUSY_TIMEOUT;
+
+/// Pages copied per `step`.
+const STEP_PAGES: std::ffi::c_int = 256;
+/// Pause between steps while the source is busy or locked.
+const RETRY_PAUSE: std::time::Duration = std::time::Duration::from_millis(10);
 
 /// How many names (`.bak`, `-1.bak`, ...) are tried before giving up.
-const MAX_ATTEMPTS: u32 = 100;
+pub(super) const MAX_ATTEMPTS: u32 = 100;
 
 /// `yyyymmddThhmmssZ` for `secs` since the Unix epoch.
 fn utc_stamp(secs: u64) -> String {
@@ -47,42 +53,96 @@ fn backup_name(file_name: &std::ffi::OsStr, stamp: &str, attempt: u32) -> OsStri
     name
 }
 
+fn failed(detail: impl Into<String>) -> SessionError {
+    SessionError::BackupFailed {
+        detail: detail.into(),
+    }
+}
+
+/// Runs the copy one `step` at a time, so a lock another program holds ends
+/// in `Busy` after the session's busy timeout instead of spinning.
+fn copy_pages(conn: &Connection, dest: &mut Connection) -> Result<(), SessionError> {
+    let backup = Backup::new(conn, dest).map_err(|e| failed(e.to_string()))?;
+    let start = Instant::now();
+    loop {
+        match backup.step(STEP_PAGES) {
+            Ok(StepResult::Done) => return Ok(()),
+            Ok(StepResult::More) => {}
+            Ok(StepResult::Busy | StepResult::Locked) => {
+                if start.elapsed() >= BUSY_TIMEOUT {
+                    return Err(SessionError::Busy);
+                }
+                std::thread::sleep(RETRY_PAUSE);
+            }
+            Ok(_) => return Err(failed("the backup stopped early")),
+            Err(rusqlite::Error::SqliteFailure(f, _))
+                if matches!(f.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) =>
+            {
+                return Err(SessionError::Busy);
+            }
+            Err(e) => return Err(failed(e.to_string())),
+        }
+    }
+}
+
 /// Copies `conn`'s main database beside `database` and returns the new
 /// file's path. Never replaces an existing file; removes its temp file on
-/// failure.
+/// every failure.
 pub(super) fn take_backup(
     conn: &Connection,
     database: &Path,
     stamp: &str,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, SessionError> {
     let dir = database
         .parent()
-        .ok_or_else(|| "the database has no folder".to_owned())?;
+        .ok_or_else(|| failed("the database has no folder"))?;
     let file_name = database
         .file_name()
-        .ok_or_else(|| "the database has no file name".to_owned())?;
-    let temp = tempfile::Builder::new()
+        .ok_or_else(|| failed("the database has no file name"))?;
+    let mut temp = tempfile::Builder::new()
         .prefix(".fm-backup-")
         .suffix(".tmp")
         .tempfile_in(dir)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| failed(e.to_string()))?;
     {
-        let mut dest = Connection::open(temp.path()).map_err(|e| e.to_string())?;
-        let backup = Backup::new(conn, &mut dest).map_err(|e| e.to_string())?;
-        backup
-            .run_to_completion(256, Duration::ZERO, None)
-            .map_err(|e| e.to_string())?;
+        let mut dest = Connection::open(temp.path()).map_err(|e| failed(e.to_string()))?;
+        copy_pages(conn, &mut dest)?;
     }
-    let mut temp = temp;
     for attempt in 0..MAX_ATTEMPTS {
         let target = dir.join(backup_name(file_name, stamp, attempt));
         match temp.persist_noclobber(&target) {
             Ok(_) => return Ok(target),
             Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => temp = e.file,
-            Err(e) => return Err(e.error.to_string()),
+            Err(e) => return Err(failed(e.error.to_string())),
         }
     }
-    Err("every backup name beside the database is taken".to_owned())
+    Err(failed("every backup name beside the database is taken"))
+}
+
+/// Takes the backup through `conn` if `backup` is still `None`, recording its
+/// path. Call it before the write transaction begins: SQLite refuses an
+/// online backup (`Busy`) from the connection that holds the write
+/// transaction.
+pub(crate) fn ensure_backup(
+    backup: &mut Option<PathBuf>,
+    stamp: Option<&str>,
+    conn: &Connection,
+    database: &Path,
+) -> Result<(), SessionError> {
+    if backup.is_some() {
+        return Ok(());
+    }
+    let stamp = stamp.map_or_else(
+        || {
+            let secs = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            utc_stamp(secs)
+        },
+        str::to_owned,
+    );
+    *backup = Some(take_backup(conn, database, &stamp)?);
+    Ok(())
 }
 
 impl Session {
@@ -92,32 +152,12 @@ impl Session {
         self.backup.as_deref()
     }
 
-    /// Marks `backup` as the session's backup without writing anything, so a
-    /// reload of the same database does not take another. Use it only for
-    /// the same database path.
+    /// Marks `backup` as the session's backup, already announced, without
+    /// writing anything, so a reload of the same database does not take
+    /// another. Use it only for the same database path.
     pub fn adopt_backup(&mut self, backup: PathBuf) {
         self.backup = Some(backup);
-    }
-
-    /// Takes the backup if none exists yet. `Some(path)` only when it made one.
-    pub(crate) fn ensure_backup(&mut self) -> Result<Option<PathBuf>, SessionError> {
-        if self.backup.is_some() {
-            return Ok(None);
-        }
-        let now = || {
-            let secs = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-            utc_stamp(secs)
-        };
-        #[cfg(test)]
-        let stamp = self.backup_stamp.clone().unwrap_or_else(now);
-        #[cfg(not(test))]
-        let stamp = now();
-        let path = take_backup(self.database.conn(), self.database.path(), &stamp)
-            .map_err(SessionError::BackupFailed)?;
-        self.backup = Some(path.clone());
-        Ok(Some(path))
+        self.backup_announced = true;
     }
 }
 
@@ -138,5 +178,28 @@ mod tests {
         assert_eq!(name, "shop.db.20261113T101500Z.bak");
         let name = backup_name(std::ffi::OsStr::new("shop.db"), "20261113T101500Z", 2);
         assert_eq!(name, "shop.db.20261113T101500Z-2.bak");
+    }
+
+    #[test]
+    fn locked_source_gives_up_with_busy_and_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch("CREATE TABLE t (a); INSERT INTO t VALUES (1);")
+            .unwrap();
+        let other = Connection::open(&db).unwrap();
+        other.execute_batch("BEGIN EXCLUSIVE;").unwrap();
+        let start = Instant::now();
+        let err = take_backup(&conn, &db, "20261113T101500Z").unwrap_err();
+        assert!(matches!(err, SessionError::Busy), "{err:?}");
+        assert!(start.elapsed() < std::time::Duration::from_secs(15));
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert!(names.iter().all(|n| !n.to_string_lossy().contains("bak")));
+        assert!(names
+            .iter()
+            .all(|n| !n.to_string_lossy().contains("fm-backup")));
     }
 }

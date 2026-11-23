@@ -48,7 +48,9 @@ pub enum SessionError {
     /// check again.
     ConfigChangedOnDisk,
     /// The table (named) cannot be changed or created in.
-    NotEditable(String),
+    NotEditable {
+        reason: String,
+    },
     Validation {
         fields: Vec<FieldError>,
     },
@@ -57,9 +59,13 @@ pub enum SessionError {
         current: Box<ObjectView>,
     },
     /// The backup could not be taken, so nothing was written.
-    BackupFailed(String),
+    BackupFailed {
+        detail: String,
+    },
     /// A constraint the app cannot attribute to one field; SQLite's message.
-    Constraint(String),
+    Constraint {
+        message: String,
+    },
 }
 
 impl fmt::Display for SessionError {
@@ -78,15 +84,20 @@ impl fmt::Display for SessionError {
             SessionError::ConfigChangedOnDisk => {
                 f.write_str("The config file changed; reload it and check your changes again.")
             }
-            SessionError::NotEditable(t) => write!(f, "`{t}` cannot be changed."),
+            SessionError::NotEditable { reason } => f.write_str(reason),
             SessionError::Validation { .. } => f.write_str("Some values are not valid."),
             SessionError::Conflict { .. } => {
                 f.write_str("This object was changed by someone else.")
             }
-            SessionError::BackupFailed(m) => {
-                write!(f, "The backup could not be made, so nothing was saved: {m}")
+            SessionError::BackupFailed { detail } => {
+                write!(
+                    f,
+                    "The backup could not be made, so nothing was saved: {detail}"
+                )
             }
-            SessionError::Constraint(m) => write!(f, "The database refused the change: {m}"),
+            SessionError::Constraint { message } => {
+                write!(f, "The database refused the change: {message}")
+            }
         }
     }
 }
@@ -118,6 +129,8 @@ pub struct Session {
     config: LoadedConfig,
     /// The session's one backup, once taken or adopted.
     backup: Option<PathBuf>,
+    /// `SaveResult::backup_created` has carried the backup's path.
+    backup_announced: bool,
     /// Tests: the backup name's timestamp.
     #[cfg(test)]
     backup_stamp: Option<String>,
@@ -139,6 +152,7 @@ impl Session {
             model,
             config,
             backup: None,
+            backup_announced: false,
             #[cfg(test)]
             backup_stamp: None,
         })

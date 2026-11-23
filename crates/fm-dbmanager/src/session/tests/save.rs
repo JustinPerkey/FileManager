@@ -290,7 +290,7 @@ fn backup_failure_blocks_write() {
     let mut s = fx.session();
     s.backup_stamp = Some("20261113T101500Z".into());
     std::fs::create_dir(fx.db.with_file_name("t.db.20261113T101500Z.bak")).unwrap();
-    for n in 1..200 {
+    for n in 1..crate::session::backup::MAX_ATTEMPTS + 100 {
         std::fs::create_dir(
             fx.db
                 .with_file_name(format!("t.db.20261113T101500Z-{n}.bak")),
@@ -298,7 +298,7 @@ fn backup_failure_blocks_write() {
         .unwrap();
     }
     let err = update(&mut s, "author", 1, vec![("last_name", text("X"))]).unwrap_err();
-    assert!(matches!(err, SessionError::BackupFailed(_)), "{err:?}");
+    assert!(matches!(err, SessionError::BackupFailed { .. }), "{err:?}");
     assert_eq!(
         one::<String>(&fx, "SELECT last_name FROM author WHERE id = 1"),
         "Lindqvist"
@@ -379,9 +379,9 @@ fn permission_checks() {
     let mut s = fx.session();
     // pickable table: neither update nor create
     let e = update(&mut s, "publisher", 1, vec![("name", text("X"))]).unwrap_err();
-    assert!(matches!(e, SessionError::NotEditable(_)), "{e:?}");
+    assert!(matches!(e, SessionError::NotEditable { .. }), "{e:?}");
     let e = create(&mut s, "publisher", vec![("name", text("X"))]).unwrap_err();
-    assert!(matches!(e, SessionError::NotEditable(_)), "{e:?}");
+    assert!(matches!(e, SessionError::NotEditable { .. }), "{e:?}");
     // hidden table
     let e = create(&mut s, "audit_log", vec![]).unwrap_err();
     assert!(matches!(e, SessionError::UnknownTable(_)), "{e:?}");
@@ -675,12 +675,12 @@ fn check_maps_to_constraint_and_rolls_back() {
     let mut s = fx.session();
     let e = create(&mut s, "c", vec![("a", int(2)), ("b", int(-1))]).unwrap_err();
     assert!(
-        matches!(&e, SessionError::Constraint(m) if m.contains("CHECK")),
+        matches!(&e, SessionError::Constraint { message: m } if m.contains("CHECK")),
         "{e:?}"
     );
     assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM c"), 1);
     let e = update(&mut s, "c", 1, vec![("a", int(5)), ("b", int(-1))]).unwrap_err();
-    assert!(matches!(e, SessionError::Constraint(_)), "{e:?}");
+    assert!(matches!(e, SessionError::Constraint { .. }), "{e:?}");
     assert_eq!(one::<i64>(&fx, "SELECT a FROM c WHERE id = 1"), 1);
     // the session is usable afterwards
     assert!(update(&mut s, "c", 1, vec![("b", int(3))]).is_ok());
@@ -721,4 +721,157 @@ fn awkward_identifiers_save() {
         DbValue::Text("changed".into())
     );
     assert_eq!(field(&r.object, "a\"b").value, DbValue::Text("one".into()));
+}
+
+#[test]
+fn busy_when_locked_on_first_save() {
+    let fx = Fixture::example();
+    let mut s = fx.session();
+    s.database
+        .conn()
+        .busy_timeout(std::time::Duration::from_millis(50))
+        .unwrap();
+    let r = request(&s, "author", Some(rk(1)), vec![("last_name", text("X"))]);
+    let other = raw(&fx);
+    other.execute_batch("BEGIN EXCLUSIVE;").unwrap();
+    let start = std::time::Instant::now();
+    assert!(matches!(s.save(&r), Err(SessionError::Busy)));
+    assert!(start.elapsed() < std::time::Duration::from_secs(10));
+    assert_eq!(baks(&fx).len(), 0);
+    assert!(s.backup_path().is_none());
+    assert!(dir_names(&fx).iter().all(|n| !n.contains("fm-backup")));
+    other.execute_batch("ROLLBACK;").unwrap();
+    assert!(s.save(&r).unwrap().backup_created.is_some());
+}
+
+#[test]
+fn backup_announced_on_first_successful_save() {
+    let fx = Fixture::example();
+    let mut s = fx.session();
+    let dup = create(
+        &mut s,
+        "book",
+        vec![
+            ("title", text("T")),
+            ("isbn", text("9780000000011")),
+            ("author_id", reference(1)),
+        ],
+    );
+    assert!(matches!(dup, Err(SessionError::Validation { .. })));
+    assert!(s.backup_path().is_some(), "the backup was taken");
+    let path = s.backup_path().unwrap().display().to_string();
+    let second = update(&mut s, "author", 1, vec![("last_name", text("Two"))]).unwrap();
+    assert_eq!(second.backup_created, Some(path));
+    let third = update(&mut s, "author", 1, vec![("last_name", text("Three"))]).unwrap();
+    assert!(third.backup_created.is_none());
+    assert_eq!(baks(&fx).len(), 1);
+}
+
+#[test]
+fn create_declared_pk_with_default_reads_key_by_rowid() {
+    let fx = Fixture::new(
+        "CREATE TABLE p (code TEXT PRIMARY KEY DEFAULT 'dflt', name TEXT);",
+        None,
+    );
+    let mut s = fx.session();
+    let r = create(&mut s, "p", vec![("name", text("n"))]).unwrap();
+    assert_eq!(r.object.key, rk(1));
+    assert_eq!(field(&r.object, "code").value, DbValue::Text("dflt".into()));
+}
+
+#[test]
+fn create_declared_pk_without_default_requires_it() {
+    let fx = Fixture::new("CREATE TABLE q (code TEXT PRIMARY KEY, name TEXT);", None);
+    let mut s = fx.session();
+    let f = fields_of(create(&mut s, "q", vec![("name", text("n"))]).unwrap_err());
+    assert_eq!(codes(&f, "code"), [FieldIssueCode::Required]);
+    let null = FieldInput::Value {
+        value: DbValue::Null,
+    };
+    let f = fields_of(create(&mut s, "q", vec![("code", null), ("name", text("n"))]).unwrap_err());
+    assert_eq!(codes(&f, "code"), [FieldIssueCode::Required]);
+    assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM q"), 0);
+    assert!(create(&mut s, "q", vec![("code", text("c"))]).is_ok());
+}
+
+#[test]
+fn create_without_rowid_requires_pk() {
+    let fx = Fixture::new(
+        "CREATE TABLE w (code TEXT PRIMARY KEY DEFAULT 'd', name TEXT) WITHOUT ROWID;",
+        None,
+    );
+    let mut s = fx.session();
+    let f = fields_of(create(&mut s, "w", vec![("name", text("n"))]).unwrap_err());
+    assert_eq!(codes(&f, "code"), [FieldIssueCode::Required]);
+    assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM w"), 0);
+}
+
+#[test]
+fn notnull_violation_is_required() {
+    let fx = Fixture::new(
+        "CREATE TABLE n (id INTEGER PRIMARY KEY, a TEXT NOT NULL DEFAULT 'x', b TEXT);\
+         INSERT INTO n (id) VALUES (1);\
+         CREATE TRIGGER nn AFTER UPDATE OF b ON n \
+           BEGIN UPDATE n SET a = NULL WHERE id = new.id; END;",
+        None,
+    );
+    let mut s = fx.session();
+    let f =
+        fields_of(update(&mut s, "n", 1, vec![("a", text("y")), ("b", text("z"))]).unwrap_err());
+    assert_eq!(codes(&f, "a"), [FieldIssueCode::Required]);
+    assert_eq!(one::<String>(&fx, "SELECT a FROM n WHERE id = 1"), "x");
+}
+
+#[test]
+fn primary_key_violation_is_unique() {
+    let fx = Fixture::example();
+    let mut s = fx.session();
+    let f = fields_of(
+        create(
+            &mut s,
+            "genre",
+            vec![("code", text("fiction")), ("name", text("Again"))],
+        )
+        .unwrap_err(),
+    );
+    assert_eq!(codes(&f, "code"), [FieldIssueCode::Unique]);
+    assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM genre"), 4);
+}
+
+#[test]
+fn map_constraint_unit() {
+    use crate::session::save::map_constraint;
+    let failure = |extended: i32, msg: &str| {
+        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(extended), Some(msg.to_owned()))
+    };
+    let unique = rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE;
+    let one = map_constraint(
+        failure(unique, "UNIQUE constraint failed: t.a"),
+        "t",
+        &["a", "b"],
+    );
+    assert_eq!(codes(&fields_of(one), "a"), [FieldIssueCode::Unique]);
+    let two = map_constraint(
+        failure(unique, "UNIQUE constraint failed: t.a, t.b"),
+        "t",
+        &["a", "b"],
+    );
+    assert!(matches!(two, SessionError::Constraint { .. }));
+    let unchanged = map_constraint(
+        failure(unique, "UNIQUE constraint failed: t.c"),
+        "t",
+        &["a"],
+    );
+    assert!(matches!(unchanged, SessionError::Constraint { .. }));
+    let check = map_constraint(
+        failure(
+            rusqlite::ffi::SQLITE_CONSTRAINT_CHECK,
+            "CHECK constraint failed: x",
+        ),
+        "t",
+        &["a"],
+    );
+    assert!(matches!(check, SessionError::Constraint { message } if message.contains("CHECK")));
+    let busy = map_constraint(failure(rusqlite::ffi::SQLITE_BUSY, "locked"), "t", &["a"]);
+    assert!(matches!(busy, SessionError::Busy));
 }

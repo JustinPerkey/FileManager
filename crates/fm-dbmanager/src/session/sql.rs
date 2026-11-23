@@ -203,3 +203,8 @@ pub(super) fn insert(table: &Ident, values: Vec<(&Ident, Value)>) -> Query {
         params: values.into_iter().map(|(_, v)| v).collect(),
     }
 }
+
+/// `PRAGMA schema_version`: changes whenever the schema does.
+pub(super) fn schema_version(conn: &rusqlite::Connection) -> rusqlite::Result<i64> {
+    conn.query_row("PRAGMA schema_version", [], |r| r.get(0))
+}
