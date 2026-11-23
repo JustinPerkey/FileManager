@@ -1,7 +1,74 @@
 # U3 — Shared widgets, part 2: confirmation dialog, menu button, shortcuts help
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21). **Review follow-up (2026-11-23):** the next run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: U2 (landed)
+
+## Review follow-up (2026-11-23)
+
+From the review of the first U3 run (commit 8945367). Do only this; the rest
+of U3 has landed. Edit `apps/filemanager/src/widgets/{shortcuts_help.rs,menu_button.rs,tests.rs}`.
+
+### Shortcuts help (`shortcuts_help.rs`): match today
+
+- **No row rules.** Remove the 1 px `border` line between rows. Today's
+  table has none, and the column alignment already separates the rows.
+- **Row spacing as today:** 4 px top and bottom per row (`SPACE_1`), so rows
+  are 8 px apart, and 12 px between columns (`SPACE_3`). The old line here
+  said "8 px row padding", which meant 8 px between rows.
+- **Columns size themselves.** Delete `KEYS_WIDTH` and `WHEN_WIDTH`. Lay the
+  table out as one grid with three columns sized by their content: GPUI's
+  `.grid().grid_cols_max_content(3)`, which is `repeat(3, minmax(0,
+  max-content))`. Each cell is a direct grid child, row by row, so each
+  column is as wide as its widest cell, like today's auto table. The keys
+  cell does not wrap (`whitespace_nowrap`, and its chords stay on one line).
+  The action cell wraps. The "when" cell is sm `text_muted` and wraps only
+  if the 576 px cap forces it. Cells align to the first line's baseline, or
+  to the top if GPUI has no baseline alignment.
+  - Check this in the test host at the 576 px cap with one long action. If
+    the grid shrinks the keys column below its content, give the keys cells
+    `min_w` = their own content (`flex_none`) rather than a number. If that
+    also fails, use a width in `REM` multiples from `theme::tokens` (so it
+    scales with text size), never a px literal, and say so in the hand-off.
+- **Anchor: right-aligned under the button.** Use
+  `Popover::anchor(Anchor::TopRight)`: the popover's top-right corner sits
+  at the button's bottom-right, with the default 4 px gap (0.25rem, today's
+  `--space-1`). In the Tar Packager header the button is at the content's
+  right edge, so this gives today's position. gpui-component clamps the
+  popover to the window rather than flipping it; that is accepted.
+
+### Menu button (`menu_button.rs`): match today
+
+- **Anchor: right-aligned under the trigger,** as today's `right: 0`:
+  `Popover::anchor(Anchor::TopRight)`, default 4 px gap.
+
+### Selected menu row: keep as built
+
+Keep the 2 px `focus_ring` border inside the row, on a `surface_sunken`
+fill, for the one selected row (keyboard or mouse hover). Reasons:
+
+- Today's outline sits 2 px outside the row. In a list with 4 px padding
+  and no gap between rows it would overlap the next row or be clipped by
+  the list.
+- One selected row means keyboard and mouse never highlight two rows at
+  once.
+- Contrast: the ring against `surface_sunken` is 5.67:1 light and 7.47:1
+  dark, and `text` on `surface_sunken` is 14.8:1 and 15.3:1.
+
+The transparent 2 px border on unselected rows stays, so selection never
+shifts the layout.
+
+### Tests
+
+- `shortcuts_popover_opens_under_button_and_escape_closes`: also assert
+  that the popover's right edge equals the button's right edge (within
+  1 px) and that its top is below the button's bottom.
+- `menu_opens_with_keys_wraps_and_picks`: also assert that the list's right
+  edge equals the trigger's right edge (within 1 px).
+- `shortcuts_columns_align`: in the test host, with three rows whose keys
+  differ in width, the action cells of every row start at the same x, and
+  that x lies past the widest keys cell.
+- Acceptance: `rg "KEYS_WIDTH|WHEN_WIDTH|border_b" apps/filemanager/src/widgets/shortcuts_help.rs`
+  finds nothing.
 
 ## Goal
 
@@ -82,7 +149,7 @@ pub struct MenuButton { .. }   // MenuButton::new(id, label).items(Vec<MenuItem>
 ```
 
 A secondary button with a trailing `chevron-down` (never a glyph) opening
-the list under it: `surface`, 1 px `border`, radius 6, padding 4, min
+the list right-aligned under it: `surface`, 1 px `border`, radius 6, padding 4, min
 width 256 px, max 512 px, scrolling at 60% of the window height; items are
 quiet rows, label sm in `text`, optional `detail` line sm `text_muted`,
 wrapping. Keys: Enter, Space or Down opens; Up/Down wrap; Home/End jump;
@@ -98,10 +165,10 @@ pub struct ShortcutsHelp { .. } // ShortcutsHelp::new(id, rows).on_open_change(F
 ```
 
 A quiet button with the `keyboard` icon and the visible label "Keyboard
-shortcuts", opening a non-modal popover anchored under it: `surface`, 1 px
+shortcuts", opening a non-modal popover right-aligned under it (see "Review follow-up"): `surface`, 1 px
 `border`, radius 6, padding 12/16, max width 576 px, scrolling inside
-itself; heading "Keyboard shortcuts" (lg 600); a three-column table with
-8 px row padding: keys (`alternatives` of `chord`s of `kbd`), action,
+itself; heading "Keyboard shortcuts" (lg 600); a three-column table, no
+rules, self-sizing columns, 4 px row padding: keys (`alternatives` of `chord`s of `kbd`), action,
 when (sm `text_muted`). Escape closes it and returns focus to the button;
 `on_open_change` fires on open and close (the Tar Packager's Escape key
 must not dismiss a result while it is open). Debug selectors: `id`,

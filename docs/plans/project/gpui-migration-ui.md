@@ -219,7 +219,10 @@ Sizes (from `controls.css`): button padding 4/12 px, 1 px border, radius 6,
 body size, height 30 px (the spike's measured value); input min height
 32 px, padding 4/8; dialog 448 px wide (wide: 640 px), padding 24, title lg
 600, actions right-aligned with gap 8; menu list min 256 px, max 512 px,
-items sm with a muted second line; popover padding 12/16; banner padding
+items sm with a muted second line, right-aligned under its trigger, the
+selected row a 2 px `focus_ring` border inside the row on `surface_sunken`;
+popover padding 12/16; shortcuts help right-aligned under its button, its
+table with no row rules and self-sizing columns (U3 review, 2026-11-23); banner padding
 8/12, gap 8/12, 1 px border in the tone colour on `surface`, tone icon, the
 message in `text`, quiet "Dismiss" (icon-only, tooltip "Dismiss") at the
 right; tag sm, `text_muted`, 1 px border, radius 6, padding 0/4; kbd mono sm
