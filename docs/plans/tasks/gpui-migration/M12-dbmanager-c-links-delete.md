@@ -75,7 +75,11 @@ aside." with **Re-apply my change** and **Discard it**:
 - Confirm calls `delete(table, key, impact.version, impact.token, snapshot.config.hash)`.
 - `ImpactChanged`: stays open with the new impact, a notice "What this
   delete affects changed. Review it again.", and the next confirm uses the
-  new token. `DeleteBlocked`: switches to the blocked state. `Conflict`:
+  new token. `DeleteBlocked`: switches to the blocked state. Its impact
+  may be `blocked: true` with no group marked `blocks` (an unpredicted FK
+  failure, or groups past the cap; dbmanager M9's doc). Then the blocked
+  state shows a generic "This object cannot be deleted." line from
+  `text.rs` instead of a blocking group. `Conflict`:
   closes; the sheet shows the current object with "“<label>” was changed by
   another program. Nothing was deleted. Review it and try again."
   `ConfigChangedOnDisk`: re-read the snapshot, run the preview again, stay

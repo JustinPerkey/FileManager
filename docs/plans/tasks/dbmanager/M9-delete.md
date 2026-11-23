@@ -5,6 +5,8 @@ fields, editable defaults; then the config hash on writes and `pickable`
 tables)
 Project: dbmanager   Depends on: M8 (landed)
 
+**Review follow-up (2026-11-23):** the first run landed as bdf6ea7; the next run does only the section "Review follow-up" below.
+
 **Note (2026-11-21): the UI is moving to GPUI.** This domain milestone is
 unchanged, with one condition. If `apps/desktop/src-tauri/src/generated_types.rs`
 still exists when you start, derive `ts_rs::TS` and update `EXPORTERS` and
@@ -14,6 +16,63 @@ removed Tauri and ts-rs), skip every ts-rs step: no `ts_rs::TS` derive, no
 where this plan needs it for something other than the TypeScript boundary.
 Wherever this plan says the Tauri commands or the UI error type come later,
 read "the GPUI app's Database Manager model comes later".
+
+## Review follow-up (2026-11-23)
+
+The review of bdf6ea7 did not approve M9 yet. **The next run does only this
+section.** Read `crates/fm-dbmanager/src/session/delete.rs` and its tests
+first.
+
+### P2: a NO ACTION group can block a delete that SQLite would allow
+
+- **The case,** confirmed in SQLite by the reviewer:
+  - `c.a_id` references `a` with NO ACTION;
+  - `c.b_id` references `b` with CASCADE;
+  - `b.a_id` references `a` with CASCADE.
+
+  `DELETE FROM a` succeeds and removes `c`, through `b`. NO ACTION is
+  checked at the **end** of the statement, and by then `c`'s row is gone.
+  `impact()` marks the NO ACTION group as `blocks`, so `delete` refuses.
+- **Fix:** decide `blocks` for NO ACTION groups **after** the breadth-first
+  pass. A NO ACTION group blocks only if it has at least one row that is
+  **not** in the final `scheduled` (to-be-deleted) set.
+  - Keep RESTRICT conservative: it is checked immediately, so it blocks as
+    today.
+  - Keep SET NULL onto a NOT NULL column conservative too: it blocks as
+    today.
+- **Test:** `no_action_satisfied_by_cascade_does_not_block`, in a temp
+  database with that schema. The impact has `blocked: false`, the delete
+  succeeds, and the `c` row is gone.
+- **Optional, cosmetic:** SET NULL / SET DEFAULT rows that a cascade
+  deletes elsewhere are counted under the deleted group, not as updated.
+  Test, if done: `set_null_row_deleted_by_cascade_counts_as_deleted`.
+
+### P3: document `DeleteBlocked`'s impact
+
+- Add to the doc comment of `SessionError::DeleteBlocked` (and of
+  `DeleteImpact::blocked`): the impact can be `blocked: true` with **no**
+  group marked `blocks`. That happens when SQLite rejects the delete for a
+  reason the preview did not predict (an unpredicted FK failure), or when
+  the impact was truncated at the cap. Callers must handle it with a
+  generic "this object cannot be deleted" message.
+- Recorded for later: the Database Manager's GPUI model (gpui-migration
+  M12c) and its delete view (dbmanager U11) handle that case. A later
+  milestone may add a "more not listed" line to the impact when groups past
+  the cap were omitted.
+
+### Accepted implementer decisions (recorded)
+
+- `delete_preview` does not require `can_delete`. Only `delete` refuses.
+- The hiding rules for groups in hidden tables, as built.
+- Link headings come from the deleted table's side of the relation.
+- The token is kept on `DeleteBlocked`.
+- SQL names are used for hidden FK columns.
+- The fetch arithmetic at the cap.
+
+### Acceptance
+
+- The named tests pass. fmt, clippy pedantic and `cargo test --workspace`
+  pass. If ts-rs still exists, `generated_types_are_current` passes.
 
 ## Goal
 
