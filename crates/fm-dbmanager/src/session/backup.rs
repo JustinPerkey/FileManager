@@ -59,15 +59,42 @@ fn failed(detail: impl Into<String>) -> SessionError {
     }
 }
 
+/// How many times the copy may restart because another connection changed
+/// the source mid-copy before it gives up with `Busy`.
+///
+/// Chosen over leaving it to the `data_version` race guard: the guard only
+/// runs after the copy finishes, so a source that never stops changing would
+/// keep the copy running. A restart shows as `remaining` not shrinking
+/// between steps.
+const MAX_RESTARTS: u32 = 5;
+
 /// Runs the copy one `step` at a time, so a lock another program holds ends
-/// in `Busy` after the session's busy timeout instead of spinning.
-fn copy_pages(conn: &Connection, dest: &mut Connection) -> Result<(), SessionError> {
+/// in `Busy` after the session's busy timeout instead of spinning. The
+/// timeout measures time without progress: every `More` step restarts it.
+fn copy_pages(
+    conn: &Connection,
+    dest: &mut Connection,
+    before_step: &mut dyn FnMut(),
+) -> Result<(), SessionError> {
     let backup = Backup::new(conn, dest).map_err(|e| failed(e.to_string()))?;
-    let start = Instant::now();
+    let mut start = Instant::now();
+    let mut restarts = 0;
+    let mut remaining = None;
     loop {
+        before_step();
         match backup.step(STEP_PAGES) {
             Ok(StepResult::Done) => return Ok(()),
-            Ok(StepResult::More) => {}
+            Ok(StepResult::More) => {
+                start = Instant::now();
+                let now = backup.progress().remaining;
+                if remaining.is_some_and(|before| now >= before) {
+                    restarts += 1;
+                    if restarts > MAX_RESTARTS {
+                        return Err(SessionError::Busy);
+                    }
+                }
+                remaining = Some(now);
+            }
             Ok(StepResult::Busy | StepResult::Locked) => {
                 if start.elapsed() >= BUSY_TIMEOUT {
                     return Err(SessionError::Busy);
@@ -106,7 +133,7 @@ pub(super) fn take_backup(
         .map_err(|e| failed(e.to_string()))?;
     {
         let mut dest = Connection::open(temp.path()).map_err(|e| failed(e.to_string()))?;
-        copy_pages(conn, &mut dest)?;
+        copy_pages(conn, &mut dest, &mut || {})?;
     }
     for attempt in 0..MAX_ATTEMPTS {
         let target = dir.join(backup_name(file_name, stamp, attempt));
@@ -120,9 +147,18 @@ pub(super) fn take_backup(
 }
 
 /// Takes the backup through `conn` if `backup` is still `None`, recording its
-/// path. Call it before the write transaction begins: SQLite refuses an
-/// online backup (`Busy`) from the connection that holds the write
-/// transaction.
+/// path.
+///
+/// It runs before the write transaction begins: SQLite refuses an online
+/// backup (`Busy`) from the connection that holds `BEGIN IMMEDIATE`. So
+/// another program could commit between the copy and the lock. `save` guards
+/// that: it reads `PRAGMA data_version` before the copy and again after
+/// `BEGIN IMMEDIATE`, and when it changed it rolls back, deletes the
+/// never-announced copy and retakes it (up to 3 times, then `Busy`).
+///
+/// A backup taken before a save that then fails (`SchemaChanged`, `Conflict`,
+/// `UnknownObject`, a constraint) is kept: it is a valid pre-write copy, and
+/// `backup_created` reports it with the next successful write.
 pub(crate) fn ensure_backup(
     backup: &mut Option<PathBuf>,
     stamp: Option<&str>,
@@ -201,5 +237,26 @@ mod tests {
         assert!(names
             .iter()
             .all(|n| !n.to_string_lossy().contains("fm-backup")));
+    }
+
+    #[test]
+    fn restarting_copies_give_up_with_busy() {
+        // A source another connection changes before every step restarts the
+        // copy each time; the bound ends it with Busy.
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch("CREATE TABLE t (a); INSERT INTO t VALUES (zeroblob(4000000));")
+            .unwrap();
+        let writer = Connection::open(&db).unwrap();
+        let mut dest = Connection::open(dir.path().join("d.db")).unwrap();
+        let mut steps = 0;
+        let err = copy_pages(&conn, &mut dest, &mut || {
+            steps += 1;
+            writer.execute("INSERT INTO t VALUES (1)", []).unwrap();
+        })
+        .unwrap_err();
+        assert!(matches!(err, SessionError::Busy), "{err:?}");
+        assert!(steps <= 20, "gave up after {steps} steps");
     }
 }

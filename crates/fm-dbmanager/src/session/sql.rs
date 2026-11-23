@@ -208,3 +208,9 @@ pub(super) fn insert(table: &Ident, values: Vec<(&Ident, Value)>) -> Query {
 pub(super) fn schema_version(conn: &rusqlite::Connection) -> rusqlite::Result<i64> {
     conn.query_row("PRAGMA schema_version", [], |r| r.get(0))
 }
+
+/// `PRAGMA data_version`: changes, on this connection, whenever another
+/// connection commits to the database.
+pub(super) fn data_version(conn: &rusqlite::Connection) -> rusqlite::Result<i64> {
+    conn.query_row("PRAGMA data_version", [], |r| r.get(0))
+}

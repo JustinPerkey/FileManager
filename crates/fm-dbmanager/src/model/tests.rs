@@ -2137,3 +2137,53 @@ fn pattern_scanner_allows_common_subset() {
         );
     }
 }
+
+#[test]
+fn without_rowid_hidden_pk_disables_create() {
+    // Even with a default: a WITHOUT ROWID key cannot be read back.
+    let sql = "CREATE TABLE t (code TEXT PRIMARY KEY DEFAULT 'd', n TEXT) WITHOUT ROWID";
+    let m = model(
+        sql,
+        "version = 1\n[tables.t.fields.code]\nmode = \"hidden\"\n",
+    );
+    assert!(!m.table("t").unwrap().can_create);
+    let w = find(&m, Warning, "t", Some("code"), "creating objects is off");
+    assert_eq!(w.line, Some(2));
+    assert_eq!(
+        w.message,
+        "table `t`: creating objects is off: primary key column `code` is hidden; make it editable or create-only to allow creating"
+    );
+    // Editable (the inherited primary-key mode is create-only): no warning.
+    let m = model(sql, "version = 1\n");
+    assert!(m.table("t").unwrap().can_create);
+    assert_eq!(m.diagnostics(), &[]);
+}
+
+#[test]
+fn rowid_hidden_pk_without_default_disables_create() {
+    let sql = "CREATE TABLE t (code TEXT PRIMARY KEY, n TEXT)";
+    let m = model(
+        sql,
+        "version = 1\n[tables.t.fields.code]\nmode = \"read-only\"\n",
+    );
+    assert!(!m.table("t").unwrap().can_create);
+    let w = find(&m, Warning, "t", Some("code"), "is read-only");
+    assert_eq!(w.line, Some(2));
+    // No entry for the table: the warning has no position.
+    let m = model(sql, "version = 1\n[defaults]\nfield_mode = \"read-only\"\n");
+    assert!(!m.table("t").unwrap().can_create);
+}
+
+#[test]
+fn hidden_pk_with_default_in_rowid_table_still_creates() {
+    let sql = "CREATE TABLE t (code TEXT PRIMARY KEY DEFAULT 'd', n TEXT)";
+    let m = model(
+        sql,
+        "version = 1\n[tables.t.fields.code]\nmode = \"hidden\"\n",
+    );
+    assert!(m.table("t").unwrap().can_create);
+    assert!(!m
+        .diagnostics()
+        .iter()
+        .any(|d| d.message.contains("creating objects")));
+}

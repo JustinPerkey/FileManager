@@ -86,6 +86,52 @@ pub struct Column {
     pub is_rowid_alias: bool,
 }
 
+impl Column {
+    /// The declared type is exactly `INTEGER` (surrounding spaces ignored).
+    /// Introspection uses this for rowid-alias detection, and the save rules
+    /// for the `INTEGER PRIMARY KEY DESC` exemption, so the two cannot differ.
+    #[must_use]
+    pub(crate) fn declared_integer(&self) -> bool {
+        self.declared_type.trim().eq_ignore_ascii_case("INTEGER")
+    }
+}
+
+impl Table {
+    /// The columns a create must supply beyond `required_on_create`, and
+    /// whose NULL is refused:
+    ///
+    /// - the whole primary key of a `WITHOUT ROWID` table, even when a column
+    ///   has a default (the new row's key cannot be read back after the
+    ///   insert);
+    /// - the declared primary key of a rowid table that is not a rowid alias
+    ///   and has no default.
+    ///
+    /// **Exemption:** a single-column primary key declared exactly
+    /// `INTEGER PRIMARY KEY DESC` is not a rowid alias (a SQLite quirk) but is
+    /// not required either. The table's objects are keyed by the rowid, so
+    /// the new key is read back by `last_insert_rowid()`, and the column
+    /// stays an ordinary nullable one.
+    #[must_use]
+    pub fn required_key_columns(&self) -> Vec<usize> {
+        match &self.identity {
+            Identity::PrimaryKey { columns } => columns.clone(),
+            Identity::Rowid {
+                alias_column: None, ..
+            } => self
+                .primary_key
+                .iter()
+                .copied()
+                .filter(|&c| {
+                    let col = &self.columns[c];
+                    let desc_integer = self.primary_key.len() == 1 && col.declared_integer();
+                    col.default_sql.is_none() && !desc_integer
+                })
+                .collect(),
+            Identity::Rowid { .. } => Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Identity {
     Rowid {

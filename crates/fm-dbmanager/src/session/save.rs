@@ -3,7 +3,11 @@
 //! the fields belonging to an object table, so link writes reuse them.
 
 use rusqlite::types::Value;
-use rusqlite::{params_from_iter, Connection, ErrorCode, OptionalExtension, TransactionBehavior};
+use std::path::{Path, PathBuf};
+
+use rusqlite::{
+    params_from_iter, Connection, ErrorCode, OptionalExtension, Transaction, TransactionBehavior,
+};
 
 use super::backup::ensure_backup;
 use super::key::conditions;
@@ -289,32 +293,6 @@ pub(crate) fn map_constraint(
     SessionError::Constraint { message }
 }
 
-/// Columns a create must supply beyond `required_on_create`: the primary key
-/// of a `WITHOUT ROWID` table, and the declared primary key of a rowid table
-/// that is not a rowid alias and has no default (`INTEGER PRIMARY KEY DESC`
-/// excepted).
-fn required_key_columns(st: &Table) -> Vec<usize> {
-    match &st.identity {
-        Identity::PrimaryKey { columns } => columns.clone(),
-        Identity::Rowid {
-            alias_column: None, ..
-        } => st
-            .primary_key
-            .iter()
-            .copied()
-            .filter(|&c| {
-                let col = &st.columns[c];
-                // `INTEGER PRIMARY KEY DESC` is an ordinary nullable column
-                // that the plan keeps optional on create.
-                let desc_integer =
-                    st.primary_key.len() == 1 && col.declared_type.eq_ignore_ascii_case("INTEGER");
-                col.default_sql.is_none() && !desc_integer
-            })
-            .collect(),
-        Identity::Rowid { .. } => Vec::new(),
-    }
-}
-
 fn to_db_value(v: &Value) -> Option<DbValue> {
     match v {
         Value::Null => Some(DbValue::Null),
@@ -357,6 +335,44 @@ fn saved_key(
             Ok(ObjectKey::Primary { values })
         }
     }
+}
+
+/// How often the backup is retaken when another connection commits between
+/// the copy and `BEGIN IMMEDIATE`.
+const RACE_RETRIES: u32 = 3;
+
+/// Takes the session's backup if it has none, then `BEGIN IMMEDIATE`. The
+/// backup cannot be taken inside the transaction (SQLite answers `Busy`), so
+/// `PRAGMA data_version` is read before the copy and after the lock: when it
+/// changed, another connection committed in between and the copy misses that
+/// commit. The transaction is rolled back, the copy (never announced) is
+/// deleted and the loop retakes it; after `RACE_RETRIES` tries the answer is
+/// `Busy`. `after_backup` is a test seam that runs between the copy and the
+/// lock.
+fn begin_guarded<'c>(
+    conn: &'c Connection,
+    database: &Path,
+    backup: &mut Option<PathBuf>,
+    stamp: Option<&str>,
+    after_backup: &mut dyn FnMut(),
+) -> Result<Transaction<'c>, SessionError> {
+    for _ in 0..RACE_RETRIES {
+        let took = backup.is_none();
+        let before = sql::data_version(conn)?;
+        ensure_backup(backup, stamp, conn, database)?;
+        after_backup();
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+        if !took || sql::data_version(&tx)? == before {
+            return Ok(tx);
+        }
+        drop(tx);
+        if let Some(stale) = backup.take() {
+            std::fs::remove_file(&stale).map_err(|e| SessionError::BackupFailed {
+                detail: format!("could not remove a stale backup: {e}"),
+            })?;
+        }
+    }
+    Err(SessionError::Busy)
 }
 
 impl Session {
@@ -412,7 +428,7 @@ impl Session {
 
         // Steps 3 to 5.
         let also_required = match phase {
-            Phase::Create => required_key_columns(&self.model.schema().tables[rt.schema_index]),
+            Phase::Create => self.model.schema().tables[rt.schema_index].required_key_columns(),
             Phase::Update => Vec::new(),
         };
         let (checked, errors) = check_changes(&rt.fields, &request.changes, phase, &also_required);
@@ -442,18 +458,25 @@ impl Session {
             model,
             backup,
             backup_announced,
+            #[cfg(test)]
+            after_backup,
             ..
         } = self;
+        let mut no_hook = || {};
+        #[cfg(test)]
+        let hook: &mut dyn FnMut() = match after_backup {
+            Some(h) => h.as_mut(),
+            None => &mut no_hook,
+        };
+        #[cfg(not(test))]
+        let hook: &mut dyn FnMut() = &mut no_hook;
         let schema_version = model.schema().schema_version;
         let st = &model.schema().tables[rt.schema_index];
         let table_name = st.name.as_str();
         let changed: Vec<&str> = request.changes.iter().map(|c| c.column.as_str()).collect();
         let db_path = database.path().to_path_buf();
-        // Step 6: the backup, once per session, before the transaction.
-        ensure_backup(backup, stamp.as_deref(), database.conn(), &db_path)?;
-        let tx = database
-            .conn_mut()
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Steps 6 and 7: the backup, then `BEGIN IMMEDIATE`, guarded.
+        let tx = begin_guarded(database.conn(), &db_path, backup, stamp.as_deref(), hook)?;
         if sql::schema_version(&tx)? != schema_version {
             return Err(SessionError::SchemaChanged);
         }

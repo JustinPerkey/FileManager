@@ -134,6 +134,9 @@ pub struct Session {
     /// Tests: the backup name's timestamp.
     #[cfg(test)]
     backup_stamp: Option<String>,
+    /// Tests: runs after the backup and before `BEGIN IMMEDIATE`.
+    #[cfg(test)]
+    after_backup: Option<Box<dyn FnMut() + Send>>,
 }
 
 impl Session {
@@ -155,6 +158,8 @@ impl Session {
             backup_announced: false,
             #[cfg(test)]
             backup_stamp: None,
+            #[cfg(test)]
+            after_backup: None,
         })
     }
 

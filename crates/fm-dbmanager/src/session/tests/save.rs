@@ -875,3 +875,99 @@ fn map_constraint_unit() {
     let busy = map_constraint(failure(rusqlite::ffi::SQLITE_BUSY, "locked"), "t", &["a"]);
     assert!(matches!(busy, SessionError::Busy));
 }
+
+fn config_with(fx: &Fixture, extra: &str) {
+    std::fs::write(&fx.cfg, format!("version = 1\n{extra}")).unwrap();
+}
+
+#[test]
+fn hidden_pk_refuses_create_up_front() {
+    let fx = Fixture::new(
+        "CREATE TABLE t (code TEXT PRIMARY KEY DEFAULT 'd', n TEXT) WITHOUT ROWID;",
+        None,
+    );
+    config_with(&fx, "[tables.t.fields.code]\nmode = \"hidden\"\n");
+    let mut s = fx.session();
+    let e = create(&mut s, "t", vec![("n", text("x"))]).unwrap_err();
+    assert!(matches!(e, SessionError::NotEditable { .. }), "{e:?}");
+    assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM t"), 0);
+    assert_eq!(baks(&fx).len(), 0);
+}
+
+#[test]
+fn hidden_pk_with_default_creates_in_rowid_table() {
+    let fx = Fixture::new(
+        "CREATE TABLE t (code TEXT PRIMARY KEY DEFAULT 'd', n TEXT);",
+        None,
+    );
+    config_with(&fx, "[tables.t.fields.code]\nmode = \"hidden\"\n");
+    let mut s = fx.session();
+    let r = create(&mut s, "t", vec![("n", text("x"))]).unwrap();
+    assert_eq!(r.object.key, rk(1));
+    assert_eq!(one::<String>(&fx, "SELECT code FROM t"), "d");
+}
+
+fn interleave(fx: &Fixture, s: &mut Session, times: Option<u32>) {
+    let db = fx.db.clone();
+    let mut n = 0_u32;
+    s.after_backup = Some(Box::new(move || {
+        if times.is_none_or(|t| n < t) {
+            n += 1;
+            Connection::open(&db)
+                .unwrap()
+                .execute("UPDATE author SET born = ?1 WHERE id = 3", [2000 + n])
+                .unwrap();
+        }
+    }));
+}
+
+#[test]
+fn commit_between_backup_and_begin_retakes_backup() {
+    let fx = Fixture::example();
+    let mut s = fx.session();
+    interleave(&fx, &mut s, Some(1));
+    let r = update(&mut s, "author", 1, vec![("last_name", text("X"))]).unwrap();
+    assert!(r.backup_created.is_some());
+    let names = baks(&fx);
+    assert_eq!(names.len(), 1, "{names:?}");
+    assert!(dir_names(&fx).iter().all(|n| !n.contains("fm-backup")));
+    let bak = Connection::open(s.backup_path().unwrap()).unwrap();
+    let born: i64 = bak
+        .query_row("SELECT born FROM author WHERE id = 3", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(born, 2001, "the backup holds the interleaved commit");
+    assert_eq!(
+        one::<String>(&fx, "SELECT last_name FROM author WHERE id = 1"),
+        "X"
+    );
+}
+
+#[test]
+fn repeated_interleaved_commits_give_busy() {
+    let fx = Fixture::example();
+    let mut s = fx.session();
+    interleave(&fx, &mut s, None);
+    let e = update(&mut s, "author", 1, vec![("last_name", text("X"))]).unwrap_err();
+    assert!(matches!(e, SessionError::Busy), "{e:?}");
+    assert_eq!(baks(&fx).len(), 0);
+    assert!(s.backup_path().is_none());
+    assert!(dir_names(&fx).iter().all(|n| !n.contains("fm-backup")));
+    assert_eq!(
+        one::<String>(&fx, "SELECT last_name FROM author WHERE id = 1"),
+        "Lindqvist"
+    );
+}
+
+#[test]
+fn stray_backup_after_conflict_is_announced_later() {
+    let fx = Fixture::example();
+    let mut s = fx.session();
+    let stale = request(&s, "author", Some(rk(1)), vec![("last_name", text("Mine"))]);
+    fx.exec("UPDATE author SET first_name = 'Changed' WHERE id = 1;");
+    assert!(matches!(s.save(&stale), Err(SessionError::Conflict { .. })));
+    let path = s.backup_path().expect("kept").display().to_string();
+    assert_eq!(baks(&fx).len(), 1);
+    let second = update(&mut s, "author", 1, vec![("last_name", text("Two"))]).unwrap();
+    assert_eq!(second.backup_created, Some(path));
+    assert_eq!(baks(&fx).len(), 1);
+}
