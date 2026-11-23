@@ -219,7 +219,10 @@ Sizes (from `controls.css`): button padding 4/12 px, 1 px border, radius 6,
 body size, height 30 px (the spike's measured value); input min height
 32 px, padding 4/8; dialog 448 px wide (wide: 640 px), padding 24, title lg
 600, actions right-aligned with gap 8; menu list min 256 px, max 512 px,
-items sm with a muted second line; popover padding 12/16; banner padding
+items sm with a muted second line, right-aligned under its trigger, the
+selected row a 2 px `focus_ring` border inside the row on `surface_sunken`;
+popover padding 12/16; shortcuts help right-aligned under its button, its
+table with no row rules and self-sizing columns (U3 review, 2026-11-23); banner padding
 8/12, gap 8/12, 1 px border in the tone colour on `surface`, tone icon, the
 message in `text`, quiet "Dismiss" (icon-only, tooltip "Dismiss") at the
 right; tag sm, `text_muted`, 1 px border, radius 6, padding 0/4; kbd mono sm
@@ -232,7 +235,7 @@ on `surface_sunken`, 1 px border, padding 0/4.
 | Chrome | `mod.rs` | `theme::init`; the two-column frame; the notice; the drop overlay; the close prompt | — |
 | Sidebar | `sidebar.rs` | one nav item per `Shell::tools()` | current (surface fill, border, 600, 6 px accent dot), hover (surface), focus |
 | Notice | `notice.rs` | `Shell::notice()` as a warn `Banner` at the top of the tool area, dismiss → `Shell::dismiss_notice` | none, shown |
-| Drop overlay | `drop_overlay.rs` | `Shell::drag_over()`: full-window `drop_overlay` fill, 2 px dashed accent border inset 8 px, a surface plate (lg) with `folder` + label, or `info` + reason | hidden, enabled, disabled (also while a modal dialog is open: the Shell reports Disabled with "Close the open dialog first." and refuses the drop; the human's decision, 2026-11-21) |
+| Drop overlay | `drop_overlay.rs` | `Shell::drag_over()`: full-window `drop_overlay` fill, 2 px dashed accent border inset 8 px, a surface plate (lg) with `folder` + label, or `info` + reason | hidden (also when the current tool's target is `DropTarget::None`: no overlay is drawn at all, confirmed and tested in U4, 2026-11-23), enabled, disabled (also while a modal dialog is open: the Shell reports Disabled with "Close the open dialog first." and refuses the drop; the human's decision, 2026-11-21) |
 | Close prompt | `close_prompt.rs` | `Shell::close_request()` as a confirm dialog | hidden, shown |
 
 ### 3.3 Tool views

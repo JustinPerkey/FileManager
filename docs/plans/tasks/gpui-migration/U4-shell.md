@@ -159,3 +159,13 @@ none, shown. Close prompt: hidden, shown.
 
 Tool views (later U tasks); screenshots (the Pipeline scenario task removes
 the M4 sample `shell-sample`).
+
+## Recorded after the review (2026-11-23)
+
+- `DropTarget::None` means no overlay is drawn at all; U4 implements and
+  tests this.
+- U4 changed one test line in implementer-owned `apps/filemanager/src/app/guard.rs`:
+  the close prompt's cancel selector, now `dialog-cancel`. The reviewer
+  accepted the edit; the implementer keeps owning the file.
+- The sidebar's click-to-focus fix (focus the item before `shell.select`) is
+  carried into U5.

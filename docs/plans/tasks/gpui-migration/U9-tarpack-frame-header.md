@@ -123,6 +123,34 @@ Debug selectors: `tarpack-open`, `tarpack-recent`, `tarpack-reload`,
 `tarpack-error`, `tarpack-changed`, `tarpack-errors`,
 `tarpack-errors-toggle`, `tarpack-drop-result`, `tarpack-header`.
 
+**Shortcuts table overflow check (2026-11-23).** This task renders the
+Tar Packager's real shortcuts table (`SHORTCUT_ROWS` in the shared
+`ShortcutsHelp`). The shared grid uses `grid_cols_max_content(3)`, which is
+`minmax(0, max-content)`. Under the 576 px cap, a wide chord in a row with a
+long action can shrink the keys column below its content, and the chord then
+overflows into the actions column. U3's alignment test cannot catch this,
+because grid cells stretch.
+
+- Add `shortcuts_keys_do_not_overflow_into_actions`, a view test with
+  `VisualTestContext`. Give the **last** `kbd` of each row and each row's
+  action cell a debug selector, open the help with the real `SHORTCUT_ROWS`,
+  and assert that each row's last `kbd` ends at or before its action cell's
+  left edge.
+- If it overflows, use U3's fallback: a keys-column width in `REM`
+  multiples from `theme::tokens`, wide enough for the widest chord. Do not
+  use a pixel literal.
+
+**Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
+
+- **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`
+  column and cannot style it. So this task's root view is `size_full`, adds
+  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_6`
+  from `theme::tokens`), and handles its own scrolling (an
+  `overflow_y_scroll` region inside the root, not the root's parent).
+- **Confirmations.** If this view shows a confirmation, call `sync_confirm`
+  only from a model observer (`cx.observe(&model, …)`), never inside
+  `render`. Opening or closing a dialog during render re-enters the window.
+
 **Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
 harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
 names (`apps/filemanager/src/app/probe.rs`); GPUI's debug selectors cannot be

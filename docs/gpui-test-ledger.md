@@ -21,16 +21,16 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders the shell with the Pipeline view first | U |  | open |
+| renders the shell with the Pipeline view first | U | `app::view::tests::nav_click_selects_tool` (Pipeline is current before any click; the chrome shows its view) | done |
 
 ## `app/AppShell.test.tsx` (4)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
 | renders registry entries | M3a | `tools::tests::registry_order_and_labels` | done |
-| selecting a tool renders its view | U |  | open |
-| shows an empty state with no tools | U |  | open |
-| has no axe violations | U |  | open |
+| selecting a tool renders its view | U | `app::view::tests::nav_click_selects_tool` | done |
+| shows an empty state with no tools | U | dropped: the registry is never empty (`Shell::with_tools` requires a tool) | dropped |
+| has no axe violations | U | dropped: axe is a DOM check; the nav's labels are the buttons' accessibility labels | dropped |
 
 ## `app/Banner.test.tsx` (3)
 
@@ -63,9 +63,9 @@ its heading's count.
 | Case | Owner | New test | Status |
 |---|---|---|---|
 | idle: renders nothing | M3b | `app::shell::tests::drag_over_tracks_enter_and_exit` (`drag_over()` is `None`; the chrome renders nothing from it) | done |
-| hover shows the label on a plate; leave hides it | M3b, U | `app::shell::tests::drag_over_tracks_enter_and_exit` (state); the plate's look is U | done (state), open (look: U) |
+| hover shows the label on a plate; leave hides it | M3b, U | `app::shell::tests::drag_over_tracks_enter_and_exit` (state); the plate's look is U | done (state); the look: `app::view::tests::drop_overlay_shows_label_or_reason` (done) |
 | drop hides the overlay and passes exactly the dropped paths | M3b | `app::shell::tests::drop_reaches_current_tool_when_enabled`, `dropped_non_unicode_path_survives_routing` (Windows) | done |
-| disabled: overlay shows the reason and a drop is ignored | M3b, U | `app::shell::tests::drop_ignored_when_disabled`, `empty_drop_ignored`; the reason's look is U | done (state), open (look: U) |
+| disabled: overlay shows the reason and a drop is ignored | M3b, U | `app::shell::tests::drop_ignored_when_disabled`, `empty_drop_ignored`; the look: `app::view::tests::drop_overlay_shows_label_or_reason` (the reason on the plate) | done |
 | does not steal focus, and unsubscribes on unmount | M3b | dropped: the shell's drop handling is listeners owned by the root element and the window's frame (nothing to subscribe or unsubscribe), and it never touches focus | dropped |
 | after a rerender, drops follow the latest enabled and onDrop | M3b | `app::shell::tests::drop_goes_to_the_current_tool_only` (the target is read from the tool at drop time) | done |
 
@@ -73,10 +73,10 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| marks the active item with aria-current | U |  | open |
-| arrow keys move focus and wrap | U |  | open |
-| Enter and Space select the focused item | U |  | open |
-| the current item keeps aria-current and has no thick side border | U |  | open |
+| marks the active item with aria-current | U | `app::view::tests::current_item_is_marked` (the dot; the button is also `toggled` for accessibility) | done |
+| arrow keys move focus and wrap | U | `app::view::tests::nav_keys_move_wrap_and_select`, `only_the_current_item_is_a_tab_stop`, `app::view::sidebar::tests::keys_wrap_and_jump` | done |
+| Enter and Space select the focused item | U | `app::view::tests::nav_keys_move_wrap_and_select` | done |
+| the current item keeps aria-current and has no thick side border | U | dropped: the marker is covered by `current_item_is_marked`; the missing side stripe is a look (CSS) | dropped |
 
 ## `app/devMode.test.tsx` (4)
 
@@ -310,7 +310,7 @@ its heading's count.
 | seven classed columns; cell labels are aria-hidden | U |  | open |
 | target path span is mono, exact, with a wbr after each slash; no td is mono | U |  | open |
 | Windows location: full path is the accessible text once, including for a long path | U |  | open |
-| has no axe violations | U |  | open |
+| has no axe violations | U | dropped: axe is a DOM check; the nav's labels are the buttons' accessibility labels | dropped |
 
 ## `tools/tarpack/FailureList.test.tsx` (3)
 

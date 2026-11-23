@@ -83,7 +83,7 @@ missing capability), `docs/manual/`, `docs/plans/`.
 
 ## Skill
 
-`/impeccable critique` on the nineteen PNGs (light and `--dark`) against
+`/impeccable critique` on the nineteen PNGs (light, and the `dark-` set from a `--dark --prefix dark-` run, so it does not overwrite the light PNGs) against
 today's images, with special attention to the table (column positions, the
 two-line rows, the sideways-scroll decision does not show at 1366 px), the
 drop overlay and the build bar. Fix view-only parity misses in U9–U11's

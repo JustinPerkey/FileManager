@@ -36,7 +36,7 @@ pub fn scenarios() -> Vec<Scenario>;   // from scenarios/mod.rs
 Verify already finished as Not implemented; `Demo`: Verify passed, the batch
 step found two problems; `Slow`: `Chosen` with 30 s steps) and configurable step
 jobs (result and duration). Run:
-`cargo run -p filemanager-gpui --features shoot --bin filemanager-shoot -- --out shots [--only pipeline-] [--dark]`
+`cargo run -p filemanager-gpui --features shoot --bin filemanager-shoot -- --out shots [--only pipeline-]` for light, and the same with `--dark --prefix dark-` for dark (without a prefix, the dark run overwrites the light PNGs)
 on Windows at 100% display scale (or read the CI `screenshots` artifact).
 `src/shoot/scenarios/mod.rs` holds M4's sample `shell-sample`.
 
@@ -74,7 +74,7 @@ Do not touch: `src/shoot/` outside `scenarios/`, views, models, fixtures
 
 ## Skill
 
-`/impeccable critique` on the six light PNGs and their `--dark` versions,
+`/impeccable critique` on the six light PNGs and their `dark-` versions (from the `--dark --prefix dark-` run),
 against today's images: layout, colours, states, labels. Fix findings in
 U5's view files within this task when they are view-only parity misses
 (name each fix in the PR); report anything else.

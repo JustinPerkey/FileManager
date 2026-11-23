@@ -61,8 +61,8 @@ mod tests {
         assert!(!cx.simulate_close());
         cx.run_until_parked();
         let at = cx
-            .debug_bounds("keep-editing")
-            .expect("the placeholder shows Keep editing")
+            .debug_bounds("dialog-cancel")
+            .expect("the prompt shows Keep editing")
             .center();
         cx.simulate_click(at, Modifiers::none());
         assert!(shell.read_with(cx, |s, _| s.close_request().is_none()));

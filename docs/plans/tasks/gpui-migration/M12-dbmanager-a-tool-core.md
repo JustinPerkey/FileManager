@@ -244,6 +244,13 @@ enough for the job. Fixtures that simulate long work (progress, a running
 step) are timed on purpose; document each fixture's timing in its doc
 comment so the scenario author knows which `Wait` it needs.
 
+**Real folders only through `app::dirs` (after M4d, 2026-11-23).** The app
+side resolves the store and the config path only through
+`apps/filemanager/src/app/dirs.rs` (`user_app_dirs()`,
+`system_config_path()`), which panic in test and `shoot` builds. Tests and
+fixtures pass temp-dir `AppDirs` and config paths. Register the
+Database Manager in `BackendSet::fixtures()` with a fixture backend.
+
 ### Rules that bind this task
 
 - `fm-dbmanager` never depends on GPUI or tauri. Tools never import each

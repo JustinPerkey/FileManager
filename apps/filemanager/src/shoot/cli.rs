@@ -1,6 +1,7 @@
 //! The `filemanager-shoot` command line and its child-process runner, in the
 //! library so they are testable.
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
@@ -57,6 +58,24 @@ pub fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
     }
     parsed.out = out.ok_or("--out is required")?;
     Ok(parsed)
+}
+
+/// The arguments that make a child process run `name` with this run's
+/// settings (`--out`, `--prefix`, and `--dark` when requested).
+#[must_use]
+pub fn child_args(name: &str, args: &Args) -> Vec<OsString> {
+    let mut list: Vec<OsString> = vec![
+        "--child".into(),
+        name.into(),
+        "--out".into(),
+        args.out.clone().into(),
+        "--prefix".into(),
+        args.prefix.clone().into(),
+    ];
+    if args.dark {
+        list.push("--dark".into());
+    }
+    list
 }
 
 /// Runs one child per name (the command comes from `command`), killing any
@@ -134,5 +153,25 @@ fn wait(child: &mut Child, timeout: Duration) -> std::io::Result<Option<std::pro
             return Ok(None);
         }
         std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parsed(list: &[&str]) -> Args {
+        parse(list.iter().map(|s| (*s).to_owned())).expect("parses")
+    }
+
+    #[test]
+    fn dark_flag_reaches_child_args() {
+        let dark = child_args("a", &parsed(&["--out", "o", "--prefix", "d-", "--dark"]));
+        assert_eq!(
+            dark,
+            ["--child", "a", "--out", "o", "--prefix", "d-", "--dark"].map(OsString::from)
+        );
+        let light = child_args("a", &parsed(&["--out", "o"]));
+        assert!(!light.contains(&OsString::from("--dark")));
     }
 }

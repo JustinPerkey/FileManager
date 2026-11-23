@@ -32,11 +32,12 @@ manual cutover milestone; until then both exist.
 
 ```sh
 cargo run -p filemanager-gpui --features shoot --bin filemanager-shoot -- --out shots
-# options: --only name[,name...]   --prefix <p>   --dark (no effect until the theme task)
+# options: --only name[,name...]   --prefix <p>   --dark   render in the dark theme
 ```
 
 It writes `<out>/<prefix><scenario>.png` (the scenario's name is the PNG's
-stem) and prints `ok <name>` or `FAIL <name>: <reason>` per scenario; it exits
+stem; `--dark` adds no prefix or suffix, so pass `--prefix dark-` or a separate
+`--out` folder to keep the light and dark PNGs apart) and prints `ok <name>` or `FAIL <name>: <reason>` per scenario; it exits
 non-zero if any scenario failed. Scenarios live in
 `apps/filemanager/src/shoot/scenarios/`; the API is documented in
 `apps/filemanager/src/shoot/mod.rs`.

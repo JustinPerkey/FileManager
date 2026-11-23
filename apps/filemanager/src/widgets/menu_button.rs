@@ -11,8 +11,8 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, transparent_black, AnyElement, App, ElementId, Role, ScrollHandle, SharedString,
-    Window,
+    div, px, transparent_black, Anchor, AnyElement, App, ElementId, Role, ScrollHandle,
+    SharedString, Window,
 };
 use gpui_component::popover::{Popover, PopoverState};
 use gpui_component::{v_flex, ThemeStyled as _};
@@ -201,6 +201,7 @@ impl RenderOnce for MenuButton {
         let on_select = self.on_select;
         let popover = Popover::new(SharedString::from(format!("{id}-popover")))
             .appearance(false)
+            .anchor(Anchor::TopRight)
             .open(open && !self.disabled)
             .track_focus(&list)
             .trigger(trigger)

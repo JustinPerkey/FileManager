@@ -70,6 +70,17 @@ allows creating".
 
 Debug selectors: `db-new`, `db-create`, `db-cancel-new`.
 
+**Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
+
+- **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`
+  column and cannot style it. So this task's root view is `size_full`, adds
+  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_6`
+  from `theme::tokens`), and handles its own scrolling (an
+  `overflow_y_scroll` region inside the root, not the root's parent).
+- **Confirmations.** If this view shows a confirmation, call `sync_confirm`
+  only from a model observer (`cx.observe(&model, …)`), never inside
+  `render`. Opening or closing a dialog during render re-enters the window.
+
 **Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
 harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
 names (`apps/filemanager/src/app/probe.rs`); GPUI's debug selectors cannot be
