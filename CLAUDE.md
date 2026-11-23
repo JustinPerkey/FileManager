@@ -157,6 +157,9 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
   src/app/                    shell.rs (Shell root view: current tool, drop routing,
                               notice, close request), drop.rs (DropTarget), guard.rs
                               (CloseRequest, unsaved work from the tools),
+                              dirs.rs (user_app_dirs, system_config_path: the only
+                              callers of the real folders; they panic in test and
+                              `shoot` builds),
                               dev_mode.rs (Ctrl+Alt+Shift+D global, keystroke interceptor), text.rs,
                               view/ (the chrome slot: ui-implementer's, placeholder.rs
                               is the plain stand-in)

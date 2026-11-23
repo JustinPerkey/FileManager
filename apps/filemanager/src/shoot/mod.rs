@@ -121,9 +121,8 @@ pub fn run_scenario(
     dark: bool,
 ) -> Result<PathBuf, Failure> {
     probe::reset();
-    let mut setup = AppSetup::real(false);
     // Fixtures and a scripted platform: no real dialogs, no real files.
-    setup.platform = Rc::new(crate::platform::fake::FakePlatform::new());
+    let mut setup = AppSetup::for_tests();
     (scenario.setup)(&mut setup);
     let result: Rc<RefCell<Option<Result<PathBuf, Failure>>>> = Rc::default();
     let result_in = result.clone();

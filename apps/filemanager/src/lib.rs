@@ -58,6 +58,20 @@ impl AppSetup {
     }
 }
 
+impl AppSetup {
+    /// Tests and the screenshot harness: fixture backends and a scripted
+    /// platform; nothing reaches the real folders or dialogs.
+    #[cfg(any(test, feature = "shoot"))]
+    #[must_use]
+    pub fn for_tests() -> Self {
+        Self {
+            platform: Rc::new(platform::fake::FakePlatform::new()),
+            backends: BackendSet::fixtures(),
+            self_check: false,
+        }
+    }
+}
+
 /// Opens the main window and runs until it closes. Returns the process exit
 /// code: non-zero if the window could not be opened. With `self_check` the app
 /// quits by itself shortly after the window has rendered its first frame.

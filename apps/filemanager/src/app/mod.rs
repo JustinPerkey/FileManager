@@ -2,6 +2,7 @@
 //! close guard, shared text.
 
 pub mod dev_mode;
+pub mod dirs;
 pub mod drop;
 pub mod guard;
 pub mod path;
