@@ -44,6 +44,9 @@ pub struct AppSetup {
     pub backends: BackendSet,
     /// Quit by itself after the first frame (`--self-check`).
     pub self_check: bool,
+    /// Hold every tool's background work until the test opens the gate.
+    #[cfg(any(test, feature = "shoot"))]
+    pub closed_worker_gate: bool,
 }
 
 impl AppSetup {
@@ -54,6 +57,8 @@ impl AppSetup {
             platform: Rc::new(platform::gpui::GpuiPlatform),
             backends: BackendSet::default(),
             self_check,
+            #[cfg(any(test, feature = "shoot"))]
+            closed_worker_gate: false,
         }
     }
 }
@@ -68,7 +73,18 @@ impl AppSetup {
             platform: Rc::new(platform::fake::FakePlatform::new()),
             backends: BackendSet::fixtures(),
             self_check: false,
+            closed_worker_gate: false,
         }
+    }
+
+    /// Installs a closed [`jobs::WorkerGate`] before the tools are built, so a
+    /// test can see the loading state; get the handle with
+    /// `jobs::WorkerGate::handle`.
+    #[cfg(any(test, feature = "shoot"))]
+    #[must_use]
+    pub fn with_closed_worker_gate(mut self) -> Self {
+        self.closed_worker_gate = true;
+        self
     }
 }
 
@@ -116,6 +132,10 @@ pub const MAIN_SIZE: (f32, f32) = (1000.0, 700.0);
 /// mode, the platform and backend choice, the path-loss feed, and the quit on
 /// last window closed.
 pub fn init_app(cx: &mut App, setup: AppSetup) {
+    #[cfg(any(test, feature = "shoot"))]
+    if setup.closed_worker_gate {
+        jobs::WorkerGate::install_closed(cx);
+    }
     gpui_component::init(cx);
     fonts::init(cx);
     DevMode::init(cx);

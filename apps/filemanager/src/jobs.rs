@@ -10,12 +10,143 @@
 //! The panic is caught with `AssertUnwindSafe`, so the owned `T` may be left
 //! half-mutated and later closures still run on it. A tool should decide
 //! whether to rebuild its backend after a [`JobPanicked`].
+//!
+//! # Observing the loading state in tests
+//!
+//! Under `TestAppContext` the background executor has already run a model's
+//! initial load by the first frame a test can see. In test and `shoot` builds
+//! a `WorkerGate` holds every [`Worker`] created after it is installed
+//! before each queued closure, with an async wait (nothing blocks). Install
+//! it before the tools are built (`AppSetup::for_tests().with_closed_worker_gate()`,
+//! or `WorkerGate::install_closed` before building a model), assert
+//! `loading()`, then call `open()` on the handle and `run_until_parked`.
+//! The gate is a per-app global, so parallel tests do not affect each other.
 
 use std::any::Any;
 use std::fmt;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+#[cfg(any(test, feature = "shoot"))]
+pub use gate::{WorkerGate, WorkerGateHandle};
 use gpui::{App, Task};
+
+#[cfg(any(test, feature = "shoot"))]
+mod gate {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::task::{Context, Poll, Waker};
+
+    use gpui::{App, Global};
+
+    #[derive(Default)]
+    struct State {
+        open: bool,
+        permits: usize,
+        wakers: Vec<Waker>,
+    }
+
+    #[derive(Default)]
+    pub(super) struct Shared(Mutex<State>);
+
+    impl Shared {
+        fn lock(&self) -> MutexGuard<'_, State> {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        }
+
+        fn change(&self, f: impl FnOnce(&mut State)) {
+            let wakers = {
+                let mut state = self.lock();
+                f(&mut state);
+                std::mem::take(&mut state.wakers)
+            };
+            for waker in wakers {
+                waker.wake();
+            }
+        }
+
+        /// Resolves when the gate is open or a permit is available (and takes it).
+        pub(super) fn pass(self: &Arc<Self>) -> Pass {
+            Pass(self.clone())
+        }
+    }
+
+    pub(super) struct Pass(Arc<Shared>);
+
+    impl Future for Pass {
+        type Output = ();
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            let mut state = self.0.lock();
+            if state.open {
+                return Poll::Ready(());
+            }
+            if state.permits > 0 {
+                state.permits -= 1;
+                return Poll::Ready(());
+            }
+            state.wakers.push(cx.waker().clone());
+            Poll::Pending
+        }
+    }
+
+    /// A per-app gate that holds [`super::Worker`] jobs until it is opened.
+    /// Test and `shoot` builds only.
+    pub struct WorkerGate {
+        shared: Arc<Shared>,
+    }
+
+    impl Global for WorkerGate {}
+
+    impl WorkerGate {
+        /// Installs a closed gate on this app: Workers created afterwards wait
+        /// before running each queued closure until the gate opens.
+        pub fn install_closed(cx: &mut App) -> WorkerGateHandle {
+            let shared = Arc::new(Shared::default());
+            cx.set_global(Self {
+                shared: shared.clone(),
+            });
+            WorkerGateHandle { shared }
+        }
+
+        /// A handle to the installed gate, if there is one.
+        #[must_use]
+        pub fn handle(cx: &App) -> Option<WorkerGateHandle> {
+            cx.try_global::<Self>().map(|g| WorkerGateHandle {
+                shared: g.shared.clone(),
+            })
+        }
+
+        pub(super) fn shared(cx: &App) -> Option<Arc<Shared>> {
+            cx.try_global::<Self>().map(|g| g.shared.clone())
+        }
+    }
+
+    /// Controls an installed [`WorkerGate`].
+    #[derive(Clone)]
+    pub struct WorkerGateHandle {
+        shared: Arc<Shared>,
+    }
+
+    impl WorkerGateHandle {
+        /// Lets every waiting and future job run.
+        pub fn open(&self) {
+            self.shared.change(|s| s.open = true);
+        }
+
+        /// Holds jobs again.
+        pub fn close(&self) {
+            self.shared.change(|s| s.open = false);
+        }
+
+        /// Lets exactly one queued job run (across all workers).
+        pub fn release_one(&self) {
+            self.shared.change(|s| s.permits += 1);
+        }
+    }
+}
 
 /// The work panicked or could not run. Carries the panic message.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,9 +182,15 @@ impl<T: Send + 'static> Worker<T> {
     #[must_use]
     pub fn new(value: T, cx: &App) -> Self {
         let (jobs, queue) = async_channel::unbounded::<Job<T>>();
+        #[cfg(any(test, feature = "shoot"))]
+        let gate = gate::WorkerGate::shared(cx);
         let task = cx.background_executor().spawn(async move {
             let mut value = value;
             while let Ok(job) = queue.recv().await {
+                #[cfg(any(test, feature = "shoot"))]
+                if let Some(gate) = &gate {
+                    gate.pass().await;
+                }
                 job(&mut value);
             }
         });
@@ -148,6 +285,65 @@ mod tests {
         }
         let all = cx.update(|cx| worker.run(|v| v.clone(), cx)).await;
         assert_eq!(all, Ok((0..100).collect::<Vec<_>>()));
+    }
+
+    type Log = std::sync::Arc<std::sync::Mutex<Vec<u32>>>;
+
+    fn gated_worker(cx: &mut TestAppContext) -> (Worker<()>, WorkerGateHandle, Log) {
+        cx.update(|cx| {
+            let handle = WorkerGate::install_closed(cx);
+            (Worker::new((), cx), handle, Log::default())
+        })
+    }
+
+    fn queue(cx: &mut TestAppContext, w: &Worker<()>, log: &Log, n: u32) {
+        let log = log.clone();
+        cx.update(|cx| {
+            w.run(move |()| log.lock().expect("log").push(n), cx)
+                .detach();
+        });
+    }
+
+    fn ran(cx: &mut TestAppContext, log: &Log) -> Vec<u32> {
+        cx.executor().run_until_parked();
+        log.lock().expect("log").clone()
+    }
+
+    #[gpui::test]
+    fn closed_gate_holds_jobs_without_blocking(cx: &mut TestAppContext) {
+        let (worker, handle, log) = gated_worker(cx);
+        queue(cx, &worker, &log, 1);
+        queue(cx, &worker, &log, 2);
+        assert_eq!(ran(cx, &log), Vec::<u32>::new());
+        assert_eq!(ran(cx, &log), Vec::<u32>::new());
+        handle.open();
+        assert_eq!(ran(cx, &log), [1, 2]);
+    }
+
+    #[gpui::test]
+    fn release_one_runs_exactly_one(cx: &mut TestAppContext) {
+        let (worker, handle, log) = gated_worker(cx);
+        queue(cx, &worker, &log, 1);
+        queue(cx, &worker, &log, 2);
+        assert_eq!(ran(cx, &log), Vec::<u32>::new());
+        handle.release_one();
+        assert_eq!(ran(cx, &log), [1]);
+        handle.release_one();
+        assert_eq!(ran(cx, &log), [1, 2]);
+    }
+
+    #[gpui::test]
+    fn open_gate_runs_queued_jobs_in_order(cx: &mut TestAppContext) {
+        let (worker, handle, log) = gated_worker(cx);
+        for i in 0..5 {
+            queue(cx, &worker, &log, i);
+        }
+        assert_eq!(ran(cx, &log), Vec::<u32>::new());
+        handle.open();
+        assert_eq!(ran(cx, &log), [0, 1, 2, 3, 4]);
+        handle.close();
+        queue(cx, &worker, &log, 9);
+        assert_eq!(ran(cx, &log).len(), 5);
     }
 
     #[gpui::test]

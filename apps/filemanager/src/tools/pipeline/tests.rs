@@ -263,6 +263,19 @@ fn clean_path_trims_and_unquotes() {
 // ---- loading ----
 
 #[gpui::test]
+fn loading_is_observable_with_closed_gate(cx: &mut TestAppContext) {
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, FixturePipeline::chosen());
+    cx.run_until_parked();
+    assert!(read(cx, &model, PipelineModel::loading));
+    cx.run_until_parked();
+    assert!(read(cx, &model, |m| m.loading() && m.session().is_none()));
+    handle.open();
+    cx.run_until_parked();
+    assert!(read(cx, &model, |m| !m.loading() && !m.load_failed()));
+}
+
+#[gpui::test]
 fn loads_session_on_start(cx: &mut TestAppContext) {
     let (model, _) = start(cx, FixturePipeline::chosen());
     assert!(read(cx, &model, |m| m.loading() && m.session().is_none()));
