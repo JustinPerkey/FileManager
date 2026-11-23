@@ -4,6 +4,8 @@ Status: awaiting approval (new 2026-11-16, split from the save milestone;
 revised the same day for `pickable` tables and the config hash on saves)
 Project: dbmanager   Depends on: M7 (landed)
 
+**Review follow-up (2026-11-23):** the first run landed as 61d34fa; the next run does only the section "Review follow-up" below.
+
 **Note (2026-11-21): the UI is moving to GPUI.** This domain milestone is
 unchanged, with one condition. If `apps/desktop/src-tauri/src/generated_types.rs`
 still exists when you start, derive `ts_rs::TS` and update `EXPORTERS` and
@@ -13,6 +15,71 @@ removed Tauri and ts-rs), skip every ts-rs step: no `ts_rs::TS` derive, no
 where this plan needs it for something other than the TypeScript boundary.
 Wherever this plan says the Tauri commands or the UI error type come later,
 read "the GPUI app's Database Manager model comes later".
+
+## Review follow-up (2026-11-23)
+
+The review of 61d34fa did not approve M8 yet. **The next run does only this
+section.** Read `crates/fm-dbmanager/src/session/{links.rs,save.rs}` and
+their tests first.
+
+### P1: a link conflict shows the save's own edits
+
+- `Ctx::conflict` (`session/links.rs`, around line 210) builds `current` by
+  re-reading the object inside the transaction **after** step 10's field
+  writes, so `current` contains this save's uncommitted edits. The
+  reviewer's probe: book 2 with `title = "Uncommitted"` plus an add of an
+  already existing contribution gave `current.label == "Uncommitted"` and a
+  version that was never stored.
+- **Fix:** keep step 8's `existing`, the object read before any write. Pass
+  it into `links::apply`, and build every link conflict's `current` from it.
+- **Test:** in the failing half of `links_and_fields_one_transaction`,
+  assert that the conflict's `current.label` and `current.version` equal
+  `s.object("book", rk(2))` read after the failed save.
+
+### P3s, in the same run
+
+- **(a)** `ctx_failed_maps_pairs_unit`: a unit test of `Ctx::failed` with
+  synthetic `SqliteFailure`s, like M7's `map_constraint_unit`:
+  - `UNIQUE constraint failed: j.b, j.a` (the pair) → `Conflict` for that
+    link;
+  - a unique violation on a single link field → `Validation` with a
+    `LinkError` on that field;
+  - `CHECK` → `Constraint`.
+- **(b)** Rename `read_only_side_refused` to say what it checks. Add a
+  comment that its `NotEditable` comes from M7's table-level permission
+  check. Add a one-line case for a pickable table as this side.
+- **(c)** Fix the leftover comment in the `unknown_relation` test.
+- **(d)** Add a comment where `full_row` reads a link: duplicate junction
+  pairs are unreachable under the pair-uniqueness rule, so versioning only
+  the first match is correct.
+- **(e) Decision: a create that meets an orphan junction row is a
+  `Constraint`.** The case: this side's referenced column is unique but not
+  the key, foreign keys are off, and a junction row already holds the new
+  object's referenced value with the same other-side key. The insert of the
+  link then fails on pair uniqueness. It is a data problem the user did not
+  cause and cannot see, not a link issue.
+  - Return `Constraint { message }`, where the message names the junction
+    table and says an existing link row already refers to this value (an
+    orphan row, since foreign keys were off), and that nothing was changed.
+  - Not `Conflict`, because there is no stored `current` on a create; and
+    not a `notAllowed` link issue.
+  - Test: `create_meets_orphan_junction_row_is_constraint` (temp database,
+    `PRAGMA foreign_keys = OFF` while seeding the orphan row).
+
+### Accepted implementer decisions (recorded)
+
+- The duplicate-other rule spans every `LinkChange` entry for the same
+  relation, not just one entry.
+- A links-only save still requires the object version: a mismatch is
+  `Conflict { link: None }`.
+- `NotEditable` and `UnknownRelation` return before collected issues.
+- A remove or update whose other-side object is gone is a `Conflict` for
+  that link.
+
+### Acceptance
+
+- The named tests pass. fmt, clippy pedantic and `cargo test --workspace`
+  pass. If ts-rs still exists, `generated_types_are_current` passes.
 
 ## Goal
 
@@ -173,9 +240,11 @@ The stored relation values are the referenced columns of each side's FK. Use
 the referenced columns, not the key: a FK may reference a unique column that
 is not the primary key.
 
-`current` in a link conflict is the object re-read inside the transaction
-before the rollback. On a create, where the object did not exist before, a
-link conflict cannot happen.
+`current` in a link conflict is **the object as read at step 8, before any
+write** (corrected 2026-11-23: a re-read after step 10's field writes would
+show the save's own uncommitted edits). On a create, where the object did not
+exist before, a link conflict is not possible as a `Conflict`; see the
+Review follow-up, item (e), for the orphan-row edge case.
 
 **Constraint mapping for junction writes:**
 
