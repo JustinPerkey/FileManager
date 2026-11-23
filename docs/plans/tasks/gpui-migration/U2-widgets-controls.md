@@ -1,7 +1,56 @@
 # U2 — Shared widgets, part 1: the controls
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21). **Review follow-up (2026-11-23):** the next run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: U1 (landed), M3a (landed)
+
+## Review follow-up (2026-11-23)
+
+From the review of the first U2 run (commit 1f54f38). Do only this; the rest
+of U2 has landed.
+
+### Busy button: colours (change)
+
+In `apps/filemanager/src/widgets/button.rs`, the `if self.busy` arm keeps the
+variant's colours today, so a busy primary still looks accent-filled and
+pressable, and the spinner is the only cue. Change it:
+
+- **Every variant except quiet** (secondary, primary, danger): fill
+  `surface_sunken`, text and spinner `text_muted`, border `border`, at
+  **opacity 1.0**. These are the disabled colours without the fade.
+  `text_muted` on `surface_sunken` is 5.46:1 light and 7.78:1 dark.
+- **Quiet:** transparent fill, no border, text and spinner `text_muted`, at
+  opacity 1.0.
+- **Keep the spinner** before the label, in the text colour above, at the
+  current size. Full opacity plus the spinner is what tells busy apart from
+  disabled (0.55 or 0.45, no spinner). Colour alone or the icon alone is not
+  enough.
+- **Keep the rest of the arm:** focusable (Tab reaches it, and the focus ring
+  shows), inert (click, Enter and Space do nothing), no hover or active
+  response, label unchanged unless the caller passes a different one.
+- Put the variant/disabled/busy choice of `(fill, text, border, opacity)` in
+  a pure function, so the colours can be tested without a window.
+
+Tests:
+
+- `busy_button_colours`: table-driven over the four variants, each in busy
+  and in disabled. Busy gives the colours above at 1.0. Disabled is
+  unchanged (0.55, or 0.45 for quiet).
+- `busy_button_is_inert_and_keeps_label`: also assert that the button keeps
+  focus when it becomes busy while focused, and that Enter and Space do not
+  fire `on_click`.
+
+### Notes for the widgets (doc comments, no behaviour change)
+
+- **`select()`** (`widgets/select.rs`): in the doc comment, say that the
+  `label` argument is only the placeholder and the tooltip. A keyboard user
+  never sees the tooltip, so every caller must render a visible label beside
+  the select (as the view tasks do for form rows).
+- **`FmInput::disabled`** (`widgets/input.rs`): in the doc comment, say that
+  gpui-component may apply its own disabled styling on top of our opacity
+  0.6, so the input could fade twice. Leave it as it is for now. The first
+  scenario screenshot that shows a disabled input (a later view task) checks
+  this. If it fades twice, drop our 0.6 and keep gpui-component's styling,
+  provided its text still meets 4.5:1.
 
 ## Goal
 
@@ -72,8 +121,8 @@ colour `text`.
   tooltip)` (no visible label: the tooltip is mandatory, the type requires
   it); `.disabled(b)` (`text_muted` on `surface_sunken`, `border`, opacity
   0.55; a disabled quiet button stays transparent at 0.45); `.busy(b)`
-  (inert, full opacity, label unchanged, gpui-component's loading
-  indicator); `.shortcut("Ctrl+O")` (tooltip "Shortcut: Ctrl+O", appended
+  (the disabled colours at full opacity, gpui-component's spinner before
+  the label, label unchanged, focusable but inert: see "Review follow-up"); `.shortcut("Ctrl+O")` (tooltip "Shortcut: Ctrl+O", appended
   to any tooltip); `.tooltip(text)`; `.on_click(..)`; `.debug_selector(..)`; and works with
   `.tag(..)` called last (the harness's probe).
 - **`input.rs`**: `text_input(&Entity<InputState>) -> FmInput`: `surface`
