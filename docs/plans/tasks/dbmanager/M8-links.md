@@ -258,8 +258,17 @@ detected many-to-many with no link fields.
 
 **Backup, identifiers and tooling**
 
-- The backup is taken before a save that only changes links, if it is the
-  session's first write.
+- The backup is taken for a save that only changes links, if it is the
+  session's first write. It follows M7's order as built: the backup is
+  taken **before** `BEGIN IMMEDIATE`, and the `data_version` race guard
+  applies (after `BEGIN`, a changed `data_version` means roll back, drop
+  the backup and retry, at most 3 times, then `Busy`). Reuse M7's helper;
+  do not write a second backup path.
+  `backup_created` is reported on the first **successful** write after the
+  backup (M7's announced flag), so a failed first save does not lose it.
+  Test: `link_only_first_save_fails_then_announces_backup`.
+- `SessionError::{NotEditable, BackupFailed, Constraint}` are struct variants
+  since M7's follow-up (`{ reason }`, `{ detail }`, `{ message }`).
 - Awkward identifiers (`a"b`, `select`, `with space`, `ünï`) on the junction
   and its link fields work.
 - Generated types are current. fmt, clippy pedantic and

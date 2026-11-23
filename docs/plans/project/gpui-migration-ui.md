@@ -127,7 +127,8 @@ second call). The spike's mapping, kept slot for slot:
 | `muted_foreground`, `table_head_foreground`, `scrollbar_thumb_hover` | `text_muted` |
 | `popover`, `button`, `secondary`, `sidebar_accent`, `colors.list`, `list_even`, `table`, `table_even`, `table_head` | `surface` |
 | `list_head` | `bg` |
-| `primary`, `button_primary`, `sidebar_primary`, `selection`, `link`, `info`, `ring`, `progress_bar`, `drag_border`, `list_active_border`, `table_active_border` | `accent` (`ring` = `focus_ring`, equal values) |
+| `primary`, `button_primary`, `sidebar_primary`, `link`, `info`, `ring`, `progress_bar`, `drag_border`, `list_active_border`, `table_active_border` | `accent` (`ring` = `focus_ring`, equal values) |
+| `selection` | `accent` at **alpha 0.3** (planner correction after the U1 review, 2026-11-22; confirmed by the ui-designer, 2026-11-23). Selected text keeps `text` (A10), and on full `accent` that is 2.61:1 light and 2.05:1 dark. At 0.3 over `surface` it is 10.55:1 and 7.61:1. gpui-component applies the same 0.3 cap itself, but only when it loads a theme config, which we bypass by writing slots directly. Today's CSS used `accent` with `accent_text` text, which GPUI cannot set |
 | `primary_hover/active`, `button_primary_hover/active`, `link_hover/active` | accent mixed 88% with text |
 | `primary_foreground`, `button_primary_foreground`, `sidebar_primary_foreground`, `info_foreground`, `success_foreground`, `warning_foreground`, `danger_foreground`, `button_danger_foreground` | `accent_text` |
 | `danger`, `button_danger` | `danger`; hover/active: danger mixed 88% with text |
@@ -196,20 +197,20 @@ M4).
 
 | Widget | File | Over | API (sketch) | States | Replaces |
 |---|---|---|---|---|---|
-| Text styles | `text.rs` | `div` | `h1`, `h2` (lg 600), `body`, `muted`, `small` (sm), `small_muted`, `mono`, `mono_small_muted`, `intro` (max 546 px) | — | `.tool-view h1`, `*__intro`, `.mono`, `.num` |
+| Text styles | `text.rs` | `div` | `h1`, `h2` (lg 600), `body`, `muted`, `small` (sm), `small_muted`, `mono`, `mono_small_muted`, `intro` (max 546 px); each returns a `Typo` element (as built, U2) | — | `.tool-view h1`, `*__intro`, `.mono`, `.num` |
 | Icon | `icon.rs` | gpui-component `Icon` + our SVGs | `icon(IconName)` at 1em of the surrounding size, `currentColor` | — | `app/icons.tsx` |
-| Button | `button.rs` | gpui-component `Button` | `button(id, label)`, `.primary()`, `.quiet()`, `.danger()`, `.icon(IconName)`, `.icon_only(IconName, tooltip)`, `.disabled(b)`, `.busy(b)`, `.shortcut(hint)` (tooltip "Shortcut: …"), `.on_click` | default (secondary), hover, active, focus, disabled, busy, primary, quiet, danger | `app/Button.tsx` |
-| Text input | `input.rs` | `Input` + `InputState` | `text_input(&state)`, `.mono()`, `.invalid(b)`, `.read_only(b)`, `.disabled(b)`, `.multiline(rows)` | default, focus, invalid, read-only (selectable), disabled, placeholder | `.pipeline__input`, `.schedule__input`, `.input` |
+| Button | `button.rs` | gpui-component `Button` | `button(id, label)`, `.primary()`, `.quiet()`, `.danger()`, `.icon(IconName)`, `.icon_flip()` (mirrors the icon), `.icon_only(IconName, tooltip)`, `.disabled(b)`, `.busy(b)` (gpui-component `Spinner`, not `.loading()`), `.shortcut(hint)` (tooltip "Shortcut: …"), `.on_click` | default (secondary), hover, active, focus, disabled, busy (the disabled colours at full opacity, plus a spinner; focusable, inert: U2 review, 2026-11-23), primary, quiet, danger | `app/Button.tsx` |
+| Text input | `input.rs` | `Input` + `InputState` | `text_input(&state)`, `.mono()`, `.invalid(b)`, `.read_only(b)`, `.disabled(b)`; multiline is a separate `text_area(&Entity<TextareaState>)`, because gpui-component 0.10 has no multiline `InputState` (as built, U2) | default, focus, invalid, read-only (selectable), disabled, placeholder | `.pipeline__input`, `.schedule__input`, `.input` |
 | Checkbox | `checkbox.rs` | `Checkbox` | `checkbox(id, label, CheckState)`; `CheckState::{Unchecked, Checked, NotSet}` with `next()`; "Not set" word beside | ticked, clear, not set, disabled, read-only | `.checkbox` |
-| Select | `select.rs` | gpui-component `Select` | `select(id, label, options, selected)` | closed, open, disabled | `FormatPicker`, allowed-values `<select>` |
+| Select | `select.rs` | gpui-component `Select` | `select(id, label, options, selected)`; values are `SharedString` ids, the open/closed state is kept per id, `.on_pick(..)`, `.width(..)` (as built, U2) | closed, open, disabled | `FormatPicker`, allowed-values `<select>` |
 | Tag | `tag.rs` | `div` | `tag(label, Option<IconName>)` | — | dbmanager tags |
-| Banner | `banner.rs` | `div` | `Banner::new(Tone, message)`, `.action(button)`, `.dismiss(handler)`, `.details(text)`; `Tone::{Info, Warn, Error}` | info, warn, error, with details open/closed | `app/Banner.tsx` |
-| Disclosure | `disclosure.rs` | `div` + `Button` | `Disclosure::new(id, summary).open(b).on_toggle(..)` | open, closed | `<details>` |
+| Banner | `banner.rs` | `div` | `Banner::new(Tone, message)`, `.id(..)`, `.action(button)`, `.dismiss(handler)`, `.details(text)`; `Tone::{Info, Warn, Error}` | info, warn, error, with details open/closed | `app/Banner.tsx` |
+| Disclosure | `disclosure.rs` | `div` + `Button` | `Disclosure::new(id, summary).open(b).on_toggle(..)`, `.debug_selector(..)` | open, closed | `<details>` |
 | Status | `status.rs` | `div` | `status(StatusTone, IconName, word)`; tones Ok, Warn, Danger, Muted | — | `.pipeline__status--*`, `EntryStatus` |
 | Step number | `step_number.rs` | `div` | `step_number(n)` | — | `.pipeline__step-number`, `.schedule__step-number` |
 | Skeleton | `skeleton.rs` | `div` | `skeleton_bar(fraction, wide)` | — | `.skeleton__bar` |
-| Middle path | `middle_path.rs` | custom element | `MiddlePath::new(display)`; pure `middle_truncate(text, max_chars)` keeping the drive and the whole file name; mono advance from the text system; full path as tooltip | fits, truncated | `MiddlePath.tsx`, `pathParts.ts` |
-| Key cap | `kbd.rs` | `div` | `kbd(key)`, `chord(&[keys])` | — | `<kbd>` |
+| Middle path | `middle_path.rs` | custom element | `MiddlePath::new(display)`; pure `middle_truncate(text, max_chars)`: the result is exactly `max` characters when truncated, at least 3 head characters, the separator stays with the name, and the whole name is kept while it fits (as built, U2); mono advance from the text system; full path as tooltip | fits, truncated | `MiddlePath.tsx`, `pathParts.ts` |
+| Key cap | `kbd.rs` | `div` | `kbd(key)`, `chord(&[&str])` | — | `<kbd>` |
 | Confirm dialog | `dialog.rs` | `window.open_dialog` | `ConfirmSpec { title, body, extra, cancel_label, confirm: Option<ConfirmButton{label, Danger/Primary, icon}>, busy, wide }`; `sync_confirm(window, cx, Option<ConfirmSpec>, on_confirm, on_cancel)` opens/updates/closes from model state | open, busy (Escape and Cancel inert), single-button, wide, closed | `app/ConfirmDialog.tsx` (+ planned extension) |
 | Menu button | `menu_button.rs` | `Button::dropdown_menu` | `MenuButton::new(id, label).items(Vec<MenuItem{label, detail, tooltip, disabled}>).on_select(..)` | closed, open, empty (not rendered), item disabled | Recent menu, planned `MenuButton` |
 | Shortcuts help | `shortcuts_help.rs` | `Popover` | `ShortcutsHelp::new(id, rows).on_open_change(..)`; `ShortcutRow { keys: Vec<Vec<&str>>, action, when }` | closed, open | `ShortcutsHelp.tsx` |
@@ -382,7 +383,7 @@ reference for its tool's view and scenario tasks.
 | A7 | Plain text is not selectable. Values the user copies have Copy buttons (report, SHA-256, extraction command, paths in the build result); read-only form values are read-only inputs, which are selectable | risk 6 |
 | A8 | `tabular-nums`: applied through GPUI font features (`tnum`) where the pinned GPUI exposes them on text; otherwise proportional digits | risk 6 |
 | A9 | The focus ring is gpui-component's, in `focus_ring`; its thickness and offset may differ from 2 px / 2 px | gap 9 |
-| A10 | The selection's text colour is not set (only its fill) | gap 9 |
+| A10 | The selection's text colour is not set (only its fill), so the fill is `accent` at alpha 0.3 to keep `text` readable (2026-11-22) | gap 9 |
 | A11 | The drop border is dashed if the pinned GPUI has a dashed border style; otherwise a solid 2 px accent line | risk 6 |
 | A12 | gpui-component's dialog close icon ("Close") is hidden where the API allows it; otherwise it stays, labelled | B8 |
 | A13 | Motion: no fade-in on the drop overlay and no progress-fill transition (they were 120 ms) | — |

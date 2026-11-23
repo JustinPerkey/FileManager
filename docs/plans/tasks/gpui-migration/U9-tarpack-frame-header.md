@@ -43,7 +43,7 @@ impl TarpackModel {
     pub fn create_from_example(&mut self, cx);
     pub fn drop_state(&self) -> Option<&DropState>;  pub fn dismiss_drop_result(&mut self, cx);  pub fn drop_pending_shown(&self) -> bool;
     pub fn announcement(&self) -> Option<&str>;        // not rendered
-    pub fn focus_hint(&self) -> Option<FocusHint>;     // Report | Reload | AfterResult
+    pub fn take_focus_hint(&mut self) -> Option<FocusHint>; // Report | Reload | AfterResult; cleared on read
 }
 ```
 
@@ -56,8 +56,7 @@ errors", diagnostics wording, the drop result's lines (`buildLines`
 equivalent, with tones), its "paths" disclosure, error messages. Drop
 itself is the Shell's (overlay from the model's drop target).
 
-**Focus hints**: `take_focus_hint()` if present (request R5), else act on a
-changed `focus_hint()` and report the gap. `Report` → the errors region's
+**Focus hints**: `take_focus_hint()` (consumable; built in M7a). `Report` → the errors region's
 report; `Reload` → the Reload button; `AfterResult` → the first tabbable
 element after the drop result (the build bar), as today, not the header. Announcements are not rendered.
 

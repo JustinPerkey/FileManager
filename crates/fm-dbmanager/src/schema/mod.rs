@@ -168,14 +168,7 @@ fn read_table(
             .prepare("SELECT 1 FROM pragma_index_list(?1, 'main') WHERE origin = 'pk'")?
             .exists([&e.name])?;
         let alias_column = match primary_key.as_slice() {
-            [i] if !pk_index
-                && columns[*i]
-                    .declared_type
-                    .trim()
-                    .eq_ignore_ascii_case("INTEGER") =>
-            {
-                Some(*i)
-            }
+            [i] if !pk_index && columns[*i].declared_integer() => Some(*i),
             _ => None,
         };
         let accessor = if let Some(i) = alias_column {

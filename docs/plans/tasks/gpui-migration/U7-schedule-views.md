@@ -40,7 +40,7 @@ impl ScheduleModel {
     pub fn dismiss_result(&mut self, cx);                 // the result banner's dismiss
     pub fn already_applied(&self) -> bool;               // duplicate warning, in the confirmation body
     pub fn announcement(&self) -> Option<&str>;          // not rendered
-    pub fn focus_hint(&self) -> Option<FocusHint>;       // Outcome | AddButton
+    pub fn take_focus_hint(&mut self) -> Option<FocusHint>; // Outcome | AddButton; cleared on read
 }
 ```
 
@@ -52,8 +52,7 @@ step labels and placeholders, browse labels, "Add to XML…"/"Adding…", the
 apply reasons, the result sentence and backup line, the duplicate warning,
 the confirmation title, body and "Update", "Try again", error messages.
 
-**Focus hints**: use `take_focus_hint()` if the model has it (request R5);
-else act on `focus_hint()` only when it changes, and report the gap.
+**Focus hints**: `take_focus_hint()` (consumable; built in M6).
 Announcements are not rendered.
 
 ### Widgets and tokens

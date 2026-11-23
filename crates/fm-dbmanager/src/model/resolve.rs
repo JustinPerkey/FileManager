@@ -461,6 +461,42 @@ pub fn resolve(schema: &Schema, report: &ConfigReport) -> Model {
                 ));
             }
         }
+        if can_create {
+            let blocked = table
+                .required_key_columns()
+                .into_iter()
+                .find(|&c| !matches!(fields[c].mode, FieldMode::Editable | FieldMode::CreateOnly));
+            if let Some(c) = blocked {
+                can_create = false;
+                let name = fields[c].name.as_str();
+                let why = if table.columns[c].generated {
+                    "generated"
+                } else if fields[c].mode == FieldMode::Hidden {
+                    "hidden"
+                } else {
+                    "read-only"
+                };
+                let at = tcfg
+                    .and_then(|t| {
+                        t.fields.iter().find_map(|e| match e {
+                            FieldEntry::Valid(f) if f.name == name => Some(f.at),
+                            FieldEntry::Rejected { name: n, at, .. } if n == name => Some(*at),
+                            _ => None,
+                        })
+                    })
+                    .or_else(|| tcfg.map(|t| t.at));
+                diags.push(diag(
+                    DiagnosticSeverity::Warning,
+                    format!(
+                        "table `{}`: creating objects is off: primary key column `{name}` is {why}; make it editable or create-only to allow creating",
+                        table.name
+                    ),
+                    at,
+                    Some(table.name.as_str()),
+                    Some(name),
+                ));
+            }
+        }
         let can_delete = editable
             && tcfg
                 .and_then(|c| c.allow_delete.as_ref())

@@ -84,6 +84,11 @@ Up/Down move focus to the previous/next nav item and wrap, Home/End jump
 the focused tool (`Shell::select`). Ctrl+Alt+Shift+D is the Shell's own
 binding (developer mode); do not rebind it.
 
+**Theme init (after the U1 review, 2026-11-22).** `chrome()` calls
+`theme::init` exactly once per window. U1 makes a second call a no-op, but
+do not rely on that: call it where the window's chrome is built, not in
+`render`.
+
 **Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
 harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
 names (`apps/filemanager/src/app/probe.rs`); GPUI's debug selectors cannot be

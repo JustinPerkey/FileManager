@@ -72,8 +72,10 @@ crates/
                               `state.rs` is the recent list, persisted as dbmanager/state;
                               `config/load.rs` reads the one config file (LoadedConfig);
                               `src/session/` is Session: reads (list, object, m2m_options),
-                              schema/config change detection; `session/sql.rs` is the only
-                              module that assembles SQL text
+                              schema/config change detection, and save (`save.rs`: checks,
+                              reference resolution, one BEGIN IMMEDIATE transaction;
+                              `backup.rs`: the one backup before a session's first write);
+                              `session/sql.rs` is the only module that assembles SQL text
     src/value.rs              DbValue (boundary value; integers, reals, durations as strings)
     src/rules/                FieldRule/FieldKind/FieldIssue types, pure validate, and
                               duration.rs (the duration grammar, parse, format; config

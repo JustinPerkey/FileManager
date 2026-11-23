@@ -138,3 +138,45 @@ pub struct M2mPage {
     pub linked_total: u64,
     pub offset: u32,
 }
+
+/// One save: the changed fields of one object, or a new object's fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveRequest {
+    pub table: String,
+    /// `None` creates an object.
+    pub key: Option<ObjectKey>,
+    /// Required when `key` is `Some`; a missing one never matches.
+    pub version: Option<String>,
+    /// The config hash the client's draft was checked against
+    /// (`LoadedConfig::hash`). A save prepared under old rules is refused.
+    pub config_hash: String,
+    pub changes: Vec<FieldChange>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldChange {
+    pub column: String,
+    pub input: FieldInput,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum FieldInput {
+    /// A plain field: a bool is the integer `"0"` or `"1"`, a duration is
+    /// `{"type":"duration","value":"1h30m"}`.
+    Value { value: DbValue },
+    /// A foreign-key field: the picked object, or `None` for NULL.
+    Reference { key: Option<ObjectKey> },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveResult {
+    /// The object as stored after the save (triggers may have changed it).
+    pub object: ObjectView,
+    /// Display path of the backup this save created; `None` when an earlier
+    /// write of the session already made one.
+    pub backup_created: Option<String>,
+}

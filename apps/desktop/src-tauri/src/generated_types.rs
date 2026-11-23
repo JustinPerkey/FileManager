@@ -58,6 +58,8 @@ const EXPORTERS: &[Exporter] = &[
     <fm_dbmanager::session::M2mQuery as ts_rs::TS>::export_all,
     <fm_dbmanager::session::M2mPage as ts_rs::TS>::export_all,
     <fm_dbmanager::config::ConfigStatus as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::SaveRequest as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::SaveResult as ts_rs::TS>::export_all,
 ];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");

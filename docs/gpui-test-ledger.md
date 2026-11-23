@@ -36,27 +36,27 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| %s tone has the right live role and hidden word | U |  | open |
-| action and dismiss | U |  | open |
-| renders children | U |  | open |
+| %s tone has the right live role and hidden word | U | dropped: the tone word and live role are for a screen reader (out of scope); the tone is the icon and the outline colour, drawn in `widgets::tests::gallery_draws_and_every_control_is_a_tab_stop` | dropped |
+| action and dismiss | U | `widgets::tests::banner_dismiss_and_action` (click and Enter on each) | done |
+| renders children | U | `widgets::tests::banner_details_toggle` (the message and the details content render; a GPUI banner takes a message and `.details(..)`, not children) | done |
 
 ## `app/Button.test.tsx` (4)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| variants | U |  | open |
-| forwards ref and disabled | U |  | open |
-| busy sets aria-busy and disables | U |  | open |
-| icon renders aria-hidden and no axe violations | U |  | open |
+| variants | U | `widgets::tests::gallery_draws_and_every_control_is_a_tab_stop` draws all four; the fills and outlines are checked on the Windows screenshots | done |
+| forwards ref and disabled | U | disabled half: `widgets::tests::disabled_button_ignores_activation`; ref forwarding dropped: DOM | done |
+| busy sets aria-busy and disables | U | `widgets::tests::busy_button_is_inert_and_keeps_label` (aria-busy dropped: screen reader) | done |
+| icon renders aria-hidden and no axe violations | U | dropped: aria-hidden and axe are DOM and screen reader checks; `widgets::tests::icon_only_button_has_tooltip` covers the labelling | dropped |
 
 ## `app/ConfirmDialog.test.tsx` (4)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| focus starts on Cancel, Escape cancels, focus returns | U |  | open |
-| Replace confirms | U |  | open |
-| no axe violations when open | U |  | open |
-| aria-labelledby and aria-describedby resolve to the title and body, with unique ids | U |  | open |
+| focus starts on Cancel, Escape cancels, focus returns | U | `widgets::tests::confirm_focus_starts_on_cancel_and_escape_cancels`, `widgets::tests::keyboard_opened_dialog_returns_focus_to_opener` | done |
+| Replace confirms | U | `widgets::tests::confirm_button_confirms` | done |
+| no axe violations when open | U | dropped: axe is a DOM check; the dialog's labels are covered by `widgets::tests::confirm_button_confirms` (named buttons) | dropped |
+| aria-labelledby and aria-describedby resolve to the title and body, with unique ids | U | dropped: DOM and ARIA attributes; GPUI has no ids to resolve | dropped |
 
 ## `app/DropZone.test.tsx` (6)
 
@@ -132,12 +132,12 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| dark hooks define identical values | U |  | open |
-| ${name}: %s on %s meets 4.5:1 | U |  | open |
-| %s defines the overlay shadow | U |  | open |
-| %s defines --scrim | U |  | open |
-| type-size tokens exist on :root | U |  | open |
-| every tarpack.css selector is scoped under .tarpack, and only the overlays have a shadow | U |  | open |
+| dark hooks define identical values | U | `theme::tests::tokens_match_tokens_css` (both dark blocks of tokens.css, the media query and `[data-theme=dark]`, equal each other and `DARK`) | done |
+| ${name}: %s on %s meets 4.5:1 | U | `theme::tests::contrast_pairs_meet_4_5` | done |
+| %s defines the overlay shadow | U | `theme::tests::tokens_match_tokens_css` (shadow alpha, both themes) | done |
+| %s defines --scrim | U | `theme::tests::tokens_match_tokens_css` (scrim alpha, both themes) | done |
+| type-size tokens exist on :root | U | `theme::tests::tokens_match_tokens_css` (type sizes, spacing, radius, fonts) | done |
+| every tarpack.css selector is scoped under .tarpack, and only the overlays have a shadow | - | CSS structure, no CSS in the GPUI app | dropped |
 
 ## `tools/pipeline/PipelineView.test.tsx` (19)
 
@@ -355,8 +355,8 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| line is aria-hidden; full path is the accessible text and the title | U |  | open |
-| head plus tail equal the path when the name is under the cap | U |  | open |
+| line is aria-hidden; full path is the accessible text and the title | U | `widgets::tests::middle_path_tooltip_is_full_path` (the tooltip is the full path; aria-hidden dropped: screen reader) | done |
+| head plus tail equal the path when the name is under the cap | U | `widgets::middle_path::tests::middle_truncate_cases` (text that fits comes back whole; the name is kept whole) | done |
 
 ## `tools/tarpack/ShortcutsHelp.test.tsx` (3)
 
@@ -491,20 +491,20 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| splits at the last separator | U |  | open |
-| drive-root file | U |  | open |
-| UNC prefix stays in head | U |  | open |
-| UNC server and share names may hold astral or non-ASCII characters | U |  | open |
-| no separator: head empty, tail whole | U |  | open |
-| 200-character path keeps drive in head and name in tail | U |  | open |
-| name of exactly 32 code points is kept, 33 is capped | U |  | open |
-| an astral character at the cap is not split | U |  | open |
-| U+FFFD is preserved | U |  | open |
+| splits at the last separator | U | `widgets::middle_path::tests::middle_truncate_cases` (the separator and name are kept: `\gateway.exe`) | done |
+| drive-root file | U | `widgets::middle_path::tests::middle_truncate_cases` (a short drive-root path is unchanged; the drive is kept when cut) | done |
+| UNC prefix stays in head | U | `widgets::middle_path::tests::middle_truncate_cases` (UNC case) | done |
+| UNC server and share names may hold astral or non-ASCII characters | U | dropped: there is no prefix parse any more (the start is plain text cut by `char`); the astral case of `middle_truncate_cases` covers the characters | dropped |
+| no separator: head empty, tail whole | U | `widgets::middle_path::tests::middle_truncate_cases` (no separator: an even split) | done |
+| 200-character path keeps drive in head and name in tail | U | `widgets::middle_path::tests::middle_truncate_cases` | done |
+| name of exactly 32 code points is kept, 33 is capped | U | dropped: the fixed 32-code-point name cap is replaced by the room rule (the name is kept while the head and the ellipsis still fit, else an even split); `middle_truncate_cases` covers a too-long name | dropped |
+| an astral character at the cap is not split | U | `widgets::middle_path::tests::middle_truncate_cases` (astral case: cuts fall between `char`s) | done |
+| U+FFFD is preserved | U | `widgets::middle_path::tests::middle_truncate_cases` (U+FFFD case) | done |
 | assignedFolder: drive root keeps its separator | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows paths run in the Windows job; the Unix job runs the `/` root) | done |
 | assignedFolder: nested, forward-slash and UNC paths | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows job) | done |
 | assignedFolder: undefined without a separator or with U+FFFD | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (no parent: no start folder), `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode` (the stored path has nothing to refuse: a lossy display name still starts in its exact folder). `C:a.txt` is not ported: `Path::parent` gives `C:` and the dialog accepts it | done |
-| fileName is what follows the last separator | U |  | open |
-| displayFolder shows a lossy folder as is; assignedFolder refuses it | U | `displayFolder` half: the view renders it (U). The `assignedFolder` half is `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode`: it no longer refuses, it uses the stored `PathBuf` | open |
+| fileName is what follows the last separator | U10 | (the entry table renders each row's file name; U10 ports this case as a view-helper test) | open |
+| displayFolder shows a lossy folder as is; assignedFolder refuses it | U10 | `displayFolder` half: U10 renders the row's folder and ports this case. The `assignedFolder` half is `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode`: it no longer refuses, it uses the stored `PathBuf` | open |
 
 ## `tools/tarpack/reportText.test.ts` (4)
 

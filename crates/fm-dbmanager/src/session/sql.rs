@@ -154,3 +154,63 @@ impl<'a> Select<'a> {
         Query { sql, params }
     }
 }
+
+/// `UPDATE <table> SET <col> = ?, ... WHERE <col> = ? AND ...`; the set
+/// values come first in the parameters.
+pub(super) fn update(
+    table: &Ident,
+    sets: Vec<(&Ident, Value)>,
+    wheres: Vec<(&Ident, Value)>,
+) -> Query {
+    let mut params = Vec::new();
+    let mut assigns = Vec::new();
+    for (c, v) in sets {
+        assigns.push(format!("{} = ?", c.quoted()));
+        params.push(v);
+    }
+    let mut conds = Vec::new();
+    for (c, v) in wheres {
+        conds.push(format!("{} = ?", c.quoted()));
+        params.push(v);
+    }
+    Query {
+        sql: format!(
+            "UPDATE {} SET {} WHERE {}",
+            table.quoted(),
+            assigns.join(", "),
+            conds.join(" AND ")
+        ),
+        params,
+    }
+}
+
+/// `INSERT INTO <table> (<cols>) VALUES (?, ...)`, or `DEFAULT VALUES`.
+pub(super) fn insert(table: &Ident, values: Vec<(&Ident, Value)>) -> Query {
+    if values.is_empty() {
+        return Query {
+            sql: format!("INSERT INTO {} DEFAULT VALUES", table.quoted()),
+            params: Vec::new(),
+        };
+    }
+    let cols: Vec<String> = values.iter().map(|(c, _)| c.quoted()).collect();
+    let marks = vec!["?"; values.len()].join(", ");
+    Query {
+        sql: format!(
+            "INSERT INTO {} ({}) VALUES ({marks})",
+            table.quoted(),
+            cols.join(", ")
+        ),
+        params: values.into_iter().map(|(_, v)| v).collect(),
+    }
+}
+
+/// `PRAGMA schema_version`: changes whenever the schema does.
+pub(super) fn schema_version(conn: &rusqlite::Connection) -> rusqlite::Result<i64> {
+    conn.query_row("PRAGMA schema_version", [], |r| r.get(0))
+}
+
+/// `PRAGMA data_version`: changes, on this connection, whenever another
+/// connection commits to the database.
+pub(super) fn data_version(conn: &rusqlite::Connection) -> rusqlite::Result<i64> {
+    conn.query_row("PRAGMA data_version", [], |r| r.get(0))
+}

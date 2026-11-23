@@ -616,6 +616,7 @@ for hidden). The database always opens and can be browsed.
 | `table_mode = "pickable"` in `[defaults]` | error | `[defaults]` invalid (all defaults read-only) |
 | `mode = "pickable"` on a junction used as many-to-many | warning | treated as not listed |
 | a `NOT NULL` column that is neither `editable` nor `create-only`, has no default and is not a rowid alias, while create is on | error if `allow_create` was explicit, warning if inherited | create disabled |
+| the primary key a create must supply (every column of a `WITHOUT ROWID` table's key, even with a default; a rowid table's declared non-alias key column without a default) has a column that is hidden, read-only or generated, while create is on | warning, at the column's entry, else the table's | create disabled |
 | a junction `NOT NULL` column without default that no editable/create-only link field supplies, while the relation is editable | error if the relation `mode` was explicit, warning if inherited | relation read-only |
 | label/order_by/field_order names an unknown or hidden column | error | that key ignored, default used |
 | FK to a missing table/column | warning | plain field |

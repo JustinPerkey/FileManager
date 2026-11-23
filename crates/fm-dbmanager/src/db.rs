@@ -8,7 +8,7 @@ use std::time::Duration;
 
 const READ_ONLY_FILE: &str = "the file is read-only";
 const READ_ONLY_FOLDER: &str = "the folder is read-only, so changes cannot be saved";
-const BUSY_TIMEOUT: Duration = Duration::from_secs(3);
+pub(crate) const BUSY_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Why a database could not be opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +144,13 @@ impl Database {
     #[must_use]
     pub fn read_only_reason(&self) -> Option<&str> {
         self.read_only_reason.as_deref()
+    }
+
+    /// Tests: behaves as if the file could only be opened read-only (a
+    /// permission change does not bind when the tests run as root).
+    #[cfg(test)]
+    pub(crate) fn force_read_only(&mut self, reason: &str) {
+        self.read_only_reason = Some(reason.to_owned());
     }
 
     /// The connection.

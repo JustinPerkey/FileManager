@@ -151,10 +151,15 @@ Breadth-first over rows, starting from the object:
    `self.config().hash()` or `config_changed()` is true; `UnknownTable`;
    `NotEditable` (unless `can_delete`; a `pickable` table never can) — checked
    first, nothing written.
-2. Backup if this is the session's first write (`BackupFailed` → stop).
-3. `BEGIN IMMEDIATE`; `schema_version` check (`SchemaChanged`); re-read the
-   row (`UnknownObject` if gone); version differs → `Conflict { current,
-   link: None }`.
+2. Backup if this is the session's first write, **before** `BEGIN`, with
+   M7's `data_version` race guard (reuse M7's helper; `BackupFailed` or
+   `Busy` → stop, nothing written).
+3. `BEGIN IMMEDIATE`; the race guard's `data_version` check; `schema_version`
+   check (`SchemaChanged`); re-read the row (`UnknownObject` if gone);
+   version differs → `Conflict { current, link: None }`.
+   `backup_created` is reported on the first successful write after the
+   backup, M7's announced flag; a failed first delete does not lose it.
+   Test: `failed_first_delete_then_success_announces_backup`.
 4. Recompute the impact inside the transaction. Token differs →
    `ImpactChanged(fresh)`. `blocked` → `DeleteBlocked(impact)`.
 5. `DELETE FROM <t> WHERE <identity> = ?`. An FK failure here (an
