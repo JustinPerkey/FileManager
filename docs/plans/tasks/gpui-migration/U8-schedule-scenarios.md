@@ -24,7 +24,7 @@ Pattern to follow: `src/shoot/scenarios/pipeline.rs` (U6). Fixtures (M6,
 apply outcome `ParseNotImplemented` (the fixture's default), selected through
 `FixtureId::Schedule(..)` in `AppSetup`. Selectors (U7): `schedule-apply`,
 `dialog-confirm`. Command:
-`cargo run -p filemanager-gpui --features shoot --bin filemanager-shoot -- --out shots --only schedule- [--dark]`.
+`cargo run -p filemanager-gpui --features shoot --bin filemanager-shoot -- --out shots --only schedule-` for light, and the same with `--dark --prefix dark-` for dark (without a prefix, the dark run overwrites the light PNGs).
 
 All at 1000×700; every scenario starts with `SelectTool(ToolId::Schedule)`.
 
@@ -55,7 +55,7 @@ missing capability), `docs/manual/`, `docs/plans/`.
 
 ## Skill
 
-`/impeccable critique` on the five PNGs (light and `--dark`) against
+`/impeccable critique` on the five PNGs (light, and the `dark-` set from `--dark --prefix dark-`) against
 today's images; fix view-only parity misses in U7's files (named in the
 PR); report the rest.
 
