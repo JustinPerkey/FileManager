@@ -150,6 +150,7 @@ fn item(
             .bg(p.accent)
     });
     let shell = shell.clone();
+    let focus = handle.clone();
     Button::new(selector.clone())
         .custom(variant)
         .accessibility_label(label)
@@ -182,6 +183,9 @@ fn item(
                 .child(text),
         )
         .on_click(move |_, window, cx| {
+            // A mouse press does not focus the button, so do it here: Up and
+            // Down then work after a click, as they do in the Tauri app.
+            focus.focus(window, cx);
             shell.update(cx, |shell, cx| shell.select(id, window, cx));
         })
         .debug_selector({

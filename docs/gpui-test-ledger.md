@@ -145,25 +145,25 @@ its heading's count.
 |---|---|---|---|
 | cleanPath trims and drops Explorer's quotes | M5 | `tools::pipeline::tests::clean_path_trims_and_unquotes` | done |
 | lists the four steps in order and blocks running without a folder | M5 | `tools::pipeline::tests::run_reason_and_can_run`, `text_covers_every_error_kind_and_step` | done |
-| lists the four steps in order and blocks running without a folder (view: the list's rendering and its axe check) | U | the view's test | open |
+| lists the four steps in order and blocks running without a folder (view: the list's rendering and its axe check) | U | `tools::pipeline::view::tests::renders_each_fixture_state`, `step_list_shows_lock_lines_and_note`, `run_buttons_disabled_with_reason` (the axe check: dropped, labels and tab stops are tested instead) | done |
 | browsing sets the folder and shows its subfolder count | M5 | `tools::pipeline::tests::browse_uses_folder_spec_and_cancel_changes_nothing`, `typed_folder_sets_directory` | done |
-| browsing shows the subfolder count (view) | U | `text::subfolders` | open |
+| browsing shows the subfolder count (view) | U | `tools::pipeline::view::tests::step_list_shows_lock_lines_and_note` (the note), `renders_each_fixture_state` | done |
 | after run next, focus returns to run next for the following step | M5 | `tools::pipeline::tests::focus_hint_after_run_next` (moving focus is U, from `take_focus_hint`) | done |
 | a step started from its own button does not show run next as busy | M5 | `tools::pipeline::tests::run_next_busy_only_for_its_step` | done |
 | a typed bad path is shown with its error | M5 | `tools::pipeline::tests::bad_folder_shows_slot_error_and_announces` | done |
-| a typed bad path is marked aria-invalid and described by its error (view) | U | the view's test | open |
+| a typed bad path is marked aria-invalid and described by its error (view) | U | `tools::pipeline::view::tests::renders_each_fixture_state` (`Bad`: error line and the kept path; aria-describedby: dropped) | done |
 | the check step runs without confirming and shows its result | M5 | `tools::pipeline::tests::step_without_confirm_runs_immediately` | done |
-| the check step's result is rendered (view) | U | the view's test | open |
-| issues are listed with their subfolder | U | rendering of `StepIssue`s from the session (the model passes them through); the view's test | open |
+| the check step's result is rendered (view) | U | `tools::pipeline::view::tests::renders_each_fixture_state` (`Ran`, `Demo`), `failed_step_shows_details` | done |
+| issues are listed with their subfolder | U | `tools::pipeline::view::tests::renders_each_fixture_state` (`Demo`: the problems list) | done |
 | the batch step asks first, and cancelling runs nothing | M5 | `tools::pipeline::tests::step_with_confirm_waits_and_uses_the_confirmed_folder`, `cancel_runs_nothing` | done |
 | run all goes in order and stops at the first step that does not pass | M5 | `tools::pipeline::tests::run_all_confirms_once_and_stops_at_first_failure`, `run_all_all_passed_announces` | done |
 | a step that cannot start shows an error banner | M5 | `tools::pipeline::tests::begin_error_is_a_banner_and_step_failure_is_not` (the banner's rendering is U) | done |
-| focus moves to the step while it runs, not to the page | U | focus placement: the view moves focus to the step when `running()` becomes it | open |
+| focus moves to the step while it runs, not to the page | U | `tools::pipeline::view::tests::focus_moves_to_step_when_it_starts_running`, `focus_follows_hint_after_run_next` | done |
 | a step started before the view mounted is shown and followed until it ends | M5 | dropped: the orphan polling (a GPUI model outlives its view and lands the result itself); kept behaviour: `tools::pipeline::tests::activated_clears_transient_state_and_keeps_running_step` | dropped |
-| results, problems, failures and the confirmation have no axe violations | U | the view's accessibility check | open |
+| results, problems, failures and the confirmation have no axe violations | U | dropped: no axe in GPUI; labels, roles and focus are covered by `tools::pipeline::view::tests::confirming_step_opens_dialog_and_cancel_runs_nothing`, `renders_each_fixture_state` | dropped |
 | a failed poll is reported once and retried | M5 | dropped: the orphan polling; a failed refresh is the banner (`load_failure_shows_retry_and_retry_loads`) | dropped |
 | later steps are locked until the one before passes | M5 | `tools::pipeline::tests::step_status_covers_every_case` (`Waiting`), `locked_step_is_refused_without_the_view` | done |
-| later steps show "Runs after <title> passes." and a disabled Run button (view) | U | `text::runs_after` | open |
+| later steps show "Runs after <title> passes." and a disabled Run button (view) | U | `tools::pipeline::view::tests::step_list_shows_lock_lines_and_note`, `run_buttons_disabled_with_reason` | done |
 | run next step walks through the steps one at a time | M5 | `tools::pipeline::tests::focus_hint_after_run_next` (walks every step with `request_next`) | done |
 | when every step has passed, run next is disabled and says why | M5 | `tools::pipeline::tests::run_all_all_passed_announces` (`all_passed`, no run reason; the description wiring is U) | done |
 | a repeated step result is re-announced even when the frame fires before React renders | M5 | `tools::pipeline::tests::repeated_result_bumps_announcement_generation` (the view re-announces on `announcement_generation`; the announcer hook is U) | done |
@@ -244,8 +244,8 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing for an empty list | U |  | open |
-| items have accessible position text and verbatim message | U |  | open |
+| renders nothing for an empty list | U | dropped: the errors and warnings regions render only when there is something to list (`tools::tarpack::view::tests::renders_loaded_manifest`) | dropped |
+| items have accessible position text and verbatim message | U | dropped: the list is labelled and each row shows position and message as text; no hidden spoken text in GPUI | dropped |
 
 ## `tools/tarpack/DropResult.test.tsx` (18)
 
@@ -263,12 +263,12 @@ its heading's count.
 | more than 8 names: 8 shown, full count, and the same in dropResultText | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
 | failed entries: noEntry reads not matched and the hint follows; also after folderNoMatch alone | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
 | combined outcome: order, and dropResultText matches the rendered lines | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
-| dismiss by keyboard; no live role; axe clean | U |  | open |
+| dismiss by keyboard; no live role; axe clean | U | `tools::tarpack::view::tests::drop_result_lines_and_dismiss` (no live role: the result is not announced by the view; axe dropped) | done |
 | an outcome with nothing in it says so | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
 | empty outcome: text and icon are muted, no disclosure | U |  | open |
 | Full paths: collapsed, expands, lists every path past the cap | U |  | open |
 | Full paths is absent for matched-only outcomes | U |  | open |
-| DropPending: one muted line, no button, no live role | U |  | open |
+| DropPending: one muted line, no button, no live role | U | `tools::tarpack::view::tests::drop_pending_line_after_the_delay` | done |
 
 ## `tools/tarpack/EntryStatus.test.tsx` (1)
 
@@ -332,13 +332,13 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing with no errors or warnings | U |  | open |
+| renders nothing with no errors or warnings | U | `tools::tarpack::view::tests::renders_loaded_manifest` | done |
 | count heading, singular and plural | M7a | `tools::tarpack::tests::manifest_copy_matches_today` | done |
-| keyed on errorCount, not errors.length | U |  | open |
+| keyed on errorCount, not errors.length | U | `tools::tarpack::view::tests::renders_errors_withheld_and_changed` (`Withheld`) | done |
 | consequence lines | M7a | `tools::tarpack::tests::manifest_copy_matches_today` | done |
 | report groups: whole manifest, then files with errors | M7a | `tools::tarpack::tests::manifest_copy_matches_today` | done |
-| toggle has aria-expanded/controls and works by keyboard | U |  | open |
-| collapsed body stays mounted but hidden | U |  | open |
+| toggle has aria-expanded/controls and works by keyboard | U | `tools::tarpack::view::tests::errors_toggle_by_keyboard` (aria-expanded and controls dropped: the label flips Show errors / Hide errors) | done |
+| collapsed body stays mounted but hidden | U | dropped: a collapsed report is not drawn (`tools::tarpack::view::tests::errors_toggle_by_keyboard` asserts it) | dropped |
 | warnings render collapsed alongside errors, verbatim | U |  | open |
 | warnings only | U |  | open |
 
@@ -346,10 +346,10 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| each action calls its handler | U |  | open |
-| Recent is hidden when empty | U |  | open |
-| Recent menu opens, moves, and closes with Escape returning focus | U |  | open |
-| Tab closes the menu and focus is not lost to body | U |  | open |
+| each action calls its handler | U | `tools::tarpack::view::tests::header_actions_call_model`, `tools::tarpack::view::tests::edit_button_follows_dev_mode` | done |
+| Recent is hidden when empty | U | `tools::tarpack::view::tests::recent_menu_hidden_when_empty` | done |
+| Recent menu opens, moves, and closes with Escape returning focus | U | `tools::tarpack::view::tests::header_actions_call_model` (opens and picks by keys); the menu's own keys: `widgets::tests::menu_opens_with_keys_wraps_and_picks`, `menu_escape_refocuses_trigger` | done |
+| Tab closes the menu and focus is not lost to body | U | `widgets::tests::menu_escape_refocuses_trigger` (Tab and Escape return focus to the trigger) | done |
 
 ## `tools/tarpack/MiddlePath.test.tsx` (2)
 
@@ -423,7 +423,7 @@ its heading's count.
 | a rejection mid-verify stops the progress and shows the error | M7b | `tools::tarpack::tests::build_error_is_result_with_message` | done |
 | OpenerFailed from Show in folder is a banner | M7b | `tools::tarpack::tests::reveal_failure_shows_opener_failed` | done |
 | Show errors in the bar focuses the error report | M7b | `tools::tarpack::tests::shortcuts_run_what_they_gate`, `tools::tarpack::tests::show_errors_expands_and_hints_focus` (`FocusHint::Report`) | done |
-| Show errors in the bar focuses the error report (view half) | U | view: moves focus on `FocusHint::Report` | open |
+| Show errors in the bar focuses the error report (view half) | U | `tools::tarpack::view::tests::focus_follows_hint` (the report half; the bar's button is U11) | done |
 | building with errors: no dialog, build(false) once, left-out result and announcement | M7b | `tools::tarpack::tests::build_with_errors_reports_left_out` | done |
 | a failed %s build announces its errorMessage | M7b | `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::panicked_build_aborts_and_reports` | done |
 | %s announces no error message | M7b | `tools::tarpack::tests::existing_output_asks_and_confirm_overwrites` (`OutputExists` says nothing), `tools::tarpack::tests::changed_on_disk_during_build_marks_changed` (only the changed-on-disk sentence) | done |
@@ -460,7 +460,7 @@ its heading's count.
 |---|---|---|---|
 | loading: announcer mounted, hidden text, busy, skeleton delayed | M7a | `tools::tarpack::tests::skeleton_only_after_150ms` | done |
 | no-manifest state opens via dialog with a toml filter | M7a | `tools::tarpack::tests::open_passes_manifest_filter` | done |
-| loaded state has no error region and no axe violations | U |  | open |
+| loaded state has no error region and no axe violations | U | `tools::tarpack::view::tests::renders_loaded_manifest` (axe dropped) | done |
 | errors with entries shown, and withheld | M7a | `tools::tarpack::tests::fixtures_build_each_manifest_state` | done |
 | changed on disk banner appears, Reload clears it | M7a | `tools::tarpack::tests::reload_clears_changed_and_results` | done |
 | ManifestUnreadable from Open keeps the session; Details is a disclosure | M7a | `tools::tarpack::tests::open_failure_keeps_the_session` | done |
@@ -471,9 +471,9 @@ its heading's count.
 | a non-TarpackError rejection shows the Io copy with the thrown text | - | dropped: a typed `Result` cannot carry a non-TarpackError; a panicked backend call is `Unexpected` (`restore_failure_sets_load_failed`) | dropped |
 | a rejected dialog is reported, not left unhandled | M7a | `tools::tarpack::tests::open_error_shows_dialog_failure_copy` | done |
 | banners render in fixed order and Details open passes axe | U |  | open |
-| changed-on-disk banner has no axe violations | U |  | open |
+| changed-on-disk banner has no axe violations | U | `tools::tarpack::view::tests::changed_banner_reload` (axe dropped; the banner and its Reload action are tested) | done |
 | root section has the tarpack class in loading, no-manifest and loaded states | - | dropped: a CSS class of the web view | dropped |
-| skeleton has no axe violations after the delay | U |  | open |
+| skeleton has no axe violations after the delay | U | `tools::tarpack::view::tests::skeleton_only_when_model_says` (axe dropped) | done |
 | the same command error twice re-mounts the alert so it is announced again | M7a | `tools::tarpack::tests::open_failure_keeps_the_session` | done |
 
 ## `tools/tarpack/errorMessages.test.ts` (6)

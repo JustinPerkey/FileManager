@@ -80,6 +80,23 @@ fn nav_click_selects_tool(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn sidebar_click_focuses_the_item_so_arrows_work(cx: &mut TestAppContext) {
+    let (_states, shell, cx) = setup(cx);
+    // Nothing is focused; a mouse click on the second item selects it...
+    click(cx, "tool-nav-tarpack");
+    assert_eq!(current(&shell, cx), ToolId::Tarpack);
+    // ...and focuses it, so Down moves to the next item (wrapping to the
+    // first) and Enter selects that one.
+    press(cx, "down");
+    press(cx, "enter");
+    assert_eq!(current(&shell, cx), ToolId::Schedule);
+    press(cx, "up");
+    press(cx, "up");
+    press(cx, "enter");
+    assert_eq!(current(&shell, cx), ToolId::Pipeline);
+}
+
+#[gpui::test]
 fn nav_keys_move_wrap_and_select(cx: &mut TestAppContext) {
     let (_states, shell, cx) = setup(cx);
     // Tab reaches the current item.
