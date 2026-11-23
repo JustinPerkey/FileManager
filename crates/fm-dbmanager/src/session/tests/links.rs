@@ -449,9 +449,17 @@ fn links_and_fields_one_transaction() {
         ),
         lc(CONTRIB, vec![add(rk(3), vec![])], vec![], vec![]),
     ];
-    let link = conflict_link(s.save(&r).unwrap_err());
-    assert_eq!(link.relation, CONTRIB);
+    let e = s.save(&r).unwrap_err();
+    let SessionError::Conflict { current, link } = e else {
+        panic!("expected Conflict, got {e:?}");
+    };
+    assert_eq!(link.unwrap().relation, CONTRIB);
+    // `current` is the stored object, not this save's uncommitted title
     assert_eq!(snapshot(&fx), before);
+    let stored = s.object("book", &rk(2)).unwrap();
+    assert_eq!(current.label, stored.label);
+    assert_eq!(current.version, stored.version);
+    assert_ne!(current.label, "Again");
 }
 
 #[test]
@@ -654,7 +662,7 @@ INSERT INTO doc_tag VALUES (1, 1);
 ";
 
 #[test]
-fn read_only_side_refused() {
+fn read_only_or_pickable_side_refuses_link_changes() {
     let fx = Fixture::new(TAGS, None);
     config_with(&fx, "[tables.doc]\nmode = \"read-only\"\n");
     let mut s = fx.session();
@@ -663,7 +671,8 @@ fn read_only_side_refused() {
     // the tag side is editable (doc, the other side, is only read-only)
     s.save(&r).unwrap();
     assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM doc_tag"), 2);
-    // the read-only side refuses
+    // the read-only side refuses (NotEditable comes from M7's table-level
+    // permission check, before any link check)
     let r = links_req(
         &s,
         "doc",
@@ -672,6 +681,53 @@ fn read_only_side_refused() {
     );
     assert!(matches!(s.save(&r), Err(SessionError::NotEditable { .. })));
     assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM doc_tag"), 2);
+    // a pickable table as this side refuses too
+    config_with(&fx, "[tables.doc]\nmode = \"pickable\"\n");
+    let mut s = fx.session();
+    let r = links_req(
+        &s,
+        "doc",
+        1,
+        vec![lc("m2m:doc_tag", vec![add(rk(2), vec![])], vec![], vec![])],
+    );
+    assert!(matches!(s.save(&r), Err(SessionError::NotEditable { .. })));
+}
+
+#[test]
+fn create_meets_orphan_junction_row_is_constraint() {
+    // `doc.code` is unique but not the key; the junction references it.
+    let fx = Fixture::new(
+        "CREATE TABLE doc (id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT);
+         CREATE TABLE tag (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+         CREATE TABLE doc_tag (
+           doc_code TEXT NOT NULL REFERENCES doc(code),
+           tag_id INTEGER NOT NULL REFERENCES tag(id),
+           PRIMARY KEY (doc_code, tag_id));
+         INSERT INTO tag VALUES (1, 't1');",
+        None,
+    );
+    {
+        let c = raw(&fx);
+        c.execute_batch("PRAGMA foreign_keys = OFF; INSERT INTO doc_tag VALUES ('x', 1);")
+            .unwrap();
+    }
+    let mut s = fx.session();
+    let mut r = request(
+        &s,
+        "doc",
+        None,
+        vec![("code", text("x")), ("name", text("n"))],
+    );
+    r.links = vec![lc("m2m:doc_tag", vec![add(rk(1), vec![])], vec![], vec![])];
+    match s.save(&r) {
+        Err(SessionError::Constraint { message }) => {
+            assert!(message.contains("doc_tag"), "{message}");
+            assert!(message.contains("Nothing was changed"), "{message}");
+        }
+        other => panic!("expected Constraint, got {other:?}"),
+    }
+    assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM doc"), 0);
+    assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM doc_tag"), 1);
 }
 
 #[test]
@@ -726,7 +782,7 @@ fn links_only_stale_config_hash() {
 fn unknown_relation() {
     let fx = Fixture::example();
     let mut s = fx.session();
-    // contribution is not author's... it is; use a relation of nobody
+    // a relation that does not exist, and a relation kind that is not m2m
     for relation in ["m2m:nothing", "fk:loan:book_id"] {
         let r = links_req(&s, "book", 1, vec![lc(relation, vec![], vec![], vec![])]);
         assert!(

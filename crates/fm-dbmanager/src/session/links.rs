@@ -11,7 +11,7 @@ use super::key::conditions;
 use super::read::{Eqs, Reader};
 use super::save::{check_changes, issue, resolve_references, Checked, Phase};
 use super::sql;
-use super::types::{LinkChange, LinkError, LinkRef, ObjectKey};
+use super::types::{LinkChange, LinkError, LinkRef, ObjectKey, ObjectView};
 use super::version::version;
 use super::SessionError;
 use crate::config::RelationMode;
@@ -202,21 +202,32 @@ fn column_value(
 
 struct Ctx<'r, 'a> {
     reader: &'r Reader<'a>,
-    table: &'r str,
+    /// The object as read before any write (`None` on a create).
+    existing: Option<&'r ObjectView>,
     this_key: &'r ObjectKey,
 }
 
 impl Ctx<'_, '_> {
-    fn conflict(&self, side: &M2mSide, other: &ObjectKey) -> SessionError {
-        match self.reader.object(self.table, self.this_key) {
-            Ok(current) => SessionError::Conflict {
-                current: Box::new(current),
+    /// A link conflict. `current` is the object as stored before this save
+    /// (never its uncommitted edits). A create has none: a junction row that
+    /// already exists there is an orphan row, a data problem, so it is a
+    /// `Constraint`.
+    fn conflict(&self, side: &M2mSide, other: &ObjectKey, junction: &Table) -> SessionError {
+        match self.existing {
+            Some(current) => SessionError::Conflict {
+                current: Box::new(current.clone()),
                 link: Some(LinkRef {
                     relation: side.relation.clone(),
                     other: other.clone(),
                 }),
             },
-            Err(e) => e,
+            None => SessionError::Constraint {
+                message: format!(
+                    "An existing row in {} already refers to this value (an orphan row, \
+                     since foreign keys were off). Nothing was changed.",
+                    junction.name.as_str()
+                ),
+            },
         }
     }
 
@@ -256,7 +267,7 @@ impl Ctx<'_, '_> {
                 ];
                 pair.sort_unstable();
                 if entries == pair {
-                    return self.conflict(side, other);
+                    return self.conflict(side, other, junction);
                 }
             }
         }
@@ -280,14 +291,14 @@ impl Ctx<'_, '_> {
 /// create). Any failure returns an error and the caller rolls back.
 pub(crate) fn apply(
     reader: &Reader<'_>,
-    table: &str,
+    existing: Option<&ObjectView>,
     this_table: &Table,
     this_key: &ObjectKey,
     planned: Vec<Planned<'_>>,
 ) -> Result<(), SessionError> {
     let ctx = Ctx {
         reader,
-        table,
+        existing,
         this_key,
     };
     let mut errors: Vec<LinkError> = Vec::new();
@@ -337,7 +348,7 @@ impl Ctx<'_, '_> {
                 ));
                 return Ok(());
             }
-            return Err(self.conflict(side, other));
+            return Err(self.conflict(side, other, junction));
         };
         let eqs = || -> Eqs<'_> {
             vec![
@@ -345,6 +356,8 @@ impl Ctx<'_, '_> {
                 (other_id, other_value.clone()),
             ]
         };
+        // Duplicate junction pairs are unreachable under the pair-uniqueness
+        // rule, so versioning only the first match is correct.
         let row = self.reader.full_row(junction, &eqs())?;
         let stored = row
             .as_ref()
@@ -363,13 +376,13 @@ impl Ctx<'_, '_> {
         match op {
             Op::Remove { version } => {
                 if stored.is_none() || version.is_some_and(|v| stored.as_deref() != Some(v)) {
-                    return Err(self.conflict(side, other));
+                    return Err(self.conflict(side, other, junction));
                 }
                 run(&sql::delete(&junction.name, eqs()), &[])
             }
             Op::Update { version, changes } => {
                 if stored.as_deref() != Some(version) {
-                    return Err(self.conflict(side, other));
+                    return Err(self.conflict(side, other, junction));
                 }
                 let Some(bound) = resolved(conn, model, changes, side, other, errors)? else {
                     return Ok(());
@@ -387,7 +400,7 @@ impl Ctx<'_, '_> {
             }
             Op::Add { changes } => {
                 if stored.is_some() {
-                    return Err(self.conflict(side, other));
+                    return Err(self.conflict(side, other, junction));
                 }
                 let Some(bound) = resolved(conn, model, changes, side, other, errors)? else {
                     return Ok(());
@@ -428,5 +441,79 @@ fn resolved<'c>(
                 .extend(fields);
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::tests::Fixture;
+
+    #[test]
+    fn ctx_failed_maps_pairs_unit() {
+        let fx = Fixture::example();
+        let s = fx.session();
+        let reader = Reader {
+            conn: s.database.conn(),
+            model: &s.model,
+        };
+        let book = s.model.table("book").unwrap();
+        let side = book
+            .many_to_many
+            .iter()
+            .find(|m| m.relation == "m2m:contribution")
+            .unwrap();
+        let junction = &s.model.schema().tables[side.junction];
+        let current = s
+            .object("book", &ObjectKey::Rowid { value: "1".into() })
+            .unwrap();
+        let ctx = Ctx {
+            reader: &reader,
+            existing: Some(&current),
+            this_key: &current.key,
+        };
+        let other = ObjectKey::Rowid { value: "2".into() };
+        let failure = |extended: i32, msg: &str| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(extended),
+                Some(msg.to_owned()),
+            )
+        };
+        let unique = rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE;
+        let t = &junction.name;
+        // the pair, in either order
+        let pair = format!(
+            "UNIQUE constraint failed: {t}.{}, {t}.{}",
+            junction.columns[side.other_column].name, junction.columns[side.this_column].name
+        );
+        match ctx.failed(failure(unique, &pair), side, &other, junction, &["role"]) {
+            SessionError::Conflict { link, current: c } => {
+                assert_eq!(link.unwrap().other, other);
+                assert_eq!(c.version, current.version);
+            }
+            e => panic!("expected Conflict, got {e:?}"),
+        }
+        // one link field
+        let one = format!("UNIQUE constraint failed: {t}.role");
+        match ctx.failed(failure(unique, &one), side, &other, junction, &["role"]) {
+            SessionError::Validation { links, .. } => {
+                assert_eq!(links.len(), 1);
+                assert_eq!(links[0].relation, side.relation);
+                assert_eq!(links[0].fields.len(), 1);
+                assert_eq!(links[0].fields[0].column, "role");
+            }
+            e => panic!("expected Validation, got {e:?}"),
+        }
+        let check = ctx.failed(
+            failure(
+                rusqlite::ffi::SQLITE_CONSTRAINT_CHECK,
+                "CHECK constraint failed: x",
+            ),
+            side,
+            &other,
+            junction,
+            &["role"],
+        );
+        assert!(matches!(check, SessionError::Constraint { message } if message.contains("CHECK")));
     }
 }

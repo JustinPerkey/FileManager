@@ -498,7 +498,8 @@ impl Session {
             return Err(SessionError::SchemaChanged);
         }
         let reader = Reader { conn: &tx, model };
-        if let Some(key) = &request.key {
+        // Step 8's read, before any write: every conflict reports it.
+        let existing = if let Some(key) = &request.key {
             let existing = reader.object(&request.table, key)?;
             if Some(&existing.version) != request.version.as_ref() {
                 return Err(SessionError::Conflict {
@@ -506,7 +507,10 @@ impl Session {
                     link: None,
                 });
             }
-        }
+            Some(existing)
+        } else {
+            None
+        };
         let bound = match resolve_references(&tx, model, checked)? {
             Ok(b) => b,
             Err(fields) => {
@@ -533,7 +537,7 @@ impl Session {
         }
         let key = saved_key(st, &bound, tx.last_insert_rowid(), request.key.as_ref())?;
         // Step 11: the links.
-        links::apply(&reader, &request.table, st, &key, planned)?;
+        links::apply(&reader, existing.as_ref(), st, &key, planned)?;
         let object = reader.object(&request.table, &key)?;
         tx.commit()
             .map_err(|e| map_constraint(e, table_name, &changed))?;
