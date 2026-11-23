@@ -741,3 +741,352 @@ fn gallery_draws_and_every_control_is_a_tab_stop(cx: &mut TestAppContext) {
     }
     assert_eq!(seen.len(), 15, "tab stops: {seen:?}");
 }
+
+// MARK: confirmation dialog
+
+const KEY: &str = "test-confirm";
+
+/// What a host view of the dialog records.
+#[derive(Clone, Default)]
+struct Calls {
+    confirmed: Rc<Cell<usize>>,
+    cancelled: Rc<Cell<usize>>,
+    opener: Rc<Cell<usize>>,
+}
+
+fn spec(title: &str) -> ConfirmSpec {
+    ConfirmSpec {
+        title: title.to_string().into(),
+        body: "Replace the file?".into(),
+        extra: None,
+        cancel_label: "Cancel".into(),
+        confirm: Some(ConfirmButton {
+            label: "Replace".into(),
+            variant: ConfirmVariant::Danger,
+            icon: None,
+        }),
+        busy: false,
+        wide: false,
+    }
+}
+
+/// A window with one button (the opener) and the dialog's recorders.
+fn confirm_host(cx: &mut TestAppContext) -> (Calls, &mut VisualTestContext) {
+    let calls = Calls::default();
+    let (_view, cx) = open(cx, |_, _| (), {
+        let opener = calls.opener.clone();
+        move |(), _, _| {
+            let opener = opener.clone();
+            button("opener", "Replace…")
+                .on_click(move |_, _, _| opener.set(opener.get() + 1))
+                .into_any_element()
+        }
+    });
+    (calls, cx)
+}
+
+fn sync(cx: &mut VisualTestContext, calls: &Calls, spec: Option<ConfirmSpec>) {
+    let (confirmed, cancelled) = (calls.confirmed.clone(), calls.cancelled.clone());
+    cx.update(|window, cx| {
+        sync_confirm(
+            window,
+            cx,
+            KEY,
+            spec,
+            move |_, _| confirmed.set(confirmed.get() + 1),
+            move |_, _| cancelled.set(cancelled.get() + 1),
+        );
+    });
+    cx.run_until_parked();
+}
+
+fn dialog_open(cx: &mut VisualTestContext) -> bool {
+    cx.update(<Window as gpui_component::WindowExt>::has_active_dialog)
+}
+
+#[gpui::test]
+fn confirm_focus_starts_on_cancel_and_escape_cancels(cx: &mut TestAppContext) {
+    let (calls, cx) = confirm_host(cx);
+    sync(cx, &calls, Some(spec("Replace file?")));
+    assert!(dialog_open(cx));
+
+    // Focus is on Cancel, not the confirming button: Enter cancels.
+    press(cx, "enter");
+    assert_eq!((calls.cancelled.get(), calls.confirmed.get()), (1, 0));
+
+    // Escape cancels too. The dialog stays until the model closes it.
+    press(cx, "escape");
+    assert_eq!(calls.cancelled.get(), 2);
+    assert!(dialog_open(cx), "the model closes the dialog, not Escape");
+
+    // The scrim does nothing.
+    cx.simulate_click(gpui::point(px(5.0), px(5.0)), Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(calls.cancelled.get(), 2);
+    assert!(dialog_open(cx));
+}
+
+#[gpui::test]
+fn confirm_button_confirms(cx: &mut TestAppContext) {
+    let (calls, cx) = confirm_host(cx);
+    sync(cx, &calls, Some(spec("Replace file?")));
+    click(cx, "dialog-confirm");
+    assert_eq!((calls.confirmed.get(), calls.cancelled.get()), (1, 0));
+
+    // Tab cycles inside the dialog: Cancel -> Replace; Enter confirms.
+    cx.simulate_keystrokes("tab");
+    press(cx, "enter");
+    assert_eq!(calls.confirmed.get(), 2);
+    assert_eq!(
+        calls.opener.get(),
+        0,
+        "the opener behind the scrim is unreachable"
+    );
+}
+
+#[gpui::test]
+fn busy_confirm_is_inert(cx: &mut TestAppContext) {
+    let (calls, cx) = confirm_host(cx);
+    let mut busy = spec("Replace file?");
+    busy.busy = true;
+    sync(cx, &calls, Some(busy));
+
+    press(cx, "escape");
+    press(cx, "enter");
+    click(cx, "dialog-cancel");
+    click(cx, "dialog-confirm");
+    assert_eq!((calls.confirmed.get(), calls.cancelled.get()), (0, 0));
+    assert!(dialog_open(cx), "the dialog stays while busy");
+
+    // When the work ends, Escape works again.
+    sync(cx, &calls, Some(spec("Replace file?")));
+    press(cx, "escape");
+    assert_eq!(calls.cancelled.get(), 1);
+}
+
+#[gpui::test]
+fn single_button_form_has_only_cancel(cx: &mut TestAppContext) {
+    let (calls, cx) = confirm_host(cx);
+    let mut single = spec("Done");
+    single.confirm = None;
+    single.cancel_label = "Close".into();
+    sync(cx, &calls, Some(single));
+    assert!(cx.debug_bounds("dialog-cancel").is_some());
+    assert!(cx.debug_bounds("dialog-confirm").is_none());
+    press(cx, "enter");
+    assert_eq!(calls.cancelled.get(), 1, "Close is focused first");
+}
+
+#[gpui::test]
+fn sync_none_closes_and_some_updates_live(cx: &mut TestAppContext) {
+    let (calls, cx) = confirm_host(cx);
+    sync(cx, &calls, Some(spec("Replace file?")));
+    let narrow = bounds(cx, "dialog-0").size.width;
+    assert_eq!(narrow, px(448.0));
+
+    // A second `Some` updates the open dialog; it does not stack another.
+    let mut wide = spec("Replace file?");
+    wide.wide = true;
+    wide.confirm = None;
+    sync(cx, &calls, Some(wide));
+    assert_eq!(bounds(cx, "dialog-0").size.width, px(640.0));
+    assert!(cx.debug_bounds("dialog-confirm").is_none(), "updated live");
+    assert!(cx.debug_bounds("dialog-1").is_none(), "no second dialog");
+
+    sync(cx, &calls, None);
+    assert!(!dialog_open(cx));
+
+    // And it can open again.
+    sync(cx, &calls, Some(spec("Again")));
+    assert!(dialog_open(cx));
+}
+
+#[gpui::test]
+fn keyboard_opened_dialog_returns_focus_to_opener(cx: &mut TestAppContext) {
+    let (calls, cx) = confirm_host(cx);
+    first_tab_stop(cx);
+    sync(cx, &calls, Some(spec("Replace file?")));
+    sync(cx, &calls, None);
+    assert!(!dialog_open(cx));
+    press(cx, "enter");
+    assert_eq!(calls.opener.get(), 1, "focus is back on the opener");
+}
+
+// MARK: menu button
+
+fn menu_items() -> Vec<MenuItem> {
+    ["jobs.toml", "old.toml", "new.toml", "last.toml"]
+        .into_iter()
+        .enumerate()
+        .map(|(i, name)| MenuItem {
+            label: name.into(),
+            detail: Some("C:\\Deliveries".into()),
+            tooltip: None,
+            disabled: i == 1,
+        })
+        .collect()
+}
+
+fn menu_host(
+    cx: &mut TestAppContext,
+    items: fn() -> Vec<MenuItem>,
+) -> (Rc<RefCell<Vec<usize>>>, &mut VisualTestContext) {
+    let picked: Rc<RefCell<Vec<usize>>> = Rc::default();
+    let (_view, cx) = open(cx, |_, _| (), {
+        let picked = picked.clone();
+        move |(), _, _| {
+            let picked = picked.clone();
+            MenuButton::new("recent", "Recent")
+                .items(items())
+                .on_select(move |ix, _, _| picked.borrow_mut().push(ix))
+                .into_any_element()
+        }
+    });
+    (picked, cx)
+}
+
+fn menu_is_open(cx: &mut VisualTestContext) -> bool {
+    cx.debug_bounds("recent-item-0").is_some()
+}
+
+#[gpui::test]
+fn menu_opens_with_keys_wraps_and_picks(cx: &mut TestAppContext) {
+    let (picked, cx) = menu_host(cx, menu_items);
+    first_tab_stop(cx);
+    assert!(!menu_is_open(cx));
+
+    // Down opens, on the first row.
+    press(cx, "down");
+    assert!(menu_is_open(cx));
+    // Down skips the disabled row, wraps from the last to the first; Up wraps back.
+    press(cx, "down");
+    press(cx, "down");
+    press(cx, "down");
+    press(cx, "up");
+    press(cx, "enter");
+    assert_eq!(*picked.borrow(), vec![3], "0 -> 2 -> 3 -> 0 -> 3");
+    assert!(!menu_is_open(cx), "picking closes the list");
+
+    // Enter opens it from the trigger (focus came back); End and Home jump.
+    press(cx, "enter");
+    assert!(menu_is_open(cx));
+    press(cx, "end");
+    press(cx, "enter");
+    press(cx, "space");
+    press(cx, "home");
+    press(cx, "space");
+    assert_eq!(*picked.borrow(), vec![3, 3, 0]);
+
+    // A click picks too.
+    press(cx, "space");
+    click(cx, "recent-item-2");
+    assert_eq!(*picked.borrow(), vec![3, 3, 0, 2]);
+    assert!(!menu_is_open(cx));
+}
+
+#[gpui::test]
+fn menu_escape_refocuses_trigger(cx: &mut TestAppContext) {
+    let (picked, cx) = menu_host(cx, menu_items);
+    first_tab_stop(cx);
+    for close in ["escape", "tab"] {
+        press(cx, "down");
+        assert!(menu_is_open(cx), "open before {close}");
+        press(cx, close);
+        assert!(!menu_is_open(cx), "{close} closes the list");
+        // Focus is on the trigger again: Down opens it once more.
+        press(cx, "down");
+        assert!(menu_is_open(cx), "focus returned after {close}");
+        press(cx, "escape");
+    }
+    assert!(picked.borrow().is_empty());
+}
+
+#[gpui::test]
+fn empty_menu_is_not_rendered(cx: &mut TestAppContext) {
+    let (_picked, cx) = menu_host(cx, Vec::new);
+    assert!(cx.debug_bounds("recent").is_none());
+    first_tab_stop(cx);
+    press(cx, "down");
+    assert!(!menu_is_open(cx));
+}
+
+#[gpui::test]
+fn disabled_item_is_skipped(cx: &mut TestAppContext) {
+    let (picked, cx) = menu_host(cx, menu_items);
+    first_tab_stop(cx);
+    press(cx, "down");
+    press(cx, "down");
+    press(cx, "enter");
+    assert_eq!(*picked.borrow(), vec![2], "row 1 is disabled: 0 -> 2");
+
+    press(cx, "enter");
+    click(cx, "recent-item-1");
+    assert!(
+        picked.borrow().len() == 1,
+        "a click on a disabled row does nothing"
+    );
+    assert!(menu_is_open(cx), "and the list stays open");
+}
+
+// MARK: shortcuts help
+
+fn help_rows() -> Vec<ShortcutRow> {
+    vec![
+        ShortcutRow {
+            keys: vec![vec!["Ctrl", "O"], vec!["F6"]],
+            action: "Open a file".into(),
+            when: "Always".into(),
+        },
+        ShortcutRow {
+            keys: vec![vec!["Esc"]],
+            action: "Dismiss the result".into(),
+            when: "When a result is shown".into(),
+        },
+    ]
+}
+
+fn help_host(cx: &mut TestAppContext) -> (Rc<RefCell<Vec<bool>>>, &mut VisualTestContext) {
+    let changes: Rc<RefCell<Vec<bool>>> = Rc::default();
+    let (_view, cx) = open(cx, |_, _| (), {
+        let changes = changes.clone();
+        move |(), _, _| {
+            let changes = changes.clone();
+            ShortcutsHelp::new("help", help_rows())
+                .on_open_change(move |open, _, _| changes.borrow_mut().push(open))
+                .into_any_element()
+        }
+    });
+    (changes, cx)
+}
+
+#[gpui::test]
+fn shortcuts_popover_opens_under_button_and_escape_closes(cx: &mut TestAppContext) {
+    let (_changes, cx) = help_host(cx);
+    assert!(cx.debug_bounds("help-popover").is_none());
+    let button = bounds(cx, "help");
+
+    first_tab_stop(cx);
+    press(cx, "enter");
+    let popover = bounds(cx, "help-popover");
+    assert!(popover.top() >= button.bottom(), "under the button");
+    assert!(popover.left() >= button.left() - px(1.0));
+    assert!(popover.size.width <= px(576.0), "at most 576 px wide");
+
+    press(cx, "escape");
+    assert!(cx.debug_bounds("help-popover").is_none(), "Escape closes");
+
+    // Focus is back on the button: Enter opens it, Escape closes it.
+    press(cx, "enter");
+    assert!(cx.debug_bounds("help-popover").is_some());
+    press(cx, "escape");
+    assert!(cx.debug_bounds("help-popover").is_none());
+}
+
+#[gpui::test]
+fn shortcuts_open_change_fires(cx: &mut TestAppContext) {
+    let (changes, cx) = help_host(cx);
+    click(cx, "help");
+    assert_eq!(*changes.borrow(), vec![true]);
+    press(cx, "escape");
+    assert_eq!(*changes.borrow(), vec![true, false]);
+}

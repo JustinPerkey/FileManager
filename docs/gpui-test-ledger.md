@@ -53,10 +53,10 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| focus starts on Cancel, Escape cancels, focus returns | U |  | open |
-| Replace confirms | U |  | open |
-| no axe violations when open | U |  | open |
-| aria-labelledby and aria-describedby resolve to the title and body, with unique ids | U |  | open |
+| focus starts on Cancel, Escape cancels, focus returns | U | `widgets::tests::confirm_focus_starts_on_cancel_and_escape_cancels`, `widgets::tests::keyboard_opened_dialog_returns_focus_to_opener` | done |
+| Replace confirms | U | `widgets::tests::confirm_button_confirms` | done |
+| no axe violations when open | U | dropped: axe is a DOM check; the dialog's labels are covered by `widgets::tests::confirm_button_confirms` (named buttons) | dropped |
+| aria-labelledby and aria-describedby resolve to the title and body, with unique ids | U | dropped: DOM and ARIA attributes; GPUI has no ids to resolve | dropped |
 
 ## `app/DropZone.test.tsx` (6)
 

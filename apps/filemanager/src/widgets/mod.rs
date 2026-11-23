@@ -17,6 +17,9 @@
 //! - [`skeleton`](mod@skeleton): `skeleton_bar`
 //! - [`middle_path`]: `middle_truncate`, [`MiddlePath`]
 //! - [`kbd`]: `kbd`, `chord`, `alternatives`
+//! - [`dialog`]: `sync_confirm`, [`ConfirmSpec`] (the one modal: confirmations)
+//! - [`menu_button`]: [`MenuButton`], [`MenuItem`]
+//! - [`shortcuts_help`]: [`ShortcutsHelp`], [`ShortcutRow`]
 //!
 //! The rule: no colour literal anywhere here (colours come from
 //! [`crate::theme::palette`]), and sizes come from [`crate::theme::tokens`],
@@ -26,12 +29,15 @@
 pub mod banner;
 pub mod button;
 pub mod checkbox;
+pub mod dialog;
 pub mod disclosure;
 pub mod icon;
 pub mod input;
 pub mod kbd;
+pub mod menu_button;
 pub mod middle_path;
 pub mod select;
+pub mod shortcuts_help;
 pub mod skeleton;
 pub mod status;
 pub mod step_number;
@@ -44,12 +50,15 @@ mod tests;
 pub use banner::{Banner, Tone};
 pub use button::{button, FmButton};
 pub use checkbox::{checkbox, CheckState, FmCheckbox};
+pub use dialog::{sync_confirm, ConfirmButton, ConfirmSpec, ConfirmVariant};
 pub use disclosure::Disclosure;
 pub use icon::{icon, IconName};
 pub use input::{text_area, text_input, FmInput};
 pub use kbd::{alternatives, chord, kbd};
+pub use menu_button::{MenuButton, MenuItem};
 pub use middle_path::{middle_truncate, MiddlePath};
 pub use select::{select, FmSelect};
+pub use shortcuts_help::{ShortcutRow, ShortcutsHelp};
 pub use skeleton::skeleton_bar;
 pub use status::{status, StatusTone};
 pub use step_number::step_number;

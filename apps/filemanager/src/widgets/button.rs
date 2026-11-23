@@ -9,7 +9,7 @@
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{px, AnyView, App, ClickEvent, ElementId, Hsla, SharedString, Window};
+use gpui::{px, AnyView, App, ClickEvent, ElementId, FocusHandle, Hsla, SharedString, Window};
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::spinner::Spinner;
 use gpui_component::tooltip::Tooltip;
@@ -50,11 +50,13 @@ pub struct FmButton {
     variant: Variant,
     icon: Option<IconName>,
     icon_flip: bool,
+    trailing: Option<IconName>,
     disabled: bool,
     busy: bool,
     tooltip: Option<SharedString>,
     shortcut: Option<SharedString>,
     on_click: Option<ClickHandler>,
+    focus: Option<FocusHandle>,
     debug_selector: Option<SharedString>,
 }
 
@@ -69,11 +71,13 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> FmBut
         variant: Variant::Secondary,
         icon: None,
         icon_flip: false,
+        trailing: None,
         disabled: false,
         busy: false,
         tooltip: None,
         shortcut: None,
         on_click: None,
+        focus: None,
         debug_selector: None,
     }
 }
@@ -118,6 +122,13 @@ impl FmButton {
     #[must_use]
     pub fn icon_flip(mut self, flip: bool) -> Self {
         self.icon_flip = flip;
+        self
+    }
+
+    /// An icon after the label (a menu button's chevron), 4 px apart.
+    #[must_use]
+    pub fn trailing_icon(mut self, name: IconName) -> Self {
+        self.trailing = Some(name);
         self
     }
 
@@ -167,6 +178,14 @@ impl FmButton {
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_click = Some(Rc::new(handler));
+        self
+    }
+
+    /// Tracks `handle` as the button's focus handle, so a view can move focus
+    /// to it (a dialog starts on Cancel).
+    #[must_use]
+    pub fn track_focus(mut self, handle: &FocusHandle) -> Self {
+        self.focus = Some(handle.clone());
         self
     }
 
@@ -256,6 +275,14 @@ pub(crate) fn button_colors(
 
 impl RenderOnce for FmButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.into_button(cx)
+    }
+}
+
+impl FmButton {
+    /// The dressed gpui-component button, for widgets that attach their own
+    /// behaviour to it (a menu button's popover).
+    pub(crate) fn into_button(self, cx: &App) -> Button {
         let p = *palette(cx);
         let inert = self.disabled || self.busy;
         let (fill, text, border, hover, opacity) =
@@ -293,6 +320,9 @@ impl RenderOnce for FmButton {
             .when_some(leading, ParentElement::child)
             .when(self.label_visible, |row| {
                 row.child(gpui::div().whitespace_nowrap().child(self.label.clone()))
+            })
+            .when_some(self.trailing, |row, name| {
+                row.child(icon(name).text_color(text))
             });
 
         let on_click = self.on_click.filter(|_| !inert);
@@ -313,6 +343,7 @@ impl RenderOnce for FmButton {
             .rounded(px(RADIUS))
             .disabled(self.disabled && !self.busy)
             .child(content)
+            .when_some(self.focus, |b, handle| b.track_focus(&handle))
             .when_some(tooltip, Button::tooltip)
             .when_some(on_click, |b, handler| {
                 b.on_click(move |event, window, cx| handler(event, window, cx))
