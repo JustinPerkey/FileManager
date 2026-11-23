@@ -9,7 +9,7 @@
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{px, AnyView, App, ClickEvent, ElementId, SharedString, Window};
+use gpui::{px, AnyView, App, ClickEvent, ElementId, Hsla, SharedString, Window};
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::spinner::Spinner;
 use gpui_component::tooltip::Tooltip;
@@ -17,7 +17,7 @@ use gpui_component::{h_flex, Disableable as _, Sizable as _, Size};
 
 use super::icon::{icon, IconName};
 use crate::theme::tokens::{FONT_SIZE_MD, RADIUS, REM, SPACE_1, SPACE_3};
-use crate::theme::{palette, DISABLED_OPACITY, QUIET_DISABLED_OPACITY};
+use crate::theme::{palette, Palette, DISABLED_OPACITY, QUIET_DISABLED_OPACITY};
 
 /// Height of a button: padding 4 + a 1.4 line of 14 px + the 1 px borders.
 const HEIGHT: f32 = 30.0;
@@ -207,35 +207,59 @@ pub(crate) fn tooltip_view(text: SharedString) -> impl Fn(&mut Window, &mut App)
     move |window, cx| Tooltip::new(text.clone()).build(window, cx)
 }
 
+/// What a button wears: `(fill, text, border, hover and pressed fill, opacity)`.
+///
+/// Busy beats disabled. A busy button is working, not unavailable: the
+/// disabled colours at full strength (the spinner and the full opacity are
+/// what tell it from a disabled one). Quiet keeps no fill and no border.
+#[must_use]
+pub(crate) fn button_colors(
+    variant: Variant,
+    disabled: bool,
+    busy: bool,
+    p: &Palette,
+) -> (Hsla, Hsla, Hsla, Hsla, f32) {
+    let transparent = gpui::transparent_black();
+    let quiet = variant == Variant::Quiet;
+    let (fill, text, border, hover) = match variant {
+        Variant::Secondary => (p.surface, p.text, p.border, p.surface_sunken),
+        Variant::Primary => (p.accent, p.accent_text, p.accent, p.primary_hover),
+        Variant::Quiet => (transparent, p.text, transparent, p.surface_sunken),
+        Variant::Danger => (p.surface, p.danger, p.danger, p.surface_sunken),
+    };
+    if busy {
+        if quiet {
+            (transparent, p.text_muted, transparent, hover, 1.0)
+        } else {
+            (p.surface_sunken, p.text_muted, p.border, hover, 1.0)
+        }
+    } else if disabled && quiet {
+        (
+            transparent,
+            p.text_muted,
+            transparent,
+            hover,
+            QUIET_DISABLED_OPACITY,
+        )
+    } else if disabled {
+        (
+            p.surface_sunken,
+            p.text_muted,
+            p.border,
+            hover,
+            DISABLED_OPACITY,
+        )
+    } else {
+        (fill, text, border, hover, 1.0)
+    }
+}
+
 impl RenderOnce for FmButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = *palette(cx);
-        let transparent = gpui::transparent_black();
         let inert = self.disabled || self.busy;
-        let quiet = self.variant == Variant::Quiet;
-
-        // (fill, text, border, hover and pressed fill)
-        let (fill, text, border, hover) = match self.variant {
-            Variant::Secondary => (p.surface, p.text, p.border, p.surface_sunken),
-            Variant::Primary => (p.accent, p.accent_text, p.accent, p.primary_hover),
-            Variant::Quiet => (transparent, p.text, transparent, p.surface_sunken),
-            Variant::Danger => (p.surface, p.danger, p.danger, p.surface_sunken),
-        };
-        let (fill, text, border, opacity) = if self.busy {
-            // Working, not unavailable: full strength, no hover response.
-            (fill, text, border, 1.0)
-        } else if self.disabled && quiet {
-            (
-                transparent,
-                p.text_muted,
-                transparent,
-                QUIET_DISABLED_OPACITY,
-            )
-        } else if self.disabled {
-            (p.surface_sunken, p.text_muted, p.border, DISABLED_OPACITY)
-        } else {
-            (fill, text, border, 1.0)
-        };
+        let (fill, text, border, hover, opacity) =
+            button_colors(self.variant, self.disabled, self.busy, &p);
         let hover = if inert { fill } else { hover };
 
         let variant = ButtonCustomVariant::new(cx)
@@ -326,5 +350,51 @@ mod tests {
             button("b", "Open").visible_label().map(AsRef::as_ref),
             Some("Open")
         );
+    }
+
+    #[test]
+    fn busy_button_colours() {
+        use gpui_component::ThemeMode;
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let p = Palette::new(mode);
+            let clear = gpui::transparent_black();
+            for variant in [
+                Variant::Secondary,
+                Variant::Primary,
+                Variant::Quiet,
+                Variant::Danger,
+            ] {
+                let quiet = variant == Variant::Quiet;
+                let (fill, text, border) = if quiet {
+                    (clear, p.text_muted, clear)
+                } else {
+                    (p.surface_sunken, p.text_muted, p.border)
+                };
+                // Busy: the disabled colours at full strength, even if also disabled.
+                for disabled in [false, true] {
+                    let got = button_colors(variant, disabled, true, &p);
+                    assert_eq!(
+                        (got.0, got.1, got.2, got.4),
+                        (fill, text, border, 1.0),
+                        "busy {variant:?} disabled={disabled}"
+                    );
+                }
+                // Disabled: unchanged, faded.
+                let got = button_colors(variant, true, false, &p);
+                let opacity = if quiet {
+                    QUIET_DISABLED_OPACITY
+                } else {
+                    DISABLED_OPACITY
+                };
+                assert_eq!(
+                    (got.0, got.1, got.2, got.4),
+                    (fill, text, border, opacity),
+                    "disabled {variant:?}"
+                );
+            }
+            // Enabled primary keeps the accent fill.
+            let got = button_colors(Variant::Primary, false, false, &p);
+            assert_eq!((got.0, got.1, got.4), (p.accent, p.accent_text, 1.0));
+        }
     }
 }

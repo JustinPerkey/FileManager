@@ -69,8 +69,10 @@ pub struct FmSelect {
     on_pick: Option<PickHandler>,
 }
 
-/// A select named `label` (its tooltip and accessible name, and the text it
-/// shows while nothing is selected) over `options`, each `(title, value)`.
+/// A select named `label`. The label is only the placeholder (the text shown
+/// while nothing is selected), the tooltip and the accessible name. A keyboard
+/// user never sees a tooltip, so every caller must also render a visible label
+/// beside the select, as a form row does. It offers `options`, each `(title, value)`.
 /// `id` must be unique among the selects of one view.
 #[must_use]
 pub fn select(

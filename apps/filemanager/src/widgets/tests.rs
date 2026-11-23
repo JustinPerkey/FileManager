@@ -16,6 +16,7 @@ use gpui::{
 use gpui_component::input::{InputState, TextareaState};
 use gpui_component::{h_flex, v_flex, Root, ThemeMode};
 
+use super::middle_path::last_drawn;
 use super::*;
 use crate::app::probe::Tag as _;
 use crate::assets::ICON_NAMES;
@@ -172,24 +173,38 @@ fn busy_button_is_inert_and_keeps_label(cx: &mut TestAppContext) {
     assert_eq!(busy.visible_label().map(AsRef::as_ref), Some("Build"));
     assert!(busy.is_busy());
 
-    let (_view, cx) = open(
-        cx,
-        |_, _| (),
+    let is_busy = Rc::new(Cell::new(false));
+    let (view, cx) = open(cx, |_, _| (), {
+        let is_busy = is_busy.clone();
         move |(), _, _| {
             let handler = handler.clone();
             button("build", "Build")
                 .primary()
-                .busy(true)
+                .busy(is_busy.get())
                 .debug_selector("build")
                 .on_click(move |e, w, c| handler(e, w, c))
                 .into_any_element()
-        },
-    );
-    click(cx, "build");
+        }
+    });
+    let focused = |cx: &mut VisualTestContext| {
+        cx.update(|window, cx| window.focused(cx).map(|h| format!("{h:?}")))
+    };
+
+    // Idle and focused: Enter works.
     first_tab_stop(cx);
+    let before = focused(cx).expect("focused");
+    press(cx, "enter");
+    assert_eq!(count.get(), 1);
+
+    // Becoming busy while focused keeps the focus; nothing activates it.
+    is_busy.set(true);
+    view.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert_eq!(focused(cx), Some(before), "focus stays on the busy button");
     press(cx, "enter");
     press(cx, "space");
-    assert_eq!(count.get(), 0, "a busy button does nothing when activated");
+    click(cx, "build");
+    assert_eq!(count.get(), 1, "a busy button does nothing when activated");
 }
 
 #[test]
@@ -537,7 +552,7 @@ fn middle_path_tooltip_is_full_path(cx: &mut TestAppContext) {
         |_, _| (),
         move |(), _, _| {
             div()
-                .w(px(180.0))
+                .w(px(260.0))
                 .debug_selector(|| "narrow".into())
                 .child(MiddlePath::new(path))
                 .into_any_element()
@@ -545,7 +560,13 @@ fn middle_path_tooltip_is_full_path(cx: &mut TestAppContext) {
     );
     cx.run_until_parked();
     let b = bounds(cx, "narrow");
-    assert!(b.size.width <= px(180.0), "{:?}", b.size);
+    assert!(b.size.width <= px(260.0), "{:?}", b.size);
+    // The box measured, so the drawn text is the cut path: it has the
+    // ellipsis and still ends with the file name.
+    let drawn = last_drawn(path);
+    assert!(drawn.contains('\u{2026}'), "{drawn}");
+    assert!(drawn.ends_with(r"\file-00001.bin"), "{drawn}");
+    assert!(drawn.chars().count() < path.chars().count());
 }
 
 // MARK: gallery
@@ -693,6 +714,14 @@ fn open_gallery(cx: &mut TestAppContext) -> (Entity<Gallery>, &mut VisualTestCon
 #[gpui::test]
 fn gallery_draws_and_every_control_is_a_tab_stop(cx: &mut TestAppContext) {
     let (_view, cx) = open_gallery(cx);
+
+    // The harness resolves a `.tag(..)` once a frame has been drawn.
+    crate::app::probe::begin_frame();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        crate::app::probe::bounds("g-primary").is_some(),
+        "the tagged button resolves"
+    );
 
     // Tab walks every control once and comes back to the start. The stops:
     // secondary, primary, quiet, danger, icon, icon-only, busy (focusable: it

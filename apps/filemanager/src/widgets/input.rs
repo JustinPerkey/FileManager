@@ -82,6 +82,11 @@ impl FmInput {
     }
 
     /// Faded, and ignores the pointer and the keyboard.
+    ///
+    /// gpui-component may apply its own disabled styling on top of our opacity
+    /// 0.6, so the input could fade twice. Left as is for now: the first
+    /// screenshot that shows a disabled input checks it. If it fades twice,
+    /// drop our 0.6 and keep gpui-component's, if its text still meets 4.5:1.
     #[must_use]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;

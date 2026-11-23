@@ -51,6 +51,27 @@ pub fn middle_truncate(text: &str, max_chars: usize) -> String {
     out
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The text last drawn for each display path, for the view tests.
+    static DRAWN: std::cell::RefCell<std::collections::HashMap<String, String>> =
+        std::cell::RefCell::default();
+}
+
+#[cfg(test)]
+fn record_drawn(display: &str, shown: &str) {
+    DRAWN.with(|d| {
+        d.borrow_mut()
+            .insert(display.to_string(), shown.to_string())
+    });
+}
+
+/// The text most recently drawn for the path `display` (tests only).
+#[cfg(test)]
+pub(crate) fn last_drawn(display: &str) -> String {
+    DRAWN.with(|d| d.borrow().get(display).cloned().expect("path was drawn"))
+}
+
 /// A middle-truncated path in mono, with the full path as its tooltip.
 #[derive(IntoElement)]
 pub struct MiddlePath {
@@ -118,6 +139,8 @@ impl RenderOnce for MiddlePath {
 
         let width = window.use_keyed_state((self.id.clone(), "width"), cx, |_, _| None::<Pixels>);
         let shown = self.shown(*width.read(cx), advance);
+        #[cfg(test)]
+        record_drawn(&self.display, &shown);
         let tooltip = self.tooltip_text();
 
         div()
