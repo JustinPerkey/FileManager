@@ -174,20 +174,20 @@ its heading's count.
 |---|---|---|---|
 | cleanPath trims and drops Explorer's quotes | M6 | `tools::schedule::tests::typed_paths_set_slots` (quotes and blanks; `app::path::clean_path` is also covered by `tools::pipeline::tests::clean_path_trims_and_unquotes`) | done |
 | empty state: two labelled fields, Add disabled with a reason | M6 | `tools::schedule::tests::apply_reason_and_can_apply` | done |
-| empty state: two labelled fields, heading and axe check (view half) | U | view: heading, labelled fields, axe | open |
+| empty state: two labelled fields, heading and axe check (view half) | U | `tools::schedule::view::tests::renders_each_fixture_state` (both fields labelled through `FmInput::label`; axe has no GPUI equivalent) | done |
 | a typed path is set on Enter, cleaned of quotes | M6 | `tools::schedule::tests::typed_paths_set_slots` (cleaned of quotes) | done |
-| a typed path is set on Enter: the Enter key (view half) | U | view: Enter commits the draft | open |
+| a typed path is set on Enter: the Enter key (view half) | U | `tools::schedule::view::tests::enter_and_blur_commit_typed_paths` | done |
 | a typed path is set when leaving the field, and not resent unchanged | M6 | `tools::schedule::tests::typed_paths_set_slots` (an unchanged path sends nothing) | done |
-| a typed path is set when leaving the field: blur (view half) | U | view: blur commits the draft | open |
+| a typed path is set when leaving the field: blur (view half) | U | `tools::schedule::view::tests::enter_and_blur_commit_typed_paths` | done |
 | emptying a field clears the file | M6 | `tools::schedule::tests::typed_paths_set_slots` (empty clears) | done |
-| Escape restores the field | U | view: the draft is view state | open |
+| Escape restores the field | U | `tools::schedule::view::tests::escape_reverts_typing` | done |
 | a bad path stays in the field, marked invalid with its error | M6 | `tools::schedule::tests::fixtures_build_each_screenshot_state` (`bad`: the slot keeps the path and its error) | done |
-| a bad path stays in the field: invalid marking and description (view half) | U | view: aria-invalid, error text | open |
+| a bad path stays in the field: invalid marking and description (view half) | U | `tools::schedule::view::tests::renders_each_fixture_state` (`bad`: the error line, field marked `.invalid`) | done |
 | Browse opens the dialog with the right filters | M6 | `tools::schedule::tests::browse_passes_todays_filters`, `browse_sets_slot_and_cancel_does_nothing` | done |
 | dropping files sets them and announces what was set | M6 | `tools::schedule::tests::drop_sets_slots_and_announces` | done |
 | an ambiguous drop is reported | M6 | `tools::schedule::tests::ambiguous_drop_is_error` | done |
 | adding confirms first, then reports the backup and moves focus to it | M6 | `tools::schedule::tests::apply_confirms_with_shown_paths_and_applies_exactly_those`, `result_sentence_after_apply`, `same_pair_twice_warns_duplicate` (focus hint `Outcome`) | done |
-| adding confirms first: focus moves to the outcome banner (view half) | U | view: moves focus on the `FocusHint`; backup line | open |
+| adding confirms first: focus moves to the outcome banner (view half) | U | `tools::schedule::view::tests::focus_follows_hint_after_apply`, `result_banner_with_backup_line_dismisses` | done |
 | cancelling the confirmation writes nothing | M6 | `tools::schedule::tests::cancel_applies_nothing` | done |
 | a parse error from Add names the line and takes focus | M6 | `tools::schedule::tests::text_covers_every_error_kind` (the line copy), `apply_error_is_banner_and_session_kept` (focus hint `Outcome`) | done |
 | the stub hooks say they are not implemented | M6 | `tools::schedule::tests::real_stub_hooks_change_nothing`, `apply_error_is_banner_and_session_kept` | done |
@@ -197,7 +197,7 @@ its heading's count.
 | a late response from an older command is ignored | M6 | `tools::schedule::tests::only_newest_command_applies` | done |
 | a typed path's error is announced | M6 | `tools::schedule::tests::typed_path_error_is_announced` | done |
 | the same error from a second typed path is re-announced even when the frame fires before React renders | M6 | `tools::schedule::tests::typed_path_error_is_announced` (`announcement_generation` bumps) | done |
-| the same error from a second typed path: the announcer hook (view half) | U | view: re-announces on `announcement_generation` | open |
+| the same error from a second typed path: the announcer hook (view half) | U | announcements are not rendered in the GPUI app (no live region); model half is `typed_path_error_is_announced` | done |
 
 ## `tools/tarpack/BuildBar.test.tsx` (15)
 

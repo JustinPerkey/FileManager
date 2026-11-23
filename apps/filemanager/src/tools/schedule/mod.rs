@@ -68,14 +68,14 @@ fn backend_for(cx: &App) -> Box<dyn ScheduleBackend> {
     }
 }
 
-pub(super) fn slot(_window: &mut Window, cx: &mut App) -> ToolSlot {
+pub(super) fn slot(window: &mut Window, cx: &mut App) -> ToolSlot {
     let backend = backend_for(cx);
     let model = cx.new(|cx| ScheduleModel::new(backend, cx));
     ToolSlot {
         id: ToolId::Schedule,
         label: "Schedule Creator",
         view: cx
-            .new(|cx| view::ScheduleView::new(model.clone(), cx))
+            .new(|cx| view::ScheduleView::new(model.clone(), window, cx))
             .into(),
         hooks: Box::new(Hooks { model }),
     }
