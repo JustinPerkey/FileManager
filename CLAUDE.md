@@ -74,7 +74,10 @@ crates/
                               `src/session/` is Session: reads (list, object, m2m_options),
                               schema/config change detection, and save (`save.rs`: checks,
                               reference resolution, one BEGIN IMMEDIATE transaction;
-                              `backup.rs`: the one backup before a session's first write);
+                              `links.rs`: many-to-many link adds, updates and removes in
+                              that same transaction, strict conflicts;
+                              `backup.rs`: the one backup before a session's first write;
+                              `delete.rs`: the delete impact preview and the confirmed delete);
                               `session/sql.rs` is the only module that assembles SQL text
     src/value.rs              DbValue (boundary value; integers, reals, durations as strings)
     src/rules/                FieldRule/FieldKind/FieldIssue types, pure validate, and
@@ -155,6 +158,13 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
   src/app/                    shell.rs (Shell root view: current tool, drop routing,
                               notice, close request), drop.rs (DropTarget), guard.rs
                               (CloseRequest, unsaved work from the tools),
+                              dirs.rs (user_app_dirs, system_config_path,
+                              user_documents_dir: the only callers of the real
+                              folders; the first two panic in test and `shoot`
+                              builds, the third returns a fake path; the main
+                              `filemanager-gpui` binary built with `--features
+                              shoot` panics at startup by design, only
+                              `filemanager-shoot` runs with that feature),
                               dev_mode.rs (Ctrl+Alt+Shift+D global, keystroke interceptor), text.rs,
                               view/ (the chrome slot: ui-implementer's, placeholder.rs
                               is the plain stand-in)

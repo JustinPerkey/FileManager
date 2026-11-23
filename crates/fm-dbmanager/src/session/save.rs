@@ -11,6 +11,7 @@ use rusqlite::{
 
 use super::backup::ensure_backup;
 use super::key::conditions;
+use super::links;
 use super::read::Reader;
 use super::sql;
 use super::types::{FieldChange, FieldInput, ObjectKey, SaveRequest, SaveResult};
@@ -44,7 +45,7 @@ pub(crate) struct Bound<'a> {
     pub value: Value,
 }
 
-fn issue(code: FieldIssueCode, message: &str) -> FieldIssue {
+pub(crate) fn issue(code: FieldIssueCode, message: &str) -> FieldIssue {
     FieldIssue {
         code,
         message: message.to_owned(),
@@ -285,6 +286,7 @@ pub(crate) fn map_constraint(
                             column: (*c).to_owned(),
                             issues: vec![issue(code, text)],
                         }],
+                        links: Vec::new(),
                     };
                 }
             }
@@ -349,7 +351,7 @@ const RACE_RETRIES: u32 = 3;
 /// deleted and the loop retakes it; after `RACE_RETRIES` tries the answer is
 /// `Busy`. `after_backup` is a test seam that runs between the copy and the
 /// lock.
-fn begin_guarded<'c>(
+pub(super) fn begin_guarded<'c>(
     conn: &'c Connection,
     database: &Path,
     backup: &mut Option<PathBuf>,
@@ -413,6 +415,25 @@ impl Session {
         Ok((rt, phase))
     }
 
+    /// A save that changes nothing: only the version is checked.
+    fn version_only(
+        &self,
+        request: &SaveRequest,
+        key: &ObjectKey,
+    ) -> Result<SaveResult, SessionError> {
+        let current = self.object(&request.table, key)?;
+        if Some(&current.version) != request.version.as_ref() {
+            return Err(SessionError::Conflict {
+                current: Box::new(current),
+                link: None,
+            });
+        }
+        Ok(SaveResult {
+            object: current,
+            backup_created: None,
+        })
+    }
+
     /// Saves one object's field changes (an update, or a create when
     /// `request.key` is `None`) in one transaction, after the session's
     /// one-time backup. Nothing is written unless everything is.
@@ -432,20 +453,16 @@ impl Session {
             Phase::Update => Vec::new(),
         };
         let (checked, errors) = check_changes(&rt.fields, &request.changes, phase, &also_required);
-        if !errors.is_empty() {
-            return Err(SessionError::Validation { fields: errors });
-        }
-        if let (Some(key), true) = (&request.key, request.changes.is_empty()) {
-            let current = self.object(&request.table, key)?;
-            if Some(&current.version) != request.version.as_ref() {
-                return Err(SessionError::Conflict {
-                    current: Box::new(current),
-                });
-            }
-            return Ok(SaveResult {
-                object: current,
-                backup_created: None,
+        let (planned, link_errors) = links::plan(&rt, &request.links, phase)?;
+        if !errors.is_empty() || !link_errors.is_empty() {
+            return Err(SessionError::Validation {
+                fields: errors,
+                links: link_errors,
             });
+        }
+        let links_empty = links::is_empty(&request.links);
+        if let (Some(key), true) = (&request.key, request.changes.is_empty() && links_empty) {
+            return self.version_only(request, key);
         }
 
         // Steps 6 to 12.
@@ -481,36 +498,47 @@ impl Session {
             return Err(SessionError::SchemaChanged);
         }
         let reader = Reader { conn: &tx, model };
-        if let Some(key) = &request.key {
+        // Step 8's read, before any write: every conflict reports it.
+        let existing = if let Some(key) = &request.key {
             let existing = reader.object(&request.table, key)?;
             if Some(&existing.version) != request.version.as_ref() {
                 return Err(SessionError::Conflict {
                     current: Box::new(existing),
+                    link: None,
                 });
             }
-        }
+            Some(existing)
+        } else {
+            None
+        };
         let bound = match resolve_references(&tx, model, checked)? {
             Ok(b) => b,
-            Err(fields) => return Err(SessionError::Validation { fields }),
+            Err(fields) => {
+                return Err(SessionError::Validation {
+                    fields,
+                    links: Vec::new(),
+                })
+            }
         };
         let values: Vec<_> = bound
             .iter()
             .map(|b| (&st.columns[b.field.column].name, b.value.clone()))
             .collect();
-        let write = match &request.key {
-            Some(key) => {
-                let wheres = conditions(st, key).ok_or(SessionError::UnknownObject)?;
-                sql::update(&st.name, values, wheres)
-            }
-            None => sql::insert(&st.name, values),
-        };
-        let written = tx.execute(&write.sql, params_from_iter(write.params.iter()));
-        if let Err(e) = written {
-            return Err(map_constraint(e, table_name, &changed));
+        if request.key.is_none() || !values.is_empty() {
+            let write = match &request.key {
+                Some(key) => {
+                    let wheres = conditions(st, key).ok_or(SessionError::UnknownObject)?;
+                    sql::update(&st.name, values, wheres)
+                }
+                None => sql::insert(&st.name, values),
+            };
+            tx.execute(&write.sql, params_from_iter(write.params.iter()))
+                .map_err(|e| map_constraint(e, table_name, &changed))?;
         }
-        let key = saved_key(st, &bound, tx.last_insert_rowid(), request.key.as_ref());
-        let object = key.and_then(|k| reader.object(&request.table, &k));
-        let object = object?;
+        let key = saved_key(st, &bound, tx.last_insert_rowid(), request.key.as_ref())?;
+        // Step 11: the links.
+        links::apply(&reader, existing.as_ref(), st, &key, planned)?;
+        let object = reader.object(&request.table, &key)?;
         tx.commit()
             .map_err(|e| map_constraint(e, table_name, &changed))?;
         let backup_created = if *backup_announced {

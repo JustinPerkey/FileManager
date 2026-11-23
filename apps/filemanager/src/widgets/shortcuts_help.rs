@@ -107,7 +107,10 @@ impl RenderOnce for ShortcutsHelp {
                                 .flex_none()
                                 .whitespace_nowrap()
                                 .py(px(SPACE_1))
-                                .child(chords(&row.keys))
+                                .child(
+                                    chords(&row.keys)
+                                        .last_key_selector(format!("{id}-last-key-{i}")),
+                                )
                                 .debug_selector(move || keys_id.clone())
                                 .into_any_element(),
                             div()

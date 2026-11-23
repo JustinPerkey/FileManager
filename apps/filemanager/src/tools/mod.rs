@@ -58,6 +58,9 @@ pub enum FixtureId {
 /// [`crate::run_with`]. A tool's `slot` reads it with [`BackendSet::get`]. Each
 /// tool milestone adds its fixtures behind
 /// `#[cfg(any(test, feature = "shoot"))]`.
+///
+/// `BackendSet::default()` is the real set and is for [`crate::run`] only;
+/// tests and the harness use [`BackendSet::fixtures`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BackendSet {
     pub pipeline: Backend,
@@ -68,10 +71,36 @@ pub struct BackendSet {
 impl Global for BackendSet {}
 
 impl BackendSet {
-    /// The set installed on `cx`; all real if none was.
+    /// The set installed on `cx`; all real if none was. In test and `shoot`
+    /// builds a missing set falls back to fixtures instead: a safety net so a
+    /// forgotten install can never reach the real user folders.
     #[must_use]
     pub fn get(cx: &App) -> Self {
-        cx.try_global::<Self>().copied().unwrap_or_default()
+        cx.try_global::<Self>().copied().unwrap_or_else(|| {
+            #[cfg(any(test, feature = "shoot"))]
+            {
+                Self::fixtures()
+            }
+            #[cfg(not(any(test, feature = "shoot")))]
+            {
+                Self::default()
+            }
+        })
+    }
+
+    /// A fixture backend for every tool, each in its neutral state.
+    #[cfg(any(test, feature = "shoot"))]
+    #[must_use]
+    pub fn fixtures() -> Self {
+        Self {
+            pipeline: Backend::Fixture(FixtureId::Pipeline(
+                pipeline::fixtures::PipelineFixture::Empty,
+            )),
+            tarpack: Backend::Fixture(FixtureId::Tarpack(tarpack::fixtures::TarpackFixture::Empty)),
+            schedule: Backend::Fixture(FixtureId::Schedule(
+                schedule::fixtures::ScheduleFixture::Empty,
+            )),
+        }
     }
 }
 

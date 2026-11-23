@@ -80,6 +80,23 @@ fn nav_click_selects_tool(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn sidebar_click_focuses_the_item_so_arrows_work(cx: &mut TestAppContext) {
+    let (_states, shell, cx) = setup(cx);
+    // Nothing is focused; a mouse click on the second item selects it...
+    click(cx, "tool-nav-tarpack");
+    assert_eq!(current(&shell, cx), ToolId::Tarpack);
+    // ...and focuses it, so Down moves to the next item (wrapping to the
+    // first) and Enter selects that one.
+    press(cx, "down");
+    press(cx, "enter");
+    assert_eq!(current(&shell, cx), ToolId::Schedule);
+    press(cx, "up");
+    press(cx, "up");
+    press(cx, "enter");
+    assert_eq!(current(&shell, cx), ToolId::Pipeline);
+}
+
+#[gpui::test]
 fn nav_keys_move_wrap_and_select(cx: &mut TestAppContext) {
     let (_states, shell, cx) = setup(cx);
     // Tab reaches the current item.
@@ -111,10 +128,12 @@ fn nav_keys_move_wrap_and_select(cx: &mut TestAppContext) {
 fn only_the_current_item_is_a_tab_stop(cx: &mut TestAppContext) {
     let (_states, shell, cx) = setup(cx);
     click(cx, "tool-nav-schedule");
+    // Drop the click's focus, then Tab: the one tab stop is the current item.
+    cx.update(Window::blur);
     cx.update(Window::focus_next);
     cx.run_until_parked();
-    // Focus is on the Schedule item: Down wraps to Pipeline, which only a
-    // focused Schedule item (the one tab stop) lets us observe.
+    // Down wraps to Pipeline only if focus is on the Schedule item (the list
+    // order is Pipeline, Tar Packager, Schedule Creator).
     press(cx, "down");
     press(cx, "enter");
     assert_eq!(current(&shell, cx), ToolId::Pipeline);

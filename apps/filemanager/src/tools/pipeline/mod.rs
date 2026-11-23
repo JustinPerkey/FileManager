@@ -41,14 +41,14 @@ fn backend_for(cx: &App) -> Box<dyn PipelineBackend> {
     }
 }
 
-pub(super) fn slot(_window: &mut Window, cx: &mut App) -> ToolSlot {
+pub(super) fn slot(window: &mut Window, cx: &mut App) -> ToolSlot {
     let backend = backend_for(cx);
     let model = cx.new(|cx| PipelineModel::new(backend, cx));
     ToolSlot {
         id: ToolId::Pipeline,
         label: "Pipeline",
         view: cx
-            .new(|cx| view::PipelineView::new(model.clone(), cx))
+            .new(|cx| view::PipelineView::new(model.clone(), window, cx))
             .into(),
         hooks: Box::new(Hooks { model }),
     }

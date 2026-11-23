@@ -60,6 +60,14 @@ const EXPORTERS: &[Exporter] = &[
     <fm_dbmanager::config::ConfigStatus as ts_rs::TS>::export_all,
     <fm_dbmanager::session::SaveRequest as ts_rs::TS>::export_all,
     <fm_dbmanager::session::SaveResult as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::LinkChange as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::LinkAdd as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::LinkUpdate as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::LinkRemove as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::LinkRef as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::LinkError as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::DeleteImpact as ts_rs::TS>::export_all,
+    <fm_dbmanager::session::DeleteResult as ts_rs::TS>::export_all,
 ];
 
 const COMMITTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/generated");

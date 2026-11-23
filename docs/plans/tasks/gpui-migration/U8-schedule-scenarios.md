@@ -55,6 +55,11 @@ missing capability), `docs/manual/`, `docs/plans/`.
 
 ## Skill
 
+**Mono paths (from the U7 review, 2026-11-23).** The backup line and the
+confirmation's paths render plain today. Follow U6's choice: rich text
+(`U3b-rich-text-and-dialog-defaults.md`) or the `extra` line in mono. If U6
+left it open, decide here and record it in the PR.
+
 `/impeccable critique` on the five PNGs (light, and the `dark-` set from `--dark --prefix dark-`) against
 today's images; fix view-only parity misses in U7's files (named in the
 PR); report the rest.

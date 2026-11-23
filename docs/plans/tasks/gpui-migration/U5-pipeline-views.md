@@ -139,7 +139,7 @@ one-line change; add a view test,
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`
   column and cannot style it. So this task's root view is `size_full`, adds
-  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_6`
+  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_5`
   from `theme::tokens`), and handles its own scrolling (an
   `overflow_y_scroll` region inside the root, not the root's parent).
 - **Confirmations.** If this view shows a confirmation, call `sync_confirm`
@@ -160,7 +160,7 @@ lists (where this plan says "debug selector", read "tag"). If a
 
 Create: `apps/filemanager/src/tools/pipeline/view/{folder.rs,run_bar.rs,steps.rs,tests.rs}`.
 Edit: `apps/filemanager/src/tools/pipeline/view/mod.rs` (replace the
-placeholder), `docs/gpui-test-ledger.md` (Pipeline rows marked U).
+placeholder), `apps/filemanager/src/tools/pipeline/mod.rs` (as built: `slot()` passes `window` to the view; recorded 2026-11-23), `docs/gpui-test-ledger.md` (Pipeline rows marked U).
 Do not touch: `model.rs`, `text.rs`, `backend.rs`, `fixtures.rs`, other
 tools, `crates/`, `apps/desktop/`, `docs/plans/`.
 
@@ -216,3 +216,5 @@ implemented), all passed, confirmation, error banner.
 ## Out of scope
 
 Scenarios (U6); model behaviour (M5).
+
+**Follow-ups from the review (2026-11-23):** `U5b-pipeline-followups.md`.

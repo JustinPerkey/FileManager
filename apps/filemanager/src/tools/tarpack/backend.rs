@@ -209,7 +209,7 @@ impl RealTarpack {
     /// remembers nothing and says so as its state warning.
     #[must_use]
     pub fn new() -> Self {
-        let core = match AppDirs::from_system() {
+        let core = match crate::app::dirs::user_app_dirs() {
             Ok(dirs) => Core::new(&dirs),
             Err(e) => Core::unpersisted(format!("saved state is unavailable: {e}.")),
         };

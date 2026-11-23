@@ -1,1 +1,9 @@
 apps/desktop/src/lib/generated/** text eol=lf
+
+# Example files are read by tests through include_str! and edited with "\n"
+# patterns, so they must be LF on every checkout.
+examples/** text eol=lf
+
+# Other files read through include_str! and matched with multi-line patterns.
+docs/dbmanager-config.md text eol=lf
+apps/desktop/src/tools/** text eol=lf

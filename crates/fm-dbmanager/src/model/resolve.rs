@@ -4,7 +4,9 @@
 use super::fields::{resolve_field, Env, Source, TableCtx};
 use super::labels::{display_order, resolve_label, resolve_order, search_columns};
 use super::m2m::{build, detect, Junction, Relation};
-use super::{diag, M2mSide, Model, ResolvedField, ResolvedTable, ReverseRelation};
+use super::{
+    diag, JunctionFacts, M2mSide, Model, ResolvedField, ResolvedTable, ReverseRelation, TableFacts,
+};
 use crate::config::{
     At, ConfigDiagnostic, ConfigReport, DiagnosticSeverity, FieldEntry, FieldMode, Located,
     RelationMode, TableConfig, TableEntry, TableMode,
@@ -550,9 +552,34 @@ pub fn resolve(schema: &Schema, report: &ConfigReport) -> Model {
             &b.column,
         ))
     });
+    let facts: Vec<TableFacts> = (0..n)
+        .map(|ti| TableFacts {
+            display_name: display_names[ti].clone(),
+            hidden: hidden_tables[ti],
+            junction: junctions[ti].as_ref().map(|j| JunctionFacts {
+                columns: [j.a.column, j.b.column],
+                relation_hidden: relations
+                    .iter()
+                    .any(|r| r.junction == ti && r.mode == RelationMode::Hidden),
+                link_data: !j.extra.is_empty(),
+            }),
+            column_names: all_fields[ti]
+                .iter()
+                .zip(&schema.tables[ti].columns)
+                .map(|(f, c)| {
+                    if f.mode == FieldMode::Hidden {
+                        c.name.as_str().to_owned()
+                    } else {
+                        f.display_name.clone()
+                    }
+                })
+                .collect(),
+        })
+        .collect();
     Model {
         schema: schema.clone(),
         tables,
+        facts,
         diagnostics: diags,
     }
 }

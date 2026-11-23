@@ -203,9 +203,7 @@ fn is_dark(cx: &TestAppContext) -> bool {
 
 #[gpui::test]
 fn dark_flag_sets_override_before_first_frame(cx: &mut TestAppContext) {
-    use crate::platform::fake::FakePlatform;
-    let mut setup = AppSetup::real(false);
-    setup.platform = Rc::new(FakePlatform::new());
+    let mut setup = AppSetup::for_tests();
     (sample().setup)(&mut setup);
     cx.update(|cx| init_scenario_app(cx, setup, true));
     // Dark before any window exists, and still dark once the first one opens
@@ -217,9 +215,7 @@ fn dark_flag_sets_override_before_first_frame(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn without_the_dark_flag_the_theme_follows_the_system(cx: &mut TestAppContext) {
-    use crate::platform::fake::FakePlatform;
-    let mut setup = AppSetup::real(false);
-    setup.platform = Rc::new(FakePlatform::new());
+    let setup = AppSetup::for_tests();
     cx.update(|cx| init_scenario_app(cx, setup, false));
     cx.update(|cx| crate::open_main_window(cx, (1000.0, 700.0)).expect("window opens"));
     assert!(!is_dark(cx));

@@ -128,11 +128,33 @@ Extend `SHORTCUT_ROWS` (U9) only if M7b's `text.rs` holds a different
 list; the Ctrl+E row shows only in developer mode; Ctrl+Alt+Shift+D is never
 listed.
 
+**Focus targets (after the U9 review, 2026-11-23).**
+U9's `TarpackView` (`view/mod.rs`) has `follow_focus_hint` and the focus
+handles `reload_focus`, `result_focus` and `after_result_focus`.
+
+- **`after_result_focus()` is the build bar's first control.** Track that
+  handle on the build bar's first focusable control (the output's Choose
+  button, or the first enabled one), so `FocusHint::AfterResult` lands
+  there, as today ("the first tabbable element after the drop result").
+- **`in_result` covers the build result too.** `follow_focus_hint` checks
+  `result_focus.contains_focused(..)` for the drop result only. Widen it to
+  the build result's container as well, because the model sends `Reload`
+  when a reload removes a build result that held focus.
+- **Handle the Create archive hints:**
+  - `FocusHint::CreateArchive` (a build ended, or its result was dismissed,
+    while focus was in the result or on the disabled button) focuses
+    **Create archive**;
+  - `CreateArchiveAfterDialog` (after the overwrite confirmation closes)
+    focuses it unconditionally.
+- Tests: `after_result_focus_lands_on_build_bar_first_control`,
+  `reload_from_inside_build_result_focuses_reload`,
+  `create_archive_hints_focus_the_button`.
+
 **Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`
   column and cannot style it. So this task's root view is `size_full`, adds
-  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_6`
+  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_5`
   from `theme::tokens`), and handles its own scrolling (an
   `overflow_y_scroll` region inside the root, not the root's parent).
 - **Confirmations.** If this view shows a confirmation, call `sync_confirm`

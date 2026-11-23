@@ -2,13 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::rules::{FieldError, FieldIssue};
 use crate::value::DbValue;
 
 /// Opaque. May carry hidden identity values. Never render it.
 ///
 /// A rowid table is keyed by its rowid (a decimal string);
 /// a `WITHOUT ROWID` table by its primary-key values in key order.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ObjectKey {
     Rowid { value: String },
@@ -152,6 +153,74 @@ pub struct SaveRequest {
     /// (`LoadedConfig::hash`). A save prepared under old rules is refused.
     pub config_hash: String,
     pub changes: Vec<FieldChange>,
+    /// Many-to-many link changes, committed in the same transaction. Always
+    /// present on the TypeScript side (send `[]` for none); a missing JSON
+    /// array deserialises as empty.
+    #[serde(default)]
+    pub links: Vec<LinkChange>,
+}
+
+/// The staged changes to one many-to-many relation of the saved object.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkChange {
+    /// `m2m:<junction>`, a many-to-many side of the saved table.
+    pub relation: String,
+    #[serde(default)]
+    pub add: Vec<LinkAdd>,
+    #[serde(default)]
+    pub update: Vec<LinkUpdate>,
+    #[serde(default)]
+    pub remove: Vec<LinkRemove>,
+}
+
+/// A new link. Link fields left out take their column default.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkAdd {
+    /// The object on the other side.
+    pub other: ObjectKey,
+    #[serde(default)]
+    pub fields: Vec<FieldChange>,
+}
+
+/// New values for an existing link's fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkUpdate {
+    pub other: ObjectKey,
+    /// The `link_version` the UI read; a different stored one is a conflict.
+    pub version: String,
+    pub fields: Vec<FieldChange>,
+}
+
+/// A link to delete.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkRemove {
+    pub other: ObjectKey,
+    /// The `link_version` the UI read. `None` removes whatever is stored.
+    pub version: Option<String>,
+}
+
+/// One link of one relation of the saved object.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkRef {
+    pub relation: String,
+    pub other: ObjectKey,
+}
+
+/// What is wrong with one staged link.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkError {
+    pub relation: String,
+    pub other: ObjectKey,
+    /// Issues on link fields.
+    pub fields: Vec<FieldError>,
+    /// Issues on the link itself (`referenceMissing`, `notAllowed`).
+    pub issues: Vec<FieldIssue>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]

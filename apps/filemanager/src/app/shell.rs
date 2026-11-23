@@ -412,6 +412,7 @@ pub(crate) mod test_support {
         cx.update(|cx| {
             gpui_component::init(cx);
             DevMode::init(cx);
+            cx.set_global(crate::tools::BackendSet::fixtures());
         });
         let mut shell = None;
         let window = cx.add_window(|window, cx| {

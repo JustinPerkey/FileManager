@@ -3,8 +3,10 @@
 
 mod backup;
 mod cell;
+mod delete;
 mod key;
 mod label;
+mod links;
 mod read;
 mod save;
 mod sql;
@@ -24,10 +26,12 @@ use crate::model::{resolve, Model, TableView};
 use crate::rules::FieldError;
 use crate::schema::introspect;
 
+pub use delete::{DeleteImpact, DeleteResult, ImpactGroup, OnDeleteAction};
 pub use types::{
-    FieldChange, FieldInput, FieldValue, LinkTarget, ListQuery, M2mOption, M2mPage, M2mQuery,
-    ObjectKey, ObjectPage, ObjectSummary, ObjectView, ReferencingFilter, RelationCount,
-    SaveRequest, SaveResult, ValueProblem,
+    FieldChange, FieldInput, FieldValue, LinkAdd, LinkChange, LinkError, LinkRef, LinkRemove,
+    LinkTarget, LinkUpdate, ListQuery, M2mOption, M2mPage, M2mQuery, ObjectKey, ObjectPage,
+    ObjectSummary, ObjectView, ReferencingFilter, RelationCount, SaveRequest, SaveResult,
+    ValueProblem,
 };
 
 /// Why a session operation failed. Later milestones add variants.
@@ -53,19 +57,37 @@ pub enum SessionError {
     },
     Validation {
         fields: Vec<FieldError>,
+        /// Issues on staged links.
+        links: Vec<LinkError>,
     },
     /// The object changed since it was read; `current` is what it is now.
+    /// `link` is set when the conflict is a staged link's (its row changed,
+    /// is missing, or already exists).
     Conflict {
         current: Box<ObjectView>,
+        link: Option<LinkRef>,
     },
     /// The backup could not be taken, so nothing was written.
     BackupFailed {
         detail: String,
     },
-    /// A constraint the app cannot attribute to one field; SQLite's message.
+    /// A constraint the app cannot attribute to one field; SQLite's message,
+    /// or the app's own when it detects the problem itself.
     Constraint {
         message: String,
     },
+    /// What a delete would affect changed since the caller's preview; this
+    /// is the fresh impact. Nothing was deleted.
+    ImpactChanged(Box<DeleteImpact>),
+    /// The delete would fail, or the database refused it. Nothing was
+    /// deleted.
+    ///
+    /// The impact can be `blocked: true` with no group marked `blocks`: that
+    /// happens when SQLite rejects the delete for a reason the preview did
+    /// not predict (an unpredicted FK failure), or when the impact was
+    /// truncated at the cap. Callers must handle it with a generic "this
+    /// object cannot be deleted" message.
+    DeleteBlocked(Box<DeleteImpact>),
 }
 
 impl fmt::Display for SessionError {
@@ -97,6 +119,12 @@ impl fmt::Display for SessionError {
             }
             SessionError::Constraint { message } => {
                 write!(f, "The database refused the change: {message}")
+            }
+            SessionError::ImpactChanged(_) => {
+                f.write_str("What this delete affects changed; review it again.")
+            }
+            SessionError::DeleteBlocked(_) => {
+                f.write_str("Other data depends on this object, so it cannot be deleted.")
             }
         }
     }

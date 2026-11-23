@@ -31,24 +31,24 @@ struct Summary {
     with_rowid: bool,
 }
 
-type Eqs<'a> = Vec<(&'a Ident, Value)>;
+pub(super) type Eqs<'a> = Vec<(&'a Ident, Value)>;
 
 fn eq_filters<'a>(eqs: &Eqs<'a>) -> Vec<Filter<'a>> {
     eqs.iter().map(|(c, v)| Filter::Eq(c, v.clone())).collect()
 }
 
 impl<'a> Reader<'a> {
-    fn table(&self, name: &str) -> Result<&'a ResolvedTable, SessionError> {
+    pub(super) fn table(&self, name: &str) -> Result<&'a ResolvedTable, SessionError> {
         self.model
             .table(name)
             .ok_or_else(|| SessionError::UnknownTable(name.to_owned()))
     }
 
-    fn schema_table(&self, rt: &ResolvedTable) -> &'a Table {
+    pub(super) fn schema_table(&self, rt: &ResolvedTable) -> &'a Table {
         &self.model.schema().tables[rt.schema_index]
     }
 
-    fn fetch(&self, q: &Query) -> Result<Vec<Vec<Cell>>, SessionError> {
+    pub(super) fn fetch(&self, q: &Query) -> Result<Vec<Vec<Cell>>, SessionError> {
         let mut stmt = self.conn.prepare(&q.sql)?;
         let n = stmt.column_count();
         let rows = stmt.query_map(params_from_iter(q.params.iter()), |r| {
@@ -94,7 +94,7 @@ impl<'a> Reader<'a> {
         sel
     }
 
-    fn order(rt: &ResolvedTable, st: &'a Table) -> Vec<(&'a Ident, bool)> {
+    pub(super) fn order(rt: &ResolvedTable, st: &'a Table) -> Vec<(&'a Ident, bool)> {
         let mut order: Vec<(&Ident, bool)> = rt
             .order
             .iter()
@@ -104,7 +104,7 @@ impl<'a> Reader<'a> {
         order
     }
 
-    fn key_conditions(st: &'a Table, key: &ObjectKey) -> Result<Eqs<'a>, SessionError> {
+    pub(super) fn key_conditions(st: &'a Table, key: &ObjectKey) -> Result<Eqs<'a>, SessionError> {
         conditions(st, key).ok_or(SessionError::UnknownObject)
     }
 
@@ -225,7 +225,11 @@ impl<'a> Reader<'a> {
 
     /// Every column of the row, as a [`Row`] (hidden ones included, for the
     /// version).
-    fn full_row(&self, st: &'a Table, eqs: &Eqs<'a>) -> Result<Option<Row>, SessionError> {
+    pub(super) fn full_row(
+        &self,
+        st: &'a Table,
+        eqs: &Eqs<'a>,
+    ) -> Result<Option<Row>, SessionError> {
         let all: Vec<usize> = (0..st.columns.len()).collect();
         let mut sel = Select::new(&st.name);
         sel.columns = st.columns.iter().map(|c| &c.name).collect();

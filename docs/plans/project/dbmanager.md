@@ -531,6 +531,7 @@ meaningful once the shell links the crate, in M10.
 | M12 | ~~[`M12-docs-release.md`](../tasks/dbmanager/M12-docs-release.md)~~ **superseded** by gpui-migration M13 | — | — |
 | M13 | ~~[`M13-config-watch-and-edit.md`](../tasks/dbmanager/M13-config-watch-and-edit.md)~~ **superseded** by gpui-migration M2b (watcher move) and M12d | — | — |
 | M14 | ~~[`M14-window-close-guard.md`](../tasks/dbmanager/M14-window-close-guard.md)~~ **dropped** (GPUI close guard: gpui-migration M3b, M12b) | — | — |
+| M9b | [`M9b-example-eol.md`](../tasks/dbmanager/M9b-example-eol.md) | **New 2026-11-23:** `examples/** text eol=lf` so `include_str!` tests behave the same on Windows (CI red since 1e0d6cf) | none |
 | M15 | [`M15-pattern-syntax.md`](../tasks/dbmanager/M15-pattern-syntax.md) | **New 2026-11-21:** the full Rust `regex` syntax in patterns; the common-subset scanner and the `.` warning go (only Rust validates) | M5 |
 
 **Execution order (revised 2026-11-21 for the GPUI migration):**

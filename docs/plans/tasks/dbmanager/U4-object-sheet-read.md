@@ -102,7 +102,7 @@ Debug selectors: `db-sheet-title`, `db-field-<name>`, `db-follow-<name>`,
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`
   column and cannot style it. So this task's root view is `size_full`, adds
-  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_6`
+  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_5`
   from `theme::tokens`), and handles its own scrolling (an
   `overflow_y_scroll` region inside the root, not the root's parent).
 - **Confirmations.** If this view shows a confirmation, call `sync_confirm`

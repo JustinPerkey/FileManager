@@ -317,11 +317,7 @@ pub fn default_start_dir() -> Option<PathBuf> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push(std::thread::current().id());
-    let dirs = directories::UserDirs::new()?;
-    Some(
-        dirs.document_dir()
-            .map_or_else(|| dirs.home_dir().to_path_buf(), Path::to_path_buf),
-    )
+    crate::app::dirs::user_documents_dir()
 }
 
 impl TarpackModel {
