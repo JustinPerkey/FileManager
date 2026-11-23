@@ -1,7 +1,48 @@
 # U7 — Schedule Creator views
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21); U7 landed and is approved on condition of the blocking item in "Review follow-up" (2026-11-23), which the next run does.
 Project: gpui-migration   Depends on: U4 (landed), M6 (landed)
+
+## Review follow-up (2026-11-23)
+
+U7 is approved on condition that item 1 lands first. **This run does only
+this section.**
+
+1. **(Blocking) Restore `only_the_current_item_is_a_tab_stop`** in
+   `apps/filemanager/src/app/view/tests.rs`. U7 removed a `focus_next`, so
+   the test passes even when every sidebar item is a tab stop: with
+   `.tab_stop(true)` on every item, all 13 shell view tests still passed.
+   - Steps:
+     1. click `tool-nav-schedule`;
+     2. `window.blur()`;
+     3. `focus_next`: the focused element is the Schedule Creator item;
+     4. press Down then Enter: the current tool is Pipeline (the list
+        wraps).
+   - Optionally, press Shift+Tab from the Schedule item and assert focus
+     does not land on the Tar Packager item.
+   - **Revert check:** with `.tab_stop(true)` on every sidebar item in a
+     scratch change, the test fails. Show it in the PR, then restore.
+2. **Loading state: decided, render the header only, as the Pipeline
+   does.** Today nothing is visible while loading (the "Loading" text was a
+   visually hidden span). While `loading()`, render the tool header and
+   intro, and nothing below them. Test: `loading_renders_header_only`.
+3. **Recorded:** `slot()` in `apps/filemanager/src/tools/schedule/mod.rs`
+   passes `window` to the view (as built).
+
+Later plans, not this run:
+
+- **The private `CANCEL`:** the view defines one because Schedule's
+  `text.rs` has none. It is fixed by the shared default cancel label in
+  `U3b-rich-text-and-dialog-defaults.md`. Remove the private constant then.
+- **Mono paths in banners and confirmations** (the backup line and the
+  confirmation paths): `U3b-rich-text-and-dialog-defaults.md`, if the
+  ui-designer picks rich text at U6's or U8's critique.
+
+### Acceptance
+
+- The restored test passes and fails under the revert check.
+- `loading_renders_header_only` passes. The other U7 and shell tests pass.
+- fmt (linux job), clippy pedantic `-D warnings`, `cargo test --workspace`.
 
 ## Goal
 

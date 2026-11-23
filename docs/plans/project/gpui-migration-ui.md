@@ -482,6 +482,7 @@ Four of today's images are crops of one region (`tarpack-buildbar` 1159×54,
 | U1 | [`U1-theme.md`](../tasks/gpui-migration/U1-theme.md) | `theme/`: tokens, gpui-component mapping, live light/dark, tests | M3a |
 | U2 | [`U2-widgets-controls.md`](../tasks/gpui-migration/U2-widgets-controls.md) | Shared controls: text styles, icon, button, input, checkbox, select, tag, banner, disclosure, status, step number, skeleton, middle path, kbd | U1, M3a |
 | U3 | [`U3-widgets-overlays.md`](../tasks/gpui-migration/U3-widgets-overlays.md) | Shared overlays: confirm dialog (extended), menu button, shortcuts help | U2 |
+| U3b | [`U3b-rich-text-and-dialog-defaults.md`](../tasks/gpui-migration/U3b-rich-text-and-dialog-defaults.md) | Rich text (mono paths) in banners and confirmations, if chosen at U6/U8's critique; shared Cancel default | U3, U5, U7 |
 | U4 | [`U4-shell.md`](../tasks/gpui-migration/U4-shell.md) | Chrome: sidebar and current marker, tool area, notice, drop overlay, close prompt | U3, M3b |
 | U5 | [`U5-pipeline-views.md`](../tasks/gpui-migration/U5-pipeline-views.md) | Pipeline views | U4, M5 |
 | U5b | [`U5b-pipeline-followups.md`](../tasks/gpui-migration/U5b-pipeline-followups.md) | U5 review follow-ups: tags on banner actions, optional accessible label, hidden-view focus, cleaned folder text, long names | U5 |
