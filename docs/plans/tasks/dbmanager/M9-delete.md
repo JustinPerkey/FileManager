@@ -170,6 +170,12 @@ Breadth-first over rows, starting from the object:
 
 Exports: `DeleteImpact`, `DeleteResult` (and referenced types).
 
+**Carried nit from M8's review (2026-11-23).** In
+`crates/fm-dbmanager/src/session/mod.rs`, the doc comment on
+`SessionError::Constraint` (around line 72) still says "SQLite's message".
+Change it to "SQLite's message, or the app's own when it detects the
+problem itself", since M8's orphan-junction case carries the app's text.
+
 ## Files
 
 Create `crates/fm-dbmanager/src/session/delete.rs` and tests. Edit
