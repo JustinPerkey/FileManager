@@ -21,6 +21,11 @@
 //! or `WorkerGate::install_closed` before building a model), assert
 //! `loading()`, then call `open()` on the handle and `run_until_parked`.
 //! The gate is a per-app global, so parallel tests do not affect each other.
+//!
+//! Awaiting gated work while the gate is closed (for example
+//! `run_until_parked` followed by awaiting a Worker task's result in a test)
+//! panics with GPUI's "Parking forbidden", because nothing can make
+//! progress. Open the gate first, or use `release_one`.
 
 use std::any::Any;
 use std::fmt;
@@ -142,6 +147,11 @@ mod gate {
         }
 
         /// Lets exactly one queued job run (across all workers).
+        ///
+        /// A release made while no job is waiting is kept as a credit, and
+        /// the next queued job runs at once. `open` and `close` do not clear
+        /// credits. When several Workers share the gate, which Worker takes
+        /// a released job is not fixed.
         pub fn release_one(&self) {
             self.shared.change(|s| s.permits += 1);
         }
