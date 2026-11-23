@@ -85,6 +85,8 @@ struct Live {
     cancel: FocusHandle,
     confirm: FocusHandle,
     open: Cell<bool>,
+    /// Order of opening in the app, so a close targets the newest.
+    seq: Cell<u64>,
 }
 
 #[derive(Default)]
@@ -97,7 +99,9 @@ impl Global for Registry {}
 /// Call it from a view's model observer (or any update), never from inside a
 /// render. `on_confirm` and `on_cancel` replace the previous ones on every
 /// call, so they may capture the latest state. Escape calls `on_cancel` unless
-/// the spec is busy; the scrim does nothing.
+/// the spec is busy; the scrim does nothing. `None` closes the newest dialog,
+/// so with several confirmations open it closes only if this key's is the
+/// newest one opened here (a dialog opened by other code on top is not seen).
 pub fn sync_confirm(
     window: &mut Window,
     cx: &mut App,
@@ -108,8 +112,17 @@ pub fn sync_confirm(
 ) {
     let id = (window.window_handle().window_id(), key);
     let Some(spec) = spec else {
-        let live = cx.default_global::<Registry>().0.remove(&id);
-        if live.is_some_and(|l| l.open.get()) && window.has_active_dialog(cx) {
+        let registry = &mut cx.default_global::<Registry>().0;
+        let live = registry.remove(&id);
+        // `close_dialog` closes the newest dialog, so close only when ours is
+        // the newest this module opened in the window. A dialog opened by other
+        // code on top of ours cannot be told apart: that one would close.
+        let newest = live.as_ref().is_some_and(|l| {
+            registry
+                .iter()
+                .all(|((w, _), o)| *w != id.0 || !o.open.get() || o.seq.get() < l.seq.get())
+        });
+        if newest && live.is_some_and(|l| l.open.get()) && window.has_active_dialog(cx) {
             window.close_dialog(cx);
         }
         return;
@@ -125,6 +138,7 @@ pub fn sync_confirm(
             cancel: cx.focus_handle(),
             confirm: cx.focus_handle(),
             open: Cell::new(false),
+            seq: Cell::new(0),
         });
         cx.default_global::<Registry>().0.insert(id, live.clone());
         live
@@ -139,11 +153,21 @@ pub fn sync_confirm(
         return;
     }
     live.open.set(true);
+    live.seq.set(next_seq(cx));
     let cancel = live.cancel.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         build(dialog, &live, window, cx)
     });
     window.defer(cx, move |window, cx| cancel.focus(window, cx));
+}
+
+fn next_seq(cx: &mut App) -> u64 {
+    #[derive(Default)]
+    struct Counter(u64);
+    impl Global for Counter {}
+    let c = cx.default_global::<Counter>();
+    c.0 += 1;
+    c.0
 }
 
 fn build(dialog: Dialog, live: &Rc<Live>, window: &mut Window, cx: &mut App) -> Dialog {

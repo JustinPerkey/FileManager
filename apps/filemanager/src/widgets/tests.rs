@@ -1090,3 +1090,24 @@ fn shortcuts_open_change_fires(cx: &mut TestAppContext) {
     press(cx, "escape");
     assert_eq!(*changes.borrow(), vec![true, false]);
 }
+
+#[gpui::test]
+fn enter_elsewhere_in_dialog_does_nothing(cx: &mut TestAppContext) {
+    let (calls, cx) = confirm_host(cx);
+    let mut with_extra = spec("Replace file?");
+    with_extra.extra = Some(Rc::new(|_, _| {
+        button("extra-button", "Details").into_any_element()
+    }));
+    sync(cx, &calls, Some(with_extra));
+
+    // Shift+Tab leaves Cancel for the control in the extra region.
+    cx.simulate_keystrokes("shift-tab");
+    press(cx, "enter");
+    assert_eq!((calls.confirmed.get(), calls.cancelled.get()), (0, 0));
+    assert!(dialog_open(cx), "Enter outside the buttons keeps it open");
+
+    // Enter on the confirming button does confirm.
+    cx.simulate_keystrokes("tab tab");
+    press(cx, "enter");
+    assert_eq!((calls.confirmed.get(), calls.cancelled.get()), (1, 0));
+}
