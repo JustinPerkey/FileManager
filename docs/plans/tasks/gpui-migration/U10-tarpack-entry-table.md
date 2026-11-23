@@ -108,6 +108,12 @@ call `browse`/`clear`; they are inert while `building()`.
 Debug selectors: `tarpack-table`, `tarpack-row-<n>` (0-based),
 `tarpack-browse-<n>`, `tarpack-clear-<n>`.
 
+**Ledger rows owned here (2026-11-23).** The `pathParts.test.ts` rows
+"fileName is what follows the last separator" and "displayFolder shows a
+lossy folder as is" are this task's: the entry table renders each row's file
+name and folder. Port them as tests of the view's path helpers (or of
+`widgets::middle_path` if you use it there), and settle the rows.
+
 **Scenario tags (planner rule, 2026-11-22, after M4).** The screenshot
 harness resolves `Step::Click` and `Scenario::clip` only by `.tag("<name>")`
 names (`apps/filemanager/src/app/probe.rs`); GPUI's debug selectors cannot be
