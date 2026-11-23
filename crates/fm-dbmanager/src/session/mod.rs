@@ -81,6 +81,12 @@ pub enum SessionError {
     ImpactChanged(Box<DeleteImpact>),
     /// The delete would fail, or the database refused it. Nothing was
     /// deleted.
+    ///
+    /// The impact can be `blocked: true` with no group marked `blocks`: that
+    /// happens when SQLite rejects the delete for a reason the preview did
+    /// not predict (an unpredicted FK failure), or when the impact was
+    /// truncated at the cap. Callers must handle it with a generic "this
+    /// object cannot be deleted" message.
     DeleteBlocked(Box<DeleteImpact>),
 }
 

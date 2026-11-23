@@ -91,6 +91,41 @@ fn impact_restrict_blocks() {
 }
 
 #[test]
+fn no_action_satisfied_by_cascade_does_not_block() {
+    let fx = Fixture::new(
+        "CREATE TABLE a (id INTEGER PRIMARY KEY, name TEXT);
+         CREATE TABLE b (id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES a(id) ON DELETE CASCADE);
+         CREATE TABLE c (id INTEGER PRIMARY KEY,
+             a_id INTEGER REFERENCES a(id) ON DELETE NO ACTION,
+             b_id INTEGER REFERENCES b(id) ON DELETE CASCADE);
+         INSERT INTO a VALUES (1, 'a');
+         INSERT INTO b VALUES (1, 1);
+         INSERT INTO c VALUES (1, 1, 1);",
+        Some("version = 1\n[tables.a]\nallow_delete = true\n"),
+    );
+    let mut s = fx.session();
+    let i = s.delete_preview("a", &rk(1)).unwrap();
+    assert!(!i.blocked, "{:?}", i.groups);
+    assert!(i.groups.iter().all(|g| !g.blocks));
+    run(&mut s, "a", &rk(1)).unwrap();
+    assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM c"), 0);
+    assert_eq!(one::<i64>(&fx, "SELECT count(*) FROM a"), 0);
+}
+
+#[test]
+fn no_action_with_surviving_row_still_blocks() {
+    let fx = Fixture::new(
+        "CREATE TABLE a (id INTEGER PRIMARY KEY, name TEXT);
+         CREATE TABLE c (id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES a(id) ON DELETE NO ACTION);
+         INSERT INTO a VALUES (1, 'a');
+         INSERT INTO c VALUES (1, 1);",
+        Some("version = 1\n[tables.a]\nallow_delete = true\n"),
+    );
+    let i = fx.session().delete_preview("a", &rk(1)).unwrap();
+    assert!(i.blocked && group(&i, "c", 1).blocks);
+}
+
+#[test]
 fn impact_set_null_allowed() {
     let fx = Fixture::example();
     let mut s = fx.session();

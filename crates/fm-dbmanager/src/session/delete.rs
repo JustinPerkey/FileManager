@@ -105,7 +105,10 @@ pub struct DeleteImpact {
     pub version: String,
     /// Breadth-first: depth, then table, then via.
     pub groups: Vec<ImpactGroup>,
-    /// Any group blocks.
+    /// Any group blocks. Can also be `true` with no group marked `blocks`:
+    /// SQLite rejected the delete for a reason the preview did not predict
+    /// (an unpredicted foreign key failure), or the impact was truncated at
+    /// the cap. Callers need a generic "this object cannot be deleted" message.
     pub blocked: bool,
     pub truncated: bool,
     /// The object's table or any affected table has triggers.
@@ -271,6 +274,8 @@ impl<'a> Reader<'a> {
         let mut remaining = ROW_LIMIT;
         let mut truncated = false;
         let mut groups: Vec<ImpactGroup> = Vec::new();
+        // NO ACTION groups are judged after the pass: (group index, table, rows).
+        let mut deferred: Vec<(usize, usize, Vec<ObjectKey>)> = Vec::new();
         let mut has_triggers = st.has_triggers;
         let mut depth = 1_u32;
 
@@ -309,6 +314,7 @@ impl<'a> Reader<'a> {
                         blocks: false,
                     };
                     let cascades = fk.on_delete == FkAction::Cascade;
+                    let mut counted: Vec<ObjectKey> = Vec::new();
                     'rows: for src in rows {
                         let eqs: Option<Eqs<'a>> = fk
                             .from
@@ -337,6 +343,9 @@ impl<'a> Reader<'a> {
                             }
                             remaining -= 1;
                             group.count += 1;
+                            if fk.on_delete == FkAction::NoAction {
+                                counted.push(rkey.clone());
+                            }
                             if group.sample.len() < SAMPLE {
                                 match &shape {
                                     Shape::Rows(crt) => group.sample.push(render(crt, &rkey, &row)),
@@ -356,11 +365,15 @@ impl<'a> Reader<'a> {
                         continue;
                     }
                     group.blocks = match fk.on_delete {
-                        FkAction::Restrict | FkAction::NoAction => true,
+                        FkAction::Restrict => true,
                         FkAction::SetNull => fk.from.iter().any(|&c| ct.columns[c].not_null),
-                        FkAction::Cascade | FkAction::SetDefault => false,
+                        // NO ACTION is checked at the end of the statement: decided below.
+                        FkAction::NoAction | FkAction::Cascade | FkAction::SetDefault => false,
                     };
                     has_triggers |= ct.has_triggers;
+                    if fk.on_delete == FkAction::NoAction {
+                        deferred.push((groups.len(), ci, counted));
+                    }
                     groups.push(group);
                     if truncated {
                         break;
@@ -372,6 +385,13 @@ impl<'a> Reader<'a> {
             }
             frontier = next;
             depth += 1;
+        }
+        // NO ACTION is checked after the whole statement: it blocks only if
+        // some row it counted survives the cascades (or the count is unknown).
+        for (gi, ci, rows) in deferred {
+            let done = scheduled.get(&ci);
+            groups[gi].blocks =
+                groups[gi].truncated || rows.iter().any(|r| !done.is_some_and(|s| s.contains(r)));
         }
         groups.sort_by(|a, b| (a.depth, &a.table, &a.via).cmp(&(b.depth, &b.table, &b.via)));
         let blocked = groups.iter().any(|g| g.blocks);
