@@ -1,7 +1,56 @@
 # M4d — Tests and screenshots never touch the real user data folder
 
-Status: approved (2026-11-23; from the M4c review)
+Status: approved (2026-11-23; from the M4c review). **Review follow-up (2026-11-23):** M4d is approved; the next run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: M4c (landed)
+
+## Review follow-up (2026-11-23)
+
+M4d is approved. **This run does only this section.**
+
+1. **Explicit fixtures in shell test support.** Make
+   `app::shell::test_support::open` set `BackendSet::fixtures()`
+   explicitly, as this plan asked. **Accepted deviation, kept:** in test and
+   `shoot` builds, `BackendSet::get` falls back to the fixture backend for a
+   tool with no entry. It is a safety net; say so in its doc comment.
+2. **CI: one temp data folder for both test steps.**
+   - In the linux job, set `XDG_DATA_HOME` to a fresh temp folder **once**,
+     before both the workspace test step and the `--features shoot` test
+     step.
+   - Check after **both** that it contains no `FileManager` folder.
+   - Drop the duplicate shoot test run.
+   - Note in the workflow comment that
+     `apps/desktop/src-tauri/src/tools/tarpack/mod.rs` (around line 31) still
+     calls `AppDirs::from_system()` unguarded. No test reaches it, and it is
+     removed at the cutover.
+3. **`default_start_dir` through `app::dirs`.** `tools/tarpack/model.rs`
+   (around line 320) calls `directories::UserDirs::new()` directly, which
+   reads the real user-dirs configuration in tests.
+   - Add `app::dirs::user_documents_dir() -> Option<PathBuf>` (Documents,
+     else home), with the same guard. In test and `shoot` builds it must not
+     touch the real folders: return a fixed fake path such as
+     `C:\Users\fixture\Documents` (or `/home/fixture/Documents`), rather
+     than panicking, because view tests open dialogs.
+   - Make `default_start_dir` use it.
+   - Add `UserDirs::new` and `BaseDirs::new` to `no_direct_system_dirs`'s
+     scan.
+   - Test: `user_documents_dir_is_fake_in_tests`.
+4. **Document the shoot panic.** Add one sentence to `src/app/dirs.rs`'s
+   module doc and to `CLAUDE.md`'s `app/dirs.rs` layout line: the main
+   `filemanager-gpui` binary built with `--features shoot` panics at
+   startup by design (it would reach the real folders). Only
+   `filemanager-shoot` is meant to run with that feature.
+
+Note: the review's finding 1 (`only_the_current_item_is_a_tab_stop` failing)
+came from U7's work in progress. U7's own commit adjusts that test; it is
+not part of this run.
+
+### Acceptance
+
+- The named test passes, and `no_direct_system_dirs` covers the new names.
+- The linux CI log shows a single `XDG_DATA_HOME` set-up, one shoot test
+  run, and the empty-folder check after both test steps.
+- fmt (linux job), clippy pedantic (with and without `--features shoot`) and
+  `cargo test --workspace` pass.
 
 ## Goal
 
