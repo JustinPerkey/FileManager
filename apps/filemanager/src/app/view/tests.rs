@@ -128,9 +128,12 @@ fn nav_keys_move_wrap_and_select(cx: &mut TestAppContext) {
 fn only_the_current_item_is_a_tab_stop(cx: &mut TestAppContext) {
     let (_states, shell, cx) = setup(cx);
     click(cx, "tool-nav-schedule");
-    // The click focuses the Schedule item. (Tabbing would now reach the
-    // Schedule view's fields after it.) Down wraps to Pipeline, which only a
-    // focused Schedule item (the one tab stop) lets us observe.
+    // Drop the click's focus, then Tab: the one tab stop is the current item.
+    cx.update(|window, cx| window.blur(cx));
+    cx.update(Window::focus_next);
+    cx.run_until_parked();
+    // Down wraps to Pipeline only if focus is on the Schedule item (the list
+    // order is Pipeline, Tar Packager, Schedule Creator).
     press(cx, "down");
     press(cx, "enter");
     assert_eq!(current(&shell, cx), ToolId::Pipeline);

@@ -25,8 +25,7 @@ use super::text;
 use crate::app::probe::Tag as _;
 use crate::theme::tokens::{SPACE_1, SPACE_4, SPACE_5};
 use crate::widgets::{
-    button, h1, intro, muted, sync_confirm, Banner, ConfirmButton, ConfirmSpec, ConfirmVariant,
-    Tone,
+    button, h1, intro, sync_confirm, Banner, ConfirmButton, ConfirmSpec, ConfirmVariant, Tone,
 };
 
 /// The confirmation's cancel button. (`text.rs` has no constant for it.)
@@ -213,7 +212,8 @@ impl Render for ScheduleView {
                 v_flex()
                     .gap(px(SPACE_1))
                     .child(h1(text::TITLE))
-                    .child(intro(text::INTRO)),
+                    .child(intro(text::INTRO))
+                    .debug_selector(|| "schedule-header".into()),
             );
         if model.load_failed() {
             page = page.children(model.error().map(|error| {
@@ -240,8 +240,6 @@ impl Render for ScheduleView {
                 .child(steps::steps(self, model, &p, cx))
                 .child(apply::apply_row(self, model, &p))
                 .children(apply::result(self, model));
-        } else {
-            page = page.child(muted(text::LOADING));
         }
 
         div().id("schedule").size_full().child(
