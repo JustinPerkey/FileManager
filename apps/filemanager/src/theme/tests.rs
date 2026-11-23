@@ -11,6 +11,14 @@ fn manifest() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// A text file of the repository with `\r\n` read as `\n`: a Windows checkout
+/// may convert line endings, and the parsers below split on `\n`.
+fn read_text(path: &std::path::Path) -> String {
+    std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+        .replace("\r\n", "\n")
+}
+
 /// Declarations (`--name: value`) of the block that starts at `selector`.
 fn block(css: &str, selector: &str) -> HashMap<String, String> {
     let start = css
@@ -100,7 +108,7 @@ fn tokens_match_tokens_css() {
         );
         return;
     }
-    let css = std::fs::read_to_string(&path).expect("read tokens.css");
+    let css = read_text(&path);
     let light = block(&css, ":root {");
     let dark = block(&css, ":root[data-theme=\"dark\"]");
     check(&LIGHT, &light);
@@ -168,7 +176,7 @@ fn front_matter_section(md: &str, section: &str) -> HashMap<String, String> {
 
 #[test]
 fn design_md_matches_tokens() {
-    let md = std::fs::read_to_string(manifest().join("../../DESIGN.md")).expect("read DESIGN.md");
+    let md = read_text(&manifest().join("../../DESIGN.md"));
     let colors = front_matter_section(&md, "colors");
     for (suffix, set) in [("", &LIGHT), ("-dark", &DARK)] {
         let c = |name: &str| hex(&colors[&format!("{name}{suffix}")]);
@@ -382,4 +390,22 @@ fn init_twice_registers_one_observer(cx: &mut TestAppContext) {
     vcx.update(super::init);
     assert_eq!(vcx.update(|_, cx| observer_registrations(cx)), 1);
     assert!(!is_dark(vcx));
+}
+
+#[test]
+fn crlf_checkouts_parse_the_same() {
+    // A Windows runner may check the files out with CRLF line endings.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let md = read_text(&manifest().join("../../DESIGN.md"));
+    let path = dir.path().join("DESIGN.md");
+    std::fs::write(&path, md.replace('\n', "\r\n")).expect("write");
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .starts_with("---\r\n"));
+    let read = read_text(&path);
+    assert_eq!(read, md);
+    assert_eq!(
+        front_matter_section(&read, "colors"),
+        front_matter_section(&md, "colors")
+    );
 }
