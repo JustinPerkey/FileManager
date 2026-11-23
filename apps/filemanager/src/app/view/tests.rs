@@ -129,7 +129,7 @@ fn only_the_current_item_is_a_tab_stop(cx: &mut TestAppContext) {
     let (_states, shell, cx) = setup(cx);
     click(cx, "tool-nav-schedule");
     // Drop the click's focus, then Tab: the one tab stop is the current item.
-    cx.update(|window, cx| window.blur(cx));
+    cx.update(Window::blur);
     cx.update(Window::focus_next);
     cx.run_until_parked();
     // Down wraps to Pipeline only if focus is on the Schedule item (the list
