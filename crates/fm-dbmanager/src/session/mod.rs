@@ -5,6 +5,7 @@ mod backup;
 mod cell;
 mod key;
 mod label;
+mod links;
 mod read;
 mod save;
 mod sql;
@@ -25,9 +26,10 @@ use crate::rules::FieldError;
 use crate::schema::introspect;
 
 pub use types::{
-    FieldChange, FieldInput, FieldValue, LinkTarget, ListQuery, M2mOption, M2mPage, M2mQuery,
-    ObjectKey, ObjectPage, ObjectSummary, ObjectView, ReferencingFilter, RelationCount,
-    SaveRequest, SaveResult, ValueProblem,
+    FieldChange, FieldInput, FieldValue, LinkAdd, LinkChange, LinkError, LinkRef, LinkRemove,
+    LinkTarget, LinkUpdate, ListQuery, M2mOption, M2mPage, M2mQuery, ObjectKey, ObjectPage,
+    ObjectSummary, ObjectView, ReferencingFilter, RelationCount, SaveRequest, SaveResult,
+    ValueProblem,
 };
 
 /// Why a session operation failed. Later milestones add variants.
@@ -53,10 +55,15 @@ pub enum SessionError {
     },
     Validation {
         fields: Vec<FieldError>,
+        /// Issues on staged links.
+        links: Vec<LinkError>,
     },
     /// The object changed since it was read; `current` is what it is now.
+    /// `link` is set when the conflict is a staged link's (its row changed,
+    /// is missing, or already exists).
     Conflict {
         current: Box<ObjectView>,
+        link: Option<LinkRef>,
     },
     /// The backup could not be taken, so nothing was written.
     BackupFailed {

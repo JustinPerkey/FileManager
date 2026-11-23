@@ -74,6 +74,8 @@ crates/
                               `src/session/` is Session: reads (list, object, m2m_options),
                               schema/config change detection, and save (`save.rs`: checks,
                               reference resolution, one BEGIN IMMEDIATE transaction;
+                              `links.rs`: many-to-many link adds, updates and removes in
+                              that same transaction, strict conflicts;
                               `backup.rs`: the one backup before a session's first write);
                               `session/sql.rs` is the only module that assembles SQL text
     src/value.rs              DbValue (boundary value; integers, reals, durations as strings)

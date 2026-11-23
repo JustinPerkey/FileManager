@@ -2,6 +2,7 @@
 
 mod config;
 mod labels;
+mod links;
 mod lists;
 mod objects;
 mod relations;

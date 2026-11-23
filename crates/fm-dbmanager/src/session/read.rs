@@ -31,7 +31,7 @@ struct Summary {
     with_rowid: bool,
 }
 
-type Eqs<'a> = Vec<(&'a Ident, Value)>;
+pub(super) type Eqs<'a> = Vec<(&'a Ident, Value)>;
 
 fn eq_filters<'a>(eqs: &Eqs<'a>) -> Vec<Filter<'a>> {
     eqs.iter().map(|(c, v)| Filter::Eq(c, v.clone())).collect()
@@ -225,7 +225,11 @@ impl<'a> Reader<'a> {
 
     /// Every column of the row, as a [`Row`] (hidden ones included, for the
     /// version).
-    fn full_row(&self, st: &'a Table, eqs: &Eqs<'a>) -> Result<Option<Row>, SessionError> {
+    pub(super) fn full_row(
+        &self,
+        st: &'a Table,
+        eqs: &Eqs<'a>,
+    ) -> Result<Option<Row>, SessionError> {
         let all: Vec<usize> = (0..st.columns.len()).collect();
         let mut sel = Select::new(&st.name);
         sel.columns = st.columns.iter().map(|c| &c.name).collect();

@@ -184,6 +184,24 @@ pub(super) fn update(
     }
 }
 
+/// `DELETE FROM <table> WHERE <col> = ? AND ...`.
+pub(super) fn delete(table: &Ident, wheres: Vec<(&Ident, Value)>) -> Query {
+    let mut params = Vec::new();
+    let mut conds = Vec::new();
+    for (c, v) in wheres {
+        conds.push(format!("{} = ?", c.quoted()));
+        params.push(v);
+    }
+    Query {
+        sql: format!(
+            "DELETE FROM {} WHERE {}",
+            table.quoted(),
+            conds.join(" AND ")
+        ),
+        params,
+    }
+}
+
 /// `INSERT INTO <table> (<cols>) VALUES (?, ...)`, or `DEFAULT VALUES`.
 pub(super) fn insert(table: &Ident, values: Vec<(&Ident, Value)>) -> Query {
     if values.is_empty() {

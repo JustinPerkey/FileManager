@@ -3,29 +3,29 @@ use crate::rules::{FieldError, FieldIssueCode};
 use crate::session::{FieldChange, FieldInput, SaveRequest, SaveResult};
 use rusqlite::Connection;
 
-fn text(s: &str) -> FieldInput {
+pub(super) fn text(s: &str) -> FieldInput {
     FieldInput::Value {
         value: DbValue::Text(s.into()),
     }
 }
 
-fn int(n: i64) -> FieldInput {
+pub(super) fn int(n: i64) -> FieldInput {
     FieldInput::Value {
         value: DbValue::Integer(n.to_string()),
     }
 }
 
-fn dur(s: &str) -> FieldInput {
+pub(super) fn dur(s: &str) -> FieldInput {
     FieldInput::Value {
         value: DbValue::Duration(s.into()),
     }
 }
 
-fn reference(n: i64) -> FieldInput {
+pub(super) fn reference(n: i64) -> FieldInput {
     FieldInput::Reference { key: Some(rk(n)) }
 }
 
-fn request(
+pub(super) fn request(
     s: &Session,
     table: &str,
     key: Option<ObjectKey>,
@@ -39,6 +39,7 @@ fn request(
         key,
         version,
         config_hash: s.config().hash().to_owned(),
+        links: Vec::new(),
         changes: changes
             .into_iter()
             .map(|(column, input)| FieldChange {
@@ -68,14 +69,14 @@ fn create(
     s.save(&r)
 }
 
-fn fields_of(e: SessionError) -> Vec<FieldError> {
+pub(super) fn fields_of(e: SessionError) -> Vec<FieldError> {
     match e {
-        SessionError::Validation { fields } => fields,
+        SessionError::Validation { fields, .. } => fields,
         other => panic!("expected Validation, got {other:?}"),
     }
 }
 
-fn codes(fields: &[FieldError], column: &str) -> Vec<FieldIssueCode> {
+pub(super) fn codes(fields: &[FieldError], column: &str) -> Vec<FieldIssueCode> {
     fields
         .iter()
         .find(|f| f.column == column)
@@ -86,15 +87,15 @@ fn codes(fields: &[FieldError], column: &str) -> Vec<FieldIssueCode> {
         .collect()
 }
 
-fn raw(fx: &Fixture) -> Connection {
+pub(super) fn raw(fx: &Fixture) -> Connection {
     Connection::open(&fx.db).unwrap()
 }
 
-fn one<T: rusqlite::types::FromSql>(fx: &Fixture, sql: &str) -> T {
+pub(super) fn one<T: rusqlite::types::FromSql>(fx: &Fixture, sql: &str) -> T {
     raw(fx).query_row(sql, [], |r| r.get(0)).unwrap()
 }
 
-fn baks(fx: &Fixture) -> Vec<String> {
+pub(super) fn baks(fx: &Fixture) -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(fx.db.parent().unwrap())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -194,7 +195,7 @@ fn conflict_on_stale_version() {
     let r = request(&s, "author", Some(rk(1)), vec![("last_name", text("Mine"))]);
     fx.exec("UPDATE author SET first_name = 'Changed' WHERE id = 1;");
     match s.save(&r) {
-        Err(SessionError::Conflict { current }) => {
+        Err(SessionError::Conflict { current, .. }) => {
             assert_eq!(
                 field(&current, "first_name").value,
                 DbValue::Text("Changed".into())
@@ -876,7 +877,7 @@ fn map_constraint_unit() {
     assert!(matches!(busy, SessionError::Busy));
 }
 
-fn config_with(fx: &Fixture, extra: &str) {
+pub(super) fn config_with(fx: &Fixture, extra: &str) {
     std::fs::write(&fx.cfg, format!("version = 1\n{extra}")).unwrap();
 }
 
