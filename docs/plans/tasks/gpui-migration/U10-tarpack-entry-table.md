@@ -114,11 +114,34 @@ lossy folder as is" are this task's: the entry table renders each row's file
 name and folder. Port them as tests of the view's path helpers (or of
 `widgets::middle_path` if you use it there), and settle the rows.
 
+**Where the table scrolls (planner decision after the U9 review, 2026-11-23).**
+The table **shrinks and scrolls inside itself**, as the approved layout
+decision V6 says. Reasons: the table virtualises rows only inside a bounded
+viewport, and the build bar must stay visible. U9 built the frame with the
+page body scrolling and only the build bar outside it; this task changes
+that frame:
+
+- With a manifest loaded, the tool body column does **not** scroll.
+  - Header, banners, errors region and drop result take their content
+    height. The errors report already scrolls inside itself at 40% of the
+    view height.
+  - The table takes `flex_1` with `min_h_0` and scrolls its rows inside
+    itself, with its header fixed.
+  - The build result and the build bar sit below it.
+- The table keeps a minimum height of three rows. Only if the window is
+  shorter than everything above plus three rows plus the bar does the body
+  column scroll, as a fallback; record that in a comment.
+- Without a manifest (empty state, skeleton), the body scrolls as U9 built
+  it.
+- Tests: `table_scrolls_inside_itself_when_short` (a short window: the
+  body's scroll offset stays 0, the table's moves on Down) and
+  `build_bar_stays_visible_with_many_rows`.
+
 **Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`
   column and cannot style it. So this task's root view is `size_full`, adds
-  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_6`
+  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_5`
   from `theme::tokens`), and handles its own scrolling (an
   `overflow_y_scroll` region inside the root, not the root's parent).
 - **Confirmations.** If this view shows a confirmation, call `sync_confirm`

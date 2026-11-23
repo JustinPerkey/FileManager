@@ -85,7 +85,7 @@ its heading's count.
 | Ctrl+Alt+Shift+D toggles developer mode and announces it | M3a | `app::dev_mode::tests::chord_toggles` (announcement strings are constants in `app/text.rs`; the aria-live announcer itself is the UI's decision); focus independence: `chord_works_without_focus`, `chord_works_after_focus_is_lost`, `chord_works_with_focus_in_a_dialog`; held chord: `held_chord_toggles_once` | done |
 | other chords leave developer mode off | M3a | `app::dev_mode::tests::chord_toggles` (the other-chord assertions) | done |
 | without developer mode, Edit in editor and the extraction command are hidden | M7a | `tools::tarpack::tests::can_edit_needs_dev_mode_and_manifest` | done |
-| the shortcuts list names Ctrl+E only in developer mode | U |  | open |
+| the shortcuts list names Ctrl+E only in developer mode | U9b |  | open |
 
 ## `app/useAnnouncer.test.tsx` (5)
 
@@ -203,9 +203,9 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| disabled reason: %s | U | model half: `tools::tarpack::tests::reason_and_left_out_note_cases` (the `build_reason` text, with `can_build`); the disabled button, its description and axe are the view's | open |
-| Show errors only with errors, and none when noEntries without errors | U | model half: `tools::tarpack::tests::shortcuts_gating_matches_today` (`Shortcut::ShowErrors` needs errors); whether the button is drawn is the view's | open |
-| ready with failed entries: enabled, note, Show errors before Create | U | model half: `tools::tarpack::tests::reason_and_left_out_note_cases`, `tools::tarpack::tests::shortcuts_gating_matches_today` (`left_out_note`, `can_build`); the order of the buttons is the view's | open |
+| disabled reason: %s | U11 | model half: `tools::tarpack::tests::reason_and_left_out_note_cases` (the `build_reason` text, with `can_build`); the disabled button, its description and axe are the view's | open |
+| Show errors only with errors, and none when noEntries without errors | U11 | model half: `tools::tarpack::tests::shortcuts_gating_matches_today` (`Shortcut::ShowErrors` needs errors); whether the button is drawn is the view's | open |
+| ready with failed entries: enabled, note, Show errors before Create | U11 | model half: `tools::tarpack::tests::reason_and_left_out_note_cases`, `tools::tarpack::tests::shortcuts_gating_matches_today` (`left_out_note`, `can_build`); the order of the buttons is the view's | open |
 | plural left-out note | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
 | manifest errors only | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
 | one manifest error | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
@@ -213,31 +213,31 @@ its heading's count.
 | a partial build is enabled and says how many files are not included | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases`, `tools::tarpack::tests::build_refused_unless_can_build` | done |
 | Choose calls the save dialog with the format's filter, then onChooseOutput | M7b | `tools::tarpack::tests::choose_output_passes_format_filter`, `tools::tarpack::tests::choose_output_starts_in_output_folder_with_name`, `tools::tarpack::tests::output_name_changing_format_sets_notice` | done |
 | Choose falls back to the suggested name; cancel does nothing | M7b | `tools::tarpack::tests::choose_output_starts_in_output_folder_with_name`, `tools::tarpack::tests::choose_output_needs_a_manifest_and_a_name`, `tools::tarpack::tests::output_name_changing_format_sets_notice` (the cancel at its end) | done |
-| no manifest: picker shows tar (.tar) and everything is disabled | U | model half: `tools::tarpack::tests::choose_output_needs_a_manifest_and_a_name`, `tools::tarpack::tests::build_refused_unless_can_build`; the picker's display and the disabled controls are the view's | open |
-| the output path is a MiddlePath with the full path as title | U | view: renders `session().output_path`, the full path | open |
-| building (%s): controls disabled, axe clean | U | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui` (every control's method refuses while `building()`); disabled controls and axe are the view's | open |
+| no manifest: picker shows tar (.tar) and everything is disabled | U11 | model half: `tools::tarpack::tests::choose_output_needs_a_manifest_and_a_name`, `tools::tarpack::tests::build_refused_unless_can_build`; the picker's display and the disabled controls are the view's | open |
+| the output path is a MiddlePath with the full path as title | U11 | view: renders `session().output_path`, the full path | open |
+| building (%s): controls disabled, axe clean | U11 | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui` (every control's method refuses while `building()`); disabled controls and axe are the view's | open |
 | saveFileDialog, onChooseOutput, and onFormatChange rejections go to onError | M7b | `tools::tarpack::tests::output_dialog_failure_is_the_dialog_banner`, `tools::tarpack::tests::output_and_format_errors_show_the_banner` | done |
-| while building, Create archive's aria-describedby is omitted | U | view: draws the reason and the note only while `!building()` | open |
+| while building, Create archive's aria-describedby is omitted | U11 | view: draws the reason and the note only while `!building()` | open |
 
 ## `tools/tarpack/BuildReport.test.tsx` (3)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing when everything is empty | U | view (the headings are `text::report_*_heading`) | open |
-| each section is present only when non-empty; entry without id; every error | U | view; the copy is `text::failure_name`, `failure_errors_label` and `report_text` (`tools::tarpack::tests::report_text_matches_today`) | open |
-| warnings only | U | view; the copied form is `tools::tarpack::tests::report_text_matches_today` | open |
+| renders nothing when everything is empty | U11 | view (the headings are `text::report_*_heading`) | open |
+| each section is present only when non-empty; entry without id; every error | U11 | view; the copy is `text::failure_name`, `failure_errors_label` and `report_text` (`tools::tarpack::tests::report_text_matches_today`) | open |
+| warnings only | U11 | view; the copied form is `tools::tarpack::tests::report_text_matches_today` | open |
 
 ## `tools/tarpack/BuildResult.test.tsx` (8)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| shows every field and copies exact text | U | model half: `tools::tarpack::tests::copy_report_copies_report_text`, `tools::tarpack::tests::extraction_command_only_in_dev_mode`, `tools::tarpack::tests::report_text_matches_today` (the facts, sizes and the copied text); drawing the fields is the view's | open |
-| tar shows one size; no normalised list when empty | U | model half: `tools::tarpack::tests::report_text_matches_today` (`result_facts`, `file_size`); view draws it | open |
-| success with warnings only shows a collapsed Warnings disclosure | U | view | open |
-| files left out: heading, lede, report, Copy report | U | model half: `tools::tarpack::tests::report_text_matches_today`, `tools::tarpack::tests::copy_report_copies_report_text` (heading, ledes, copied report); view draws it | open |
+| shows every field and copies exact text | U11 | model half: `tools::tarpack::tests::copy_report_copies_report_text`, `tools::tarpack::tests::extraction_command_only_in_dev_mode`, `tools::tarpack::tests::report_text_matches_today` (the facts, sizes and the copied text); drawing the fields is the view's | open |
+| tar shows one size; no normalised list when empty | U11 | model half: `tools::tarpack::tests::report_text_matches_today` (`result_facts`, `file_size`); view draws it | open |
+| success with warnings only shows a collapsed Warnings disclosure | U11 | view | open |
+| files left out: heading, lede, report, Copy report | U11 | model half: `tools::tarpack::tests::report_text_matches_today`, `tools::tarpack::tests::copy_report_copies_report_text` (heading, ledes, copied report); view draws it | open |
 | plural files and manifest-errors-only headings | M7b | `tools::tarpack::tests::report_text_matches_today` | done |
 | Show in folder calls onReveal | M7b | `tools::tarpack::tests::reveal_uses_held_path` (the button calling `reveal_output` is the view's own test) | done |
-| error result uses errorMessage and collapsed details | U | model half: `tools::tarpack::tests::build_error_is_result_with_message` (the sentence and the detail); the collapsed Details are the view's | open |
+| error result uses errorMessage and collapsed details | U11 | model half: `tools::tarpack::tests::build_error_is_result_with_message` (the sentence and the detail); the collapsed Details are the view's | open |
 | a rejected clipboard write says Couldn't copy, never Copied | M7b | dropped: GPUI's clipboard write reports no failure (`Platform::copy_text` returns nothing); "Copied" is the view's transient note (`text::COPIED`) | dropped |
 
 ## `tools/tarpack/DiagnosticList.test.tsx` (2)
@@ -265,68 +265,68 @@ its heading's count.
 | combined outcome: order, and dropResultText matches the rendered lines | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
 | dismiss by keyboard; no live role; axe clean | U | `tools::tarpack::view::tests::drop_result_lines_and_dismiss` (no live role: the result is not announced by the view; axe dropped) | done |
 | an outcome with nothing in it says so | M7a | `tools::tarpack::tests::drop_lines_match_today` | done |
-| empty outcome: text and icon are muted, no disclosure | U |  | open |
-| Full paths: collapsed, expands, lists every path past the cap | U |  | open |
-| Full paths is absent for matched-only outcomes | U |  | open |
+| empty outcome: text and icon are muted, no disclosure | U9b |  | open |
+| Full paths: collapsed, expands, lists every path past the cap | U9b |  | open |
+| Full paths is absent for matched-only outcomes | U9b |  | open |
 | DropPending: one muted line, no button, no live role | U | `tools::tarpack::view::tests::drop_pending_line_after_the_delay` | done |
 
 ## `tools/tarpack/EntryStatus.test.tsx` (1)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| %s shows %s | U |  | open |
+| %s shows %s | U10 |  | open |
 
 ## `tools/tarpack/EntryTable.keyboard.test.tsx` (9)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| exactly one row is in the tab order, and Up and Down move focus between rows | U |  | open |
-| Enter browses the focused row; Delete clears it only when assigned | U |  | open |
-| Enter on a row's own button is that button's click, not a second browse | U |  | open |
-| row actions carry shortcut hints and keep their names | U |  | open |
-| Escape with focus on the drop result's Dismiss moves focus to the tab-stop row | U |  | open |
-| Escape with focus elsewhere dismisses the result and leaves focus where it was | U |  | open |
-| only the tab-stop row's own buttons are tabbable | U |  | open |
-| disabled: no row or row button is tabbable, row keys do nothing, and the tab stop comes back | U |  | open |
-| Clear leaves focus on the row: from its button by Delete and by click, and from the row itself | U |  | open |
+| exactly one row is in the tab order, and Up and Down move focus between rows | U10 |  | open |
+| Enter browses the focused row; Delete clears it only when assigned | U10 |  | open |
+| Enter on a row's own button is that button's click, not a second browse | U10 |  | open |
+| row actions carry shortcut hints and keep their names | U10 |  | open |
+| Escape with focus on the drop result's Dismiss moves focus to the tab-stop row | U10 |  | open |
+| Escape with focus elsewhere dismisses the result and leaves focus where it was | U10 |  | open |
+| only the tab-stop row's own buttons are tabbable | U10 |  | open |
+| disabled: no row or row button is tabbable, row keys do nothing, and the tab stop comes back | U10 |  | open |
+| Clear leaves focus on the row: from its button by Delete and by click, and from the row itself | U10 |  | open |
 
 ## `tools/tarpack/EntryTable.scale.test.tsx` (1)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| 2,000 rows render; one status change re-renders one row | U |  | open |
+| 2,000 rows render; one status change re-renders one row | U10 |  | open |
 
 ## `tools/tarpack/EntryTable.test.tsx` (11)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders a captioned table with column headers and one row per entry | U |  | open |
-| summary: mixed | U |  | open |
-| summary: all ready, with and without failed entries | U |  | open |
-| line-ending clause and marker only for normalizeEol rows | U |  | open |
-| empty cases render no table | U |  | open |
-| Clear is disabled when unassigned; buttons call props with the id | U |  | open |
-| action names use the target, so repeated sources stay distinct; Clear has a title | U |  | open |
-| seven classed columns; cell labels are aria-hidden | U |  | open |
-| target path span is mono, exact, with a wbr after each slash; no td is mono | U |  | open |
-| Windows location: full path is the accessible text once, including for a long path | U |  | open |
+| renders a captioned table with column headers and one row per entry | U10 |  | open |
+| summary: mixed | U10 |  | open |
+| summary: all ready, with and without failed entries | U10 |  | open |
+| line-ending clause and marker only for normalizeEol rows | U10 |  | open |
+| empty cases render no table | U10 |  | open |
+| Clear is disabled when unassigned; buttons call props with the id | U10 |  | open |
+| action names use the target, so repeated sources stay distinct; Clear has a title | U10 |  | open |
+| seven classed columns; cell labels are aria-hidden | U10 |  | open |
+| target path span is mono, exact, with a wbr after each slash; no td is mono | U10 |  | open |
+| Windows location: full path is the accessible text once, including for a long path | U10 |  | open |
 | has no axe violations | U | dropped: axe is a DOM check; the nav's labels are the buttons' accessibility labels | dropped |
 
 ## `tools/tarpack/FailureList.test.tsx` (3)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing for an empty list | U | view | open |
-| names by id, by index, and shows source and line | U | view; the copy is `text::failure_name` and the `FAILURE_*` constants (M7a) | open |
-| lists every error of a multi-error entry | U | view; the label is `text::failure_errors_label` (M7a) | open |
+| renders nothing for an empty list | U11 | view | open |
+| names by id, by index, and shows source and line | U11 | view; the copy is `text::failure_name` and the `FAILURE_*` constants (M7a) | open |
+| lists every error of a multi-error entry | U11 | view; the label is `text::failure_errors_label` (M7a) | open |
 
 ## `tools/tarpack/FormatPicker.test.tsx` (3)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| options in the given order with session extensions; selected value | U | model half: `tools::tarpack::tests::format_labels_match_today` (`format_option_label`); the picker is the view's | open |
-| keyboard selection calls onChange with the format | U | view calls `set_format` (`tools::tarpack::tests::notice_cleared_by_later_change` drives it) | open |
-| disabled | U | view: disabled while `building()` or with no manifest | open |
+| options in the given order with session extensions; selected value | U11 | model half: `tools::tarpack::tests::format_labels_match_today` (`format_option_label`); the picker is the view's | open |
+| keyboard selection calls onChange with the format | U11 | view calls `set_format` (`tools::tarpack::tests::notice_cleared_by_later_change` drives it) | open |
+| disabled | U11 | view: disabled while `building()` or with no manifest | open |
 
 ## `tools/tarpack/ManifestErrors.test.tsx` (9)
 
@@ -339,8 +339,8 @@ its heading's count.
 | report groups: whole manifest, then files with errors | M7a | `tools::tarpack::tests::manifest_copy_matches_today` | done |
 | toggle has aria-expanded/controls and works by keyboard | U | `tools::tarpack::view::tests::errors_toggle_by_keyboard` (aria-expanded and controls dropped: the label flips Show errors / Hide errors) | done |
 | collapsed body stays mounted but hidden | U | dropped: a collapsed report is not drawn (`tools::tarpack::view::tests::errors_toggle_by_keyboard` asserts it) | dropped |
-| warnings render collapsed alongside errors, verbatim | U |  | open |
-| warnings only | U |  | open |
+| warnings render collapsed alongside errors, verbatim | U9b |  | open |
+| warnings only | U9b |  | open |
 
 ## `tools/tarpack/ManifestHeader.test.tsx` (4)
 
@@ -362,9 +362,9 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| opens from the button by keyboard and lists every shortcut, including F8 | U |  | open |
-| Escape closes it and returns focus to the button, without reaching the view | U |  | open |
-| reports its open state, including false on unmount | U |  | open |
+| opens from the button by keyboard and lists every shortcut, including F8 | U9b |  | open |
+| Escape closes it and returns focus to the button, without reaching the view | U9b |  | open |
+| reports its open state, including false on unmount | U9b |  | open |
 
 ## `tools/tarpack/TarpackView.a11y.test.tsx` (10)
 
@@ -386,7 +386,7 @@ its heading's count.
 | Case | Owner | New test | Status |
 |---|---|---|---|
 | drop calls assignDropped with the dropped paths, renders session and outcome, announces the result | M7a | `tools::tarpack::tests::drop_assigns_and_reports_lines` | done |
-| overlay axe check while visible | U |  | open |
+| overlay axe check while visible | U10 |  | open |
 | Browse assigns the chosen file, starting in the current folder | M7a | `tools::tarpack::tests::browse_starts_in_assigned_folder` | done |
 | Browse on an unassigned row has no default path; cancel makes no call | M7a | `tools::tarpack::tests::browse_starts_in_assigned_folder` | done |
 | Clear calls clear with the id and keeps its title | M7a | `tools::tarpack::tests::assign_and_clear_update_entries` | done |
@@ -397,13 +397,13 @@ its heading's count.
 | silence on assign: Browse and Clear leave the announcer alone; a drop announces only its result | M7a | `tools::tarpack::tests::assign_and_clear_update_entries`, `tools::tarpack::tests::drop_assigns_and_reports_lines` | done |
 | disabled (%s): overlay shows the reason and a drop makes no call | M7a | `tools::tarpack::tests::drop_target_reasons` | done |
 | building disables drops | M7a | `tools::tarpack::tests::drop_target_reasons` | done |
-| focus after Dismiss goes to the first tabbable after the result (the build bar) | U |  | open |
+| focus after Dismiss goes to the first tabbable after the result (the build bar) | U10 |  | open |
 | one drop at a time: pending state, disabled reason, 150 ms line, 1 s announcement, resolve | M7a | `tools::tarpack::tests::drop_ignored_while_pending`, `tools::tarpack::tests::pending_shown_after_150ms_and_announced_after_1s` | done |
 | a rejected drop clears the previous result and shows the banner | M7a | `tools::tarpack::tests::drop_error_clears_pending` | done |
 | a result keeps its hasFailedEntries when the session later changes | M7a | `tools::tarpack::tests::drop_with_failed_entries_keeps_the_flag` | done |
-| view-level axe with the result visible and Full paths expanded | U |  | open |
-| the file list stays outside the controls fieldset and survives a drop | U |  | open |
-| during a build the row buttons are disabled | U |  | open |
+| view-level axe with the result visible and Full paths expanded | U10 |  | open |
+| the file list stays outside the controls fieldset and survives a drop | U10 |  | open |
+| during a build the row buttons are disabled | U10 |  | open |
 | Reload clears the drop result | M7a | `tools::tarpack::tests::reload_clears_changed_and_results` | done |
 | Reload with focus in the drop result moves focus to Reload | M7a | `tools::tarpack::tests::reload_clears_changed_and_results` | done |
 
@@ -418,7 +418,7 @@ its heading's count.
 | OutputExists then Replace calls build(true) | M7b | `tools::tarpack::tests::existing_output_asks_and_confirm_overwrites`, `tools::tarpack::tests::replace_asks_once_with_the_fixture` | done |
 | ManifestChangedOnDisk shows the banner with Reload, not a result | M7b | `tools::tarpack::tests::changed_on_disk_during_build_marks_changed` (the banner itself is `changed_on_disk`, M7a) | done |
 | SourceMissing names the file; without entryId says A file | M7b | `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::text_covers_every_error_kind` (the named file and the "A file" form) | done |
-| %s shows its message and details; axe clean | U | model half: `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::panicked_build_aborts_and_reports`; the rendering and axe are the view's | open |
+| %s shows its message and details; axe clean | U11 | model half: `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::panicked_build_aborts_and_reports`; the rendering and axe are the view's | open |
 | progress: two phases, reset, Finishing, then the result | M7b | `tools::tarpack::tests::build_runs_off_thread_with_ordered_progress`, `tools::tarpack::tests::progress_names_the_last_file_of_the_phase`, `tools::tarpack::tests::progress_text_matches_today` | done |
 | a rejection mid-verify stops the progress and shows the error | M7b | `tools::tarpack::tests::build_error_is_result_with_message` | done |
 | OpenerFailed from Show in folder is a banner | M7b | `tools::tarpack::tests::reveal_failure_shows_opener_failed` | done |
@@ -428,15 +428,15 @@ its heading's count.
 | a failed %s build announces its errorMessage | M7b | `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::panicked_build_aborts_and_reports` | done |
 | %s announces no error message | M7b | `tools::tarpack::tests::existing_output_asks_and_confirm_overwrites` (`OutputExists` says nothing), `tools::tarpack::tests::changed_on_disk_during_build_marks_changed` (only the changed-on-disk sentence) | done |
 | onBuildProgress rejecting: the build still runs, no progressbar, unavailable text | M7b | dropped: GPUI's progress channel cannot fail before the job ends (the job owns the sender); the Tauri listen failure has no equivalent. `tools::tarpack::tests::progress_channel_closing_before_result_is_not_a_failure` shows a normal build whose channel closes first has no special state | dropped |
-| during a build, header and table controls are disabled; describedby has no dangling ids | U | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui`; disabled controls and the ids are the view's | open |
-| describedby ids all exist while building with errors | U | view | open |
+| during a build, header and table controls are disabled; describedby has no dangling ids | U11 | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui`; disabled controls and the ids are the view's | open |
+| describedby ids all exist while building with errors | U11 | view | open |
 | a saveFileDialog rejection from Choose shows the error banner | M7b | `tools::tarpack::tests::output_dialog_failure_is_the_dialog_banner` | done |
 | setOutput and setFormat rejections show the error banner | M7b | `tools::tarpack::tests::output_and_format_errors_show_the_banner` | done |
 | the replace dialog shows a lossy folder as is | M7b | `tools::tarpack::tests::display_paths_split_like_today` (`overwrite_body` over a path with U+FFFD) | done |
 | after a build, focus moves to Create archive only if it was lost | M7b | `tools::tarpack::tests::build_success_sets_result_and_announces`, `tools::tarpack::tests::cancel_overwrite_writes_nothing` (`FocusHint::CreateArchive`, `CreateArchiveAfterDialog`) | done |
-| after a build, focus moves to Create archive only if it was lost (view half) | U | view: moves focus on `FocusHint::CreateArchive` when focus was lost, and always on `CreateArchiveAfterDialog` | open |
-| focus that is elsewhere when a build settles stays there | U | view: acts on the hint only when focus was lost | open |
-| row keys do nothing during a build, and work again after it | U | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui` (`clear` and `browse` refuse while `building()`); the keys are the view's | open |
+| after a build, focus moves to Create archive only if it was lost (view half) | U11 | view: moves focus on `FocusHint::CreateArchive` when focus was lost, and always on `CreateArchiveAfterDialog` | open |
+| focus that is elsewhere when a build settles stays there | U11 | view: acts on the hint only when focus was lost | open |
+| row keys do nothing during a build, and work again after it | U11 | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui` (`clear` and `browse` refuse while `building()`); the keys are the view's | open |
 
 ## `tools/tarpack/TarpackView.errors.test.tsx` (11)
 
@@ -452,7 +452,7 @@ its heading's count.
 | changed-on-disk is announced once, not again on a second event | M7a | `tools::tarpack::tests::watcher_marks_changed_on_disk_once`, `tools::tarpack::tests::inject_file_changed_marks_changed` | done |
 | a restore with a state warning and errors makes one combined announcement | M7a | `tools::tarpack::tests::state_warning_announced_once_and_dismissal_sticks` | done |
 | no focus change on open or reload with errors | M7a | `tools::tarpack::tests::load_expands_errors_when_present` | done |
-| 200 failed entries: all render, the report is the only tab stop and scrolls | U |  | open |
+| 200 failed entries: all render, the report is the only tab stop and scrolls | U9b |  | open |
 
 ## `tools/tarpack/TarpackView.states.test.tsx` (17)
 
@@ -470,7 +470,7 @@ its heading's count.
 | a rejected first session() shows the no-manifest state with the banner | M7a | `tools::tarpack::tests::restore_failure_sets_load_failed` | done |
 | a non-TarpackError rejection shows the Io copy with the thrown text | - | dropped: a typed `Result` cannot carry a non-TarpackError; a panicked backend call is `Unexpected` (`restore_failure_sets_load_failed`) | dropped |
 | a rejected dialog is reported, not left unhandled | M7a | `tools::tarpack::tests::open_error_shows_dialog_failure_copy` | done |
-| banners render in fixed order and Details open passes axe | U |  | open |
+| banners render in fixed order and Details open passes axe | U9b |  | open |
 | changed-on-disk banner has no axe violations | U | `tools::tarpack::view::tests::changed_banner_reload` (axe dropped; the banner and its Reload action are tested) | done |
 | root section has the tarpack class in loading, no-manifest and loaded states | - | dropped: a CSS class of the web view | dropped |
 | skeleton has no axe violations after the delay | U | `tools::tarpack::view::tests::skeleton_only_when_model_says` (axe dropped) | done |
@@ -530,8 +530,8 @@ its heading's count.
 | Escape dismisses the build result, but never collapses the error report | M7b | `tools::tarpack::tests::escape_dismisses_drop_result_then_build_result` | done |
 | shortcuts are ignored while a build is running | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` | done |
 | shortcuts are ignored while the replace dialog is open | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` | done |
-| buttons carry their shortcut hints | U | view: the hints are `text::SHOW_ERRORS_HINT`, `CREATE_ARCHIVE_HINT`, `OPEN_HINT` | open |
-| tab order through the build bar: Choose…, Format, Show errors, Create archive | U | view | open |
+| buttons carry their shortcut hints | U11 | view: the hints are `text::SHOW_ERRORS_HINT`, `CREATE_ARCHIVE_HINT`, `OPEN_HINT` | open |
+| tab order through the build bar: Choose…, Format, Show errors, Create archive | U11 | view | open |
 | %s never reloads the webview and never runs Reload manifest | M7b | dropped: there is no webview to reload; the model's gating is `tools::tarpack::tests::shortcuts_gating_matches_today` | dropped |
 | reload chords are prevented with no manifest too | M7b | dropped: there is no webview to reload; no reload without a manifest is `tools::tarpack::tests::shortcuts_gating_matches_today` | dropped |
 | reload chords are prevented during a build | M7b | dropped: there is no webview to reload; no reload during a build is `tools::tarpack::tests::shortcuts_gating_matches_today` | dropped |

@@ -484,11 +484,13 @@ Four of today's images are crops of one region (`tarpack-buildbar` 1159×54,
 | U3 | [`U3-widgets-overlays.md`](../tasks/gpui-migration/U3-widgets-overlays.md) | Shared overlays: confirm dialog (extended), menu button, shortcuts help | U2 |
 | U4 | [`U4-shell.md`](../tasks/gpui-migration/U4-shell.md) | Chrome: sidebar and current marker, tool area, notice, drop overlay, close prompt | U3, M3b |
 | U5 | [`U5-pipeline-views.md`](../tasks/gpui-migration/U5-pipeline-views.md) | Pipeline views | U4, M5 |
+| U5b | [`U5b-pipeline-followups.md`](../tasks/gpui-migration/U5b-pipeline-followups.md) | U5 review follow-ups: tags on banner actions, optional accessible label, hidden-view focus, cleaned folder text, long names | U5 |
 | U6 | [`U6-pipeline-scenarios.md`](../tasks/gpui-migration/U6-pipeline-scenarios.md) | Six Pipeline scenarios; `shell-sample` removed | U5, M4 |
 | U7 | [`U7-schedule-views.md`](../tasks/gpui-migration/U7-schedule-views.md) | Schedule Creator views | U4, M6 |
 | U8 | [`U8-schedule-scenarios.md`](../tasks/gpui-migration/U8-schedule-scenarios.md) | Five Schedule scenarios | U7, U6, M4 |
 | U9 | [`U9-tarpack-frame-header.md`](../tasks/gpui-migration/U9-tarpack-frame-header.md) | Tar Packager frame, states, header, Recent, banners, empty state, errors region, drop result | U4, M7a |
-| U10 | [`U10-tarpack-entry-table.md`](../tasks/gpui-migration/U10-tarpack-entry-table.md) | The entry table | U9, M7a |
+| U9b | [`U9b-tarpack-header-followups.md`](../tasks/gpui-migration/U9b-tarpack-header-followups.md) | U9 review follow-ups: trailing chevron flip, Edit in editor in the errors region, open ledger rows | U9, after U10 |
+| U10 | [`U10-tarpack-entry-table.md`](../tasks/gpui-migration/U10-tarpack-entry-table.md) | The entry table (scrolls inside itself; the body does not scroll: decided 2026-11-23) | U9, M7a |
 | U11 | [`U11-tarpack-build.md`](../tasks/gpui-migration/U11-tarpack-build.md) | Build bar, progress, overwrite, result, report, developer extras, shortcuts and help | U10, M7b |
 | U12 | [`U12-tarpack-scenarios.md`](../tasks/gpui-migration/U12-tarpack-scenarios.md) | 19 Tar Packager scenarios | U11, U8, M4, R1 |
 

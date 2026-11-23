@@ -144,7 +144,7 @@ because grid cells stretch.
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`
   column and cannot style it. So this task's root view is `size_full`, adds
-  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_6`
+  its own padding (16 px vertical, 24 px horizontal: `SPACE_4` / `SPACE_5`
   from `theme::tokens`), and handles its own scrolling (an
   `overflow_y_scroll` region inside the root, not the root's parent).
 - **Confirmations.** If this view shows a confirmation, call `sync_confirm`
@@ -233,3 +233,19 @@ session.
 
 The entry table (U10); output, build, results, shortcut bindings (U11);
 scenarios (U12).
+
+## Recorded after the review (2026-11-23)
+
+- U9 edited shared widgets:
+  - `apps/filemanager/src/widgets/kbd.rs` gained `last_key_selector`, a
+    public builder that tags a chord's last key for the overflow test;
+  - `apps/filemanager/src/widgets/shortcuts_help.rs` was edited to carry it.
+
+  Both are accepted.
+- Follow-ups are in `U9b-tarpack-header-followups.md`: the errors toggle's
+  trailing chevron, Edit in editor in the errors region, and the open
+  ledger rows.
+- **Decision D:** Edit in editor in the errors region is **restored**, not
+  dropped (U9b).
+- The table's scrolling is decided in U10: inside itself, as V6 says.
+- The focus targets for the build result are U11's.

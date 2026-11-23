@@ -74,6 +74,13 @@ Do not touch: `src/shoot/` outside `scenarios/`, views, models, fixtures
 
 ## Skill
 
+**Confirmation body (from the U5 review, 2026-11-23).** Today the
+confirmation shows the folder in mono. U5's body is plain text. During the
+critique, choose one:
+(1) a rich `ConfirmSpec` body with a mono run, which is a small change to
+`widgets/dialog.rs`; or (2) the folder in the spec's `extra` line, rendered
+mono. Implement it, and record the choice in the PR.
+
 `/impeccable critique` on the six light PNGs and their `dark-` versions (from the `--dark --prefix dark-` run),
 against today's images: layout, colours, states, labels. Fix findings in
 U5's view files within this task when they are view-only parity misses
