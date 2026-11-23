@@ -157,9 +157,13 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
   src/app/                    shell.rs (Shell root view: current tool, drop routing,
                               notice, close request), drop.rs (DropTarget), guard.rs
                               (CloseRequest, unsaved work from the tools),
-                              dirs.rs (user_app_dirs, system_config_path: the only
-                              callers of the real folders; they panic in test and
-                              `shoot` builds),
+                              dirs.rs (user_app_dirs, system_config_path,
+                              user_documents_dir: the only callers of the real
+                              folders; the first two panic in test and `shoot`
+                              builds, the third returns a fake path; the main
+                              `filemanager-gpui` binary built with `--features
+                              shoot` panics at startup by design, only
+                              `filemanager-shoot` runs with that feature),
                               dev_mode.rs (Ctrl+Alt+Shift+D global, keystroke interceptor), text.rs,
                               view/ (the chrome slot: ui-implementer's, placeholder.rs
                               is the plain stand-in)

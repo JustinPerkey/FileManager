@@ -26,17 +26,21 @@ jobs:
       - run: npm run build -w apps/desktop
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Both test steps share one temp data folder; afterwards it must hold no
+      # FileManager folder. (apps/desktop/src-tauri/src/tools/tarpack/mod.rs, around
+      # line 31, still calls AppDirs::from_system() unguarded; no test reaches it
+      # and it is removed at the cutover.)
+      - name: Test data folder
+        run: echo "XDG_DATA_HOME=$(mktemp -d)" >> "$GITHUB_ENV"
       - run: cargo test --workspace --locked
-      - name: Tests must not touch the real user data folder
-        run: |
-          export XDG_DATA_HOME="$(mktemp -d)"
-          cargo test -p filemanager-gpui --features shoot --locked
-          if [ -e "$XDG_DATA_HOME/FileManager" ]; then
-            echo "a test created $XDG_DATA_HOME/FileManager"; exit 1
-          fi
       # The workspace runs above do not build the screenshot harness (feature `shoot`).
       - run: cargo clippy -p filemanager-gpui --features shoot --all-targets --locked -- -D warnings
       - run: cargo test -p filemanager-gpui --features shoot --locked
+      - name: Tests must not touch the real user data folder
+        run: |
+          if [ -e "$XDG_DATA_HOME/FileManager" ]; then
+            echo "a test created $XDG_DATA_HOME/FileManager"; exit 1
+          fi
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test

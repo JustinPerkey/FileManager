@@ -1,6 +1,9 @@
 //! The one place that resolves the real per-user folders. Tests and the
 //! screenshot harness must never reach them, so in those builds these
-//! functions panic; only `run()` with the real backends gets here.
+//! functions panic; only `run()` with the real backends gets here. The main
+//! `filemanager-gpui` binary built with `--features shoot` therefore panics at
+//! startup by design (it would reach the real folders); only
+//! `filemanager-shoot` is meant to run with that feature.
 
 use std::path::PathBuf;
 
@@ -37,6 +40,31 @@ pub fn system_config_path() -> fm_core::Result<PathBuf> {
     fm_core::system_config_dir()
 }
 
+/// The user's Documents folder, else their home folder.
+///
+/// In test and screenshot builds this returns a fixed fake path and never
+/// reads the real user-dirs configuration (view tests open dialogs, so it
+/// must not panic).
+#[must_use]
+pub fn user_documents_dir() -> Option<PathBuf> {
+    #[cfg(any(test, feature = "shoot"))]
+    {
+        Some(PathBuf::from(if cfg!(windows) {
+            r"C:\Users\fixture\Documents"
+        } else {
+            "/home/fixture/Documents"
+        }))
+    }
+    #[cfg(not(any(test, feature = "shoot")))]
+    {
+        let dirs = directories::UserDirs::new()?;
+        Some(dirs.document_dir().map_or_else(
+            || dirs.home_dir().to_path_buf(),
+            std::path::Path::to_path_buf,
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -45,6 +73,13 @@ mod tests {
     #[should_panic(expected = "tests and screenshots must not use the real user folders")]
     fn user_app_dirs_panics_in_tests() {
         let _ = super::user_app_dirs();
+    }
+
+    #[test]
+    fn user_documents_dir_is_fake_in_tests() {
+        let dir = super::user_documents_dir().expect("fake dir");
+        assert!(dir.ends_with("Documents"));
+        assert!(dir.to_string_lossy().contains("fixture"));
     }
 
     fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -71,7 +106,15 @@ mod tests {
                 if line.trim_start().starts_with("//") {
                     continue;
                 }
-                if line.contains("AppDirs::from_system") || line.contains("system_config_dir(") {
+                if [
+                    "AppDirs::from_system",
+                    "system_config_dir(",
+                    "UserDirs::new",
+                    "BaseDirs::new",
+                ]
+                .iter()
+                .any(|name| line.contains(name))
+                {
                     bad.push(format!("{}:{}", file.display(), n + 1));
                 }
             }

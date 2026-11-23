@@ -71,8 +71,9 @@ pub struct BackendSet {
 impl Global for BackendSet {}
 
 impl BackendSet {
-    /// The set installed on `cx`; all real if none was (fixtures in test and
-    /// screenshot builds, which must never reach the real user folders).
+    /// The set installed on `cx`; all real if none was. In test and `shoot`
+    /// builds a missing set falls back to fixtures instead: a safety net so a
+    /// forgotten install can never reach the real user folders.
     #[must_use]
     pub fn get(cx: &App) -> Self {
         cx.try_global::<Self>().copied().unwrap_or_else(|| {
