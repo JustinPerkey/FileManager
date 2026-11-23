@@ -489,6 +489,7 @@ Four of today's images are crops of one region (`tarpack-buildbar` 1159×54,
 | U6 | [`U6-pipeline-scenarios.md`](../tasks/gpui-migration/U6-pipeline-scenarios.md) | Six Pipeline scenarios; `shell-sample` removed | U5, M4 |
 | U7 | [`U7-schedule-views.md`](../tasks/gpui-migration/U7-schedule-views.md) | Schedule Creator views | U4, M6 |
 | U8 | [`U8-schedule-scenarios.md`](../tasks/gpui-migration/U8-schedule-scenarios.md) | Five Schedule scenarios | U7, U6, M4 |
+| U8b | [`U8b-loading-view-tests.md`](../tasks/gpui-migration/U8b-loading-view-tests.md) | Loading-state view tests for Pipeline, Schedule and Tar Packager with the Worker gate | M4e |
 | U9 | [`U9-tarpack-frame-header.md`](../tasks/gpui-migration/U9-tarpack-frame-header.md) | Tar Packager frame, states, header, Recent, banners, empty state, errors region, drop result | U4, M7a |
 | U9b | [`U9b-tarpack-header-followups.md`](../tasks/gpui-migration/U9b-tarpack-header-followups.md) | U9 review follow-ups: trailing chevron flip, Edit in editor in the errors region, open ledger rows | U9, after U10 |
 | U10 | [`U10-tarpack-entry-table.md`](../tasks/gpui-migration/U10-tarpack-entry-table.md) | The entry table (scrolls inside itself; the body does not scroll: decided 2026-11-23) | U9, M7a |
