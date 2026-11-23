@@ -936,9 +936,16 @@ fn menu_host(
         let picked = picked.clone();
         move |(), _, _| {
             let picked = picked.clone();
-            MenuButton::new("recent", "Recent")
-                .items(items())
-                .on_select(move |ix, _, _| picked.borrow_mut().push(ix))
+            // At the right of the window, so the list has room to the left.
+            div()
+                .w(px(760.0))
+                .flex()
+                .justify_end()
+                .child(
+                    MenuButton::new("recent", "Recent")
+                        .items(items())
+                        .on_select(move |ix, _, _| picked.borrow_mut().push(ix)),
+                )
                 .into_any_element()
         }
     });
@@ -955,9 +962,16 @@ fn menu_opens_with_keys_wraps_and_picks(cx: &mut TestAppContext) {
     first_tab_stop(cx);
     assert!(!menu_is_open(cx));
 
-    // Down opens, on the first row.
+    // Down opens, on the first row, right-aligned under the trigger.
     press(cx, "down");
     assert!(menu_is_open(cx));
+    let list = bounds(cx, "recent-item-0");
+    let trigger = bounds(cx, "recent");
+    // The rows sit 4 px (the list padding) inside the list's right edge.
+    assert!(
+        (list.right() + px(4.0) - trigger.right()).abs() <= px(1.0),
+        "list right edge {list:?} vs trigger {trigger:?}"
+    );
     // Down skips the disabled row, wraps from the last to the first; Up wraps back.
     press(cx, "down");
     press(cx, "down");
@@ -1051,8 +1065,14 @@ fn help_host(cx: &mut TestAppContext) -> (Rc<RefCell<Vec<bool>>>, &mut VisualTes
         let changes = changes.clone();
         move |(), _, _| {
             let changes = changes.clone();
-            ShortcutsHelp::new("help", help_rows())
-                .on_open_change(move |open, _, _| changes.borrow_mut().push(open))
+            div()
+                .w(px(760.0))
+                .flex()
+                .justify_end()
+                .child(
+                    ShortcutsHelp::new("help", help_rows())
+                        .on_open_change(move |open, _, _| changes.borrow_mut().push(open)),
+                )
                 .into_any_element()
         }
     });
@@ -1069,7 +1089,10 @@ fn shortcuts_popover_opens_under_button_and_escape_closes(cx: &mut TestAppContex
     press(cx, "enter");
     let popover = bounds(cx, "help-popover");
     assert!(popover.top() >= button.bottom(), "under the button");
-    assert!(popover.left() >= button.left() - px(1.0));
+    assert!(
+        (popover.right() - button.right()).abs() <= px(1.0),
+        "right-aligned under the button: {popover:?} vs {button:?}"
+    );
     assert!(popover.size.width <= px(576.0), "at most 576 px wide");
 
     press(cx, "escape");
@@ -1110,4 +1133,63 @@ fn enter_elsewhere_in_dialog_does_nothing(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("tab tab");
     press(cx, "enter");
     assert_eq!((calls.confirmed.get(), calls.cancelled.get()), (1, 0));
+}
+
+#[gpui::test]
+fn shortcuts_columns_align(cx: &mut TestAppContext) {
+    let (_view, cx) = open(
+        cx,
+        |_, _| (),
+        |(), _, _| {
+            let rows = vec![
+            ShortcutRow {
+                keys: vec![vec!["Ctrl", "Shift", "Alt", "D"]],
+                action: "A long chord".into(),
+                when: "Always".into(),
+            },
+            ShortcutRow {
+                keys: vec![vec!["Esc"]],
+                action: "Short key with a very long action that has to wrap when the popover reaches its 576 px cap, over and over, many words in a row to force it".into(),
+                when: "Result shown".into(),
+            },
+            ShortcutRow {
+                keys: vec![vec!["F6"], vec!["Ctrl", "O"]],
+                action: "Alternatives".into(),
+                when: "Always".into(),
+            },
+        ];
+            div()
+                .w(px(760.0))
+                .flex()
+                .justify_end()
+                .child(ShortcutsHelp::new("help", rows))
+                .into_any_element()
+        },
+    );
+    first_tab_stop(cx);
+    press(cx, "enter");
+    let keys: Vec<_> = (0..3)
+        .map(|i| bounds(cx, leak(format!("help-keys-{i}"))))
+        .collect();
+    let actions: Vec<_> = (0..3)
+        .map(|i| bounds(cx, leak(format!("help-action-{i}"))))
+        .collect();
+    let x = actions[0].left();
+    assert!(
+        actions.iter().all(|a| (a.left() - x).abs() <= px(0.5)),
+        "{actions:?}"
+    );
+    let widest = keys
+        .iter()
+        .map(gpui::Bounds::right)
+        .fold(px(0.0), Pixels::max);
+    assert!(
+        x >= widest,
+        "actions start past the widest keys cell: {x:?} vs {widest:?}"
+    );
+    assert!(bounds(cx, "help-popover").size.width <= px(576.0));
+}
+
+fn leak(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
 }

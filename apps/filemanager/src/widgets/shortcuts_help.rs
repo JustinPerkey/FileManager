@@ -9,26 +9,22 @@
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{div, px, App, ElementId, Role, SharedString, Window};
+use gpui::{div, px, Anchor, App, ElementId, Role, SharedString, Window};
 use gpui_component::popover::Popover;
-use gpui_component::{h_flex, v_flex, ThemeStyled as _};
+use gpui_component::{v_flex, ThemeStyled as _};
 
 use super::button::button;
 use super::icon::IconName;
 use super::kbd::{alternatives, Alternatives};
-use super::text::{h2, small_muted};
+use super::text::{h2, small, small_muted};
 use crate::app::probe::Tag as _;
 use crate::theme::palette;
-use crate::theme::tokens::{RADIUS, SPACE_2, SPACE_3, SPACE_4};
+use crate::theme::tokens::{RADIUS, SPACE_1, SPACE_2, SPACE_3, SPACE_4};
 
 /// The widest the popover gets.
 const MAX_WIDTH: f32 = 576.0;
 /// Share of the window height at which the table scrolls.
 const MAX_HEIGHT_SHARE: f32 = 0.7;
-/// Width of the keys column.
-const KEYS_WIDTH: f32 = 176.0;
-/// Width of the "when" column.
-const WHEN_WIDTH: f32 = 144.0;
 
 /// One line of the table.
 #[derive(Clone, Debug)]
@@ -92,6 +88,7 @@ impl RenderOnce for ShortcutsHelp {
 
         let popover = Popover::new(SharedString::from(format!("{id}-popover-state")))
             .appearance(false)
+            .anchor(Anchor::TopRight)
             .trigger(trigger)
             .when_some(on_open_change, |p, handler| {
                 p.on_open_change(move |open, window, cx| handler(*open, window, cx))
@@ -100,26 +97,29 @@ impl RenderOnce for ShortcutsHelp {
                 let id = id.clone();
                 move |_, _, cx| {
                     let p = *palette(cx);
-                    let last = rows.len().saturating_sub(1);
-                    let table = rows.iter().enumerate().map(|(i, row)| {
-                        h_flex()
-                            .gap(px(SPACE_4))
-                            .items_start()
-                            .py(px(SPACE_2))
-                            .when(i < last, |r| r.border_b_1().border_color(p.border))
-                            .child(div().w(px(KEYS_WIDTH)).flex_none().child(chords(&row.keys)))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(px(0.0))
-                                    .child(super::text::small(row.action.clone())),
-                            )
-                            .child(
-                                div()
-                                    .w(px(WHEN_WIDTH))
-                                    .flex_none()
-                                    .child(small_muted(row.when.clone())),
-                            )
+                    // One grid, cells row by row: each column is as wide as
+                    // its widest cell. Keys never wrap; the action wraps.
+                    let cells = rows.iter().enumerate().flat_map(|(i, row)| {
+                        let (keys_id, action_id) =
+                            (format!("{id}-keys-{i}"), format!("{id}-action-{i}"));
+                        [
+                            div()
+                                .flex_none()
+                                .whitespace_nowrap()
+                                .py(px(SPACE_1))
+                                .child(chords(&row.keys))
+                                .debug_selector(move || keys_id.clone())
+                                .into_any_element(),
+                            div()
+                                .py(px(SPACE_1))
+                                .child(small(row.action.clone()))
+                                .debug_selector(move || action_id.clone())
+                                .into_any_element(),
+                            div()
+                                .py(px(SPACE_1))
+                                .child(small_muted(row.when.clone()))
+                                .into_any_element(),
+                        ]
                     });
                     v_flex()
                         .popover_style(cx)
@@ -136,10 +136,13 @@ impl RenderOnce for ShortcutsHelp {
                         .aria_label("Keyboard shortcuts")
                         .child(h2("Keyboard shortcuts").mb(px(SPACE_2)))
                         .child(
-                            v_flex()
+                            div()
                                 .id(SharedString::from(format!("{id}-rows")))
+                                .grid()
+                                .grid_cols_max_content(3)
+                                .gap_x(px(SPACE_3))
                                 .overflow_y_scroll()
-                                .children(table),
+                                .children(cells),
                         )
                         .debug_selector({
                             let name = format!("{id}-popover");
