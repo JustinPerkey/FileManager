@@ -10,3 +10,6 @@ pub mod probe;
 pub mod shell;
 pub mod text;
 pub mod view;
+
+#[cfg(test)]
+mod tests;

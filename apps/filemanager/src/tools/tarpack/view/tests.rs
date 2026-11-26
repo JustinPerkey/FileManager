@@ -19,6 +19,7 @@ use super::entry_table::{self, EntryDelegate};
 use super::shortcuts::SHORTCUT_ROWS;
 use super::TarpackView;
 use crate::app::dev_mode::DevMode;
+use crate::jobs::WorkerGate;
 use crate::platform;
 use crate::platform::fake::{FakePlatform, PlatformCall};
 use crate::tools::tarpack::fixtures::{Call, FixtureTarpack, Gate, TarpackFixture};
@@ -229,22 +230,28 @@ fn renders_error_banner_and_dismisses(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn skeleton_only_when_model_says(cx: &mut TestAppContext) {
+    let gate = cx.update(WorkerGate::install_closed);
     let (host, vcx) = open(cx, FixtureTarpack::loaded());
-    let check = |vcx: &mut VisualTestContext, host: &Host| {
-        let shown = host.model.read_with(vcx, |m, _| m.show_skeleton());
-        assert_eq!(has(vcx, "tarpack-skeleton"), shown);
-        // While loading, nothing else of the view shows.
-        if host.model.read_with(vcx, |m, _| m.loading()) {
-            assert!(!has(vcx, "tarpack-open"));
-            assert!(!has(vcx, "tarpack-shortcuts"));
-        }
-    };
     vcx.run_until_parked();
-    check(vcx, &host);
+    assert!(
+        host.model.read_with(vcx, |m, _| m.loading()),
+        "gate closed: loading"
+    );
+    // Within the delay nothing shows yet, not even the skeleton.
+    assert!(!host.model.read_with(vcx, |m, _| m.show_skeleton()));
+    assert!(!has(vcx, "tarpack-skeleton"));
+
     vcx.executor().advance_clock(SKELETON_DELAY);
     vcx.run_until_parked();
-    check(vcx, &host);
+    assert!(host.model.read_with(vcx, |m, _| m.loading()));
+    assert!(host.model.read_with(vcx, |m, _| m.show_skeleton()));
+    assert!(has(vcx, "tarpack-skeleton"), "skeleton after the delay");
+    assert!(!has(vcx, "tarpack-open"));
+    assert!(!has(vcx, "tarpack-shortcuts"));
+
+    gate.open();
     idle(vcx, &host);
+    assert!(!host.model.read_with(vcx, |m, _| m.loading()));
     assert!(!has(vcx, "tarpack-skeleton"), "gone once loaded");
     assert!(has(vcx, "tarpack-header"));
 }
