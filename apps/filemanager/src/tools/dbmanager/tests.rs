@@ -687,6 +687,52 @@ fn recent_databases_open_by_position(cx: &mut TestAppContext) {
     assert_eq!(snapshot(cx, &model).database.unwrap().path, env.db);
 }
 
+#[gpui::test]
+fn superseded_open_keeps_the_backend_state(cx: &mut TestAppContext) {
+    let env = FixtureEnv::new(DbmanagerFixture::Empty);
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, &env);
+    // The snapshot fetch of `new` is queued first; then A opens (stale), and
+    // B (newest) fails. The backend keeps A.
+    let missing = env.dir().join("missing.db");
+    act(cx, &model, |m, cx| m.open_path(env.db.clone(), cx));
+    act(cx, &model, |m, cx| m.open_path(missing, cx));
+    handle.open();
+    idle(cx, &model);
+    let shown = snapshot(cx, &model);
+    assert!(shown.open);
+    assert_eq!(shown.database.unwrap().path, env.db);
+    let first = read(cx, &model, |m| m.listed_tables()[0].name.clone());
+    assert_eq!(place(cx, &model), table(&first));
+    assert!(read(cx, &model, |m| m
+        .list_state(&first)
+        .is_some_and(|l| l.page.is_some())));
+    assert!(matches!(
+        read(cx, &model, |m| m.error().cloned()),
+        Some(ViewError::Dbmanager { .. })
+    ));
+}
+
+#[gpui::test]
+fn panicked_command_refetches_snapshot(cx: &mut TestAppContext) {
+    let env = FixtureEnv::new(DbmanagerFixture::Empty);
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, &env);
+    let bad = env.dir().join("panic.db");
+    env.panic_on_open_of(&bad);
+    act(cx, &model, |m, cx| m.open_path(env.db.clone(), cx));
+    act(cx, &model, |m, cx| m.open_path(bad, cx));
+    handle.open();
+    idle(cx, &model);
+    let shown = snapshot(cx, &model);
+    assert!(shown.open);
+    assert_eq!(shown.database.unwrap().path, env.db);
+    assert!(matches!(
+        read(cx, &model, |m| m.error().cloned()),
+        Some(ViewError::Unexpected { .. })
+    ));
+}
+
 // ---- the open dialog ----
 
 #[gpui::test]

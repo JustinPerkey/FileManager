@@ -210,6 +210,9 @@ pub struct DbmanagerModel {
     inflight: usize,
     /// Source of the sequence numbers of lists, objects and pages.
     next_seq: u64,
+    /// The order number of the snapshot applied last. Results can arrive
+    /// out of order, so an older snapshot than this is dropped.
+    applied_state: u64,
     history: Vec<Place>,
     cursor: usize,
     list_states: HashMap<String, ListState>,
@@ -240,6 +243,7 @@ impl DbmanagerModel {
             pending_commands: 0,
             inflight: 0,
             next_seq: 0,
+            applied_state: 0,
             history: vec![Place::Tables],
             cursor: 0,
             list_states: HashMap::new(),
@@ -399,25 +403,47 @@ impl DbmanagerModel {
     }
 
     fn fetch_snapshot(&mut self, cx: &mut Context<Self>) {
+        let order = self.next_seq();
         self.request(
             |b| b.session(),
             cx,
-            |m, result, cx| match result {
-                Ok(snapshot) => m.snapshot_arrived(snapshot, cx),
+            move |m, result, cx| match result {
+                Ok(snapshot) => m.snapshot_arrived(order, snapshot, cx),
                 Err(e) => m.fail(e.into(), cx),
             },
         );
     }
 
-    fn snapshot_arrived(&mut self, snapshot: DbmanagerSnapshot, cx: &mut Context<Self>) {
-        let first = self.snapshot.is_none();
+    fn snapshot_arrived(
+        &mut self,
+        order: u64,
+        snapshot: DbmanagerSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if order < self.applied_state {
+            return;
+        }
+        self.applied_state = order;
+        // A different database (or none, then one) than the model's: the
+        // restored database, or the backend's state after commands that did
+        // not all show. Shown without taking focus.
+        let changed = self.differs(&snapshot);
         self.remember_dir(&snapshot);
         self.snapshot = Some(snapshot);
-        if first {
-            // The restored database, if any, is shown without taking focus.
+        if changed {
             self.reset_for_database(false, cx);
         }
         cx.notify();
+    }
+
+    /// `snapshot` names another database, or another open state, than the
+    /// model's (or the model has none yet).
+    fn differs(&self, snapshot: &DbmanagerSnapshot) -> bool {
+        self.snapshot.as_ref().is_none_or(|old| {
+            old.open != snapshot.open
+                || old.database.as_ref().map(|d| &d.path)
+                    != snapshot.database.as_ref().map(|d| &d.path)
+        })
     }
 
     fn remember_dir(&mut self, snapshot: &DbmanagerSnapshot) {
@@ -526,10 +552,11 @@ impl DbmanagerModel {
     ) {
         self.command_seq += 1;
         let seq = self.command_seq;
+        let order = self.next_seq();
         self.pending_commands += 1;
         self.request(job, cx, move |m, result, cx| {
             m.pending_commands -= 1;
-            m.command_done(seq, result, outcome, cx);
+            m.command_done(seq, order, result, outcome, cx);
         });
         cx.notify();
     }
@@ -537,11 +564,18 @@ impl DbmanagerModel {
     fn command_done(
         &mut self,
         seq: u64,
+        order: u64,
         result: JobResult<DbmanagerSnapshot>,
         outcome: Outcome,
         cx: &mut Context<Self>,
     ) {
         if seq != self.command_seq {
+            // Superseded: nothing of it is shown, but the worker ran it in
+            // order, so the backend's state is already changed. A failure or
+            // panic here changes nothing, and the newest result follows.
+            if let Ok(Ok(snapshot)) = result {
+                self.snapshot_arrived(order, snapshot, cx);
+            }
             return;
         }
         match result {
@@ -554,19 +588,31 @@ impl DbmanagerModel {
                     Outcome::Reloaded => Some(text::RELOADED_SENTENCE.to_owned()),
                     Outcome::Closed => Some(text::CLOSED_SENTENCE.to_owned()),
                 };
-                self.remember_dir(&snapshot);
-                self.snapshot = Some(snapshot);
                 self.error = None;
-                match outcome {
-                    Outcome::Opened | Outcome::Closed => self.reset_for_database(true, cx),
-                    Outcome::Reloaded => self.enter(false, cx),
+                // A snapshot older than the applied one (a later fetch
+                // answered first) is not applied; the answer still shows.
+                if order >= self.applied_state {
+                    self.applied_state = order;
+                    let changed = self.differs(&snapshot);
+                    self.remember_dir(&snapshot);
+                    self.snapshot = Some(snapshot);
+                    match outcome {
+                        Outcome::Opened | Outcome::Closed => self.reset_for_database(true, cx),
+                        Outcome::Reloaded if changed => self.reset_for_database(false, cx),
+                        Outcome::Reloaded => self.enter(false, cx),
+                    }
                 }
                 if let Some(sentence) = sentence {
                     self.announce(sentence, cx);
                 }
                 cx.notify();
             }
-            Ok(Err(e)) => self.fail_db(e, cx),
+            Ok(Err(e)) => {
+                // Superseded commands before this one may have taken effect:
+                // fetch the backend's state rather than keep the old copy.
+                self.fail_db(e, cx);
+                self.fetch_snapshot(cx);
+            }
             Err(e) => {
                 // The backend's state is unknown: fetch it again, keep the
                 // banner.

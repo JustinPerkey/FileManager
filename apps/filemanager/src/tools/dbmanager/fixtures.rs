@@ -17,7 +17,7 @@
 //! settle.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use fm_core::AppDirs;
 use fm_dbmanager::session::{ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView};
@@ -57,6 +57,8 @@ pub struct FixtureEnv {
     /// The app-wide config file (absent in `ConfigMissing`).
     pub config: PathBuf,
     dirs: AppDirs,
+    /// Test hook: an `open` of this path on any backend of this env panics.
+    panic_open_of: Arc<Mutex<Option<PathBuf>>>,
 }
 
 fn shown_root() -> PathBuf {
@@ -98,6 +100,7 @@ impl FixtureEnv {
             db,
             config,
             dirs,
+            panic_open_of: Arc::new(Mutex::new(None)),
         };
         if fixture != DbmanagerFixture::Empty {
             // Remember the database as an earlier run would have.
@@ -121,8 +124,16 @@ impl FixtureEnv {
     pub fn backend(&self) -> FixtureDbmanager {
         FixtureDbmanager {
             real: RealDbmanager::with_core(self.core()),
-            _env: self.clone(),
+            env: self.clone(),
         }
+    }
+
+    /// Makes an `open` of `path` through a backend of this env panic.
+    ///
+    /// # Panics
+    /// If the hook's lock is poisoned.
+    pub fn panic_on_open_of(&self, path: &Path) {
+        *self.panic_open_of.lock().unwrap() = Some(path.to_path_buf());
     }
 
     /// The temp dir.
@@ -148,7 +159,7 @@ impl FixtureEnv {
 /// its own.
 pub struct FixtureDbmanager {
     real: RealDbmanager,
-    _env: FixtureEnv,
+    env: FixtureEnv,
 }
 
 impl FixtureDbmanager {
@@ -165,6 +176,8 @@ impl DbmanagerBackend for FixtureDbmanager {
     }
 
     fn open(&mut self, path: &Path) -> Result<DbmanagerSnapshot, DbmanagerError> {
+        let hook = self.env.panic_open_of.lock().ok().and_then(|g| g.clone());
+        assert!(hook.as_deref() != Some(path), "fixture open panicked");
         self.real.open(path)
     }
 
