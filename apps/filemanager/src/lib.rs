@@ -1,12 +1,6 @@
 //! The `FileManager` GPUI app. The library name (`fm_app`) stays stable across
 //! the rename that follows the cutover from the Tauri app.
 
-// The domain crates the tools will use. The placeholder tools do not call them
-// yet, and Cargo's `cargo::unused_dependencies` manifest lint warns about an
-// unused dependency; these lines go once the tools use the crates.
-use fm_dbmanager as _;
-use fm_schedule as _;
-
 pub mod app;
 pub mod assets;
 pub mod fonts;

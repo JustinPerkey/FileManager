@@ -11,8 +11,12 @@ a Windows-only desktop app distributed as a portable `.exe` (no installer). It
 hosts several independent tools: the Pipeline (`pipeline`, UI and plumbing
 only: its four step hooks are stubs), the Tar Packager (`tarpack`) and the
 Schedule Creator (`schedule`, UI and plumbing only: its parse and merge hooks
-are stubs). The Database Manager (`dbmanager`) is in progress: crate only
-(`fm-dbmanager`), UI to come.
+are stubs). The Database Manager (`dbmanager`) is in progress: crate
+(`fm-dbmanager`) and, in the GPUI app, its tool core and read-side model
+(views to come). Its one app-wide config is
+`%ProgramData%\FileManager\dbmanager.toml` (`/etc/filemanager/dbmanager.toml`
+elsewhere); the app only reads it, and a config that cannot be used fails
+closed (everything read-only).
 
 A GPUI app is being built beside the Tauri shell in `apps/filemanager` (package
 `filemanager-gpui`); the Tauri exe still ships. The Pipeline's and the Schedule
@@ -78,7 +82,11 @@ crates/
                               that same transaction, strict conflicts;
                               `backup.rs`: the one backup before a session's first write;
                               `delete.rs`: the delete impact preview and the confirmed delete);
-                              `session/sql.rs` is the only module that assembles SQL text
+                              `session/sql.rs` is the only module that assembles SQL text;
+                              `src/tool/` is the tool core (Core: the app-wide config, the
+                              recent databases, open/drop/reload/close, DbmanagerSnapshot,
+                              DbmanagerError and its 22 kinds); plain Rust, not exported
+                              through ts-rs
     src/value.rs              DbValue (boundary value; integers, reals, durations as strings)
     src/rules/                FieldRule/FieldKind/FieldIssue types, pure validate, and
                               duration.rs (the duration grammar, parse, format; config
@@ -182,6 +190,11 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               module per tool (Pipeline, Schedule and Tar Packager have their real
                               models, backends, text and fixtures), each with a view/
                               placeholder; tools never import each other
+  src/tools/dbmanager/        backend.rs (DbmanagerBackend over fm_dbmanager's tool Core;
+                              RealDbmanager), model.rs (DbmanagerModel, read side: places and
+                              history, lists, object, referenced-by, many-to-many), text.rs,
+                              fixtures.rs (FixtureEnv: a real Core over a temp-dir database;
+                              test and `shoot` builds), tests.rs; view/ is a placeholder
   src/tools/schedule/         same shape as pipeline/ (ScheduleBackend over fm_schedule's
                               Core; RealSchedule, ScheduleModel, text.rs, fixtures.rs,
                               tests.rs); view/ is a placeholder

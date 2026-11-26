@@ -7,6 +7,7 @@ pub mod rules;
 pub mod schema;
 pub mod session;
 pub mod state;
+pub mod tool;
 pub mod value;
 
 pub use config::{

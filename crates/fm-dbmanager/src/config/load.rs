@@ -13,6 +13,8 @@ use super::{parse, Config, ConfigDiagnostic, ConfigReport, DiagnosticSeverity};
 const MISSING_HASH: &str = "missing";
 /// Hash of a file that exists but could not be read.
 const UNREADABLE_HASH: &str = "unreadable";
+/// Hash of the config whose location is unknown.
+const UNAVAILABLE_HASH: &str = "unavailable";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +31,9 @@ pub struct LoadedConfig {
     status: ConfigStatus,
     report: ConfigReport,
     hash: String,
+    /// False for [`LoadedConfig::location_unknown`]: there is no file to
+    /// watch.
+    located: bool,
 }
 
 fn hex_digest(bytes: &[u8]) -> String {
@@ -62,6 +67,7 @@ impl LoadedConfig {
             status,
             report,
             hash: hash.to_owned(),
+            located: true,
         };
         let unreadable = |why: &str, hash: &str| {
             let reason = format!("the config file could not be read: {why}");
@@ -97,6 +103,20 @@ impl LoadedConfig {
             ConfigStatus::Loaded
         };
         make(status, report, &hash)
+    }
+
+    /// The config of an app that could not work out where its config file
+    /// lives: fail-closed, with nothing on disk to compare against.
+    #[must_use]
+    pub fn location_unknown() -> LoadedConfig {
+        let reason = "the config location could not be determined".to_owned();
+        LoadedConfig {
+            path: PathBuf::new(),
+            status: ConfigStatus::FailClosed,
+            report: fail_closed(reason.clone(), format!("{reason}; everything is read-only")),
+            hash: UNAVAILABLE_HASH.to_owned(),
+            located: false,
+        }
     }
 
     #[must_use]
@@ -135,6 +155,9 @@ impl LoadedConfig {
     /// disappearing and becoming unreadable all count.
     #[must_use]
     pub fn changed_on_disk(&self) -> bool {
+        if !self.located {
+            return false;
+        }
         let now = match std::fs::read(&self.path) {
             Ok(bytes) => hex_digest(&bytes),
             Err(e) if e.kind() == ErrorKind::NotFound => MISSING_HASH.to_owned(),
