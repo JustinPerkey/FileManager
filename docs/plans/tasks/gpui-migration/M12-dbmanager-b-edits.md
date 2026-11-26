@@ -172,6 +172,15 @@ comment so the scenario author knows which `Wait` it needs.
 
 **From the M12a review (2026-11-26).**
 
+- **(P3, model) The ListHeading hint on a racing open.** If a later fetch is
+  applied before an Open's own result arrives, `reset_for_database` runs
+  with `hint = false`, so no `FocusHint::ListHeading` is raised for that
+  open. Raise the hint whenever the newest Open's snapshot is dropped as
+  older **and** the database changed (the reset that a fetch caused stands
+  in for the Open's). Test: `racing_open_still_raises_list_heading_hint`
+  (closed `WorkerGate`: queue open(A), then a fetch, release them in that
+  order, and the hint is `ListHeading`).
+
 - `DbmanagerError::conflict_link` is `Option<Box<LinkRef>>`.
 - **A reload after a failed first save must not lose the backup
   announcement (decided: pass it through).**
