@@ -1,7 +1,32 @@
 # U8b — View tests for the loading state, using the Worker gate
 
-Status: approved (2026-11-23; from the U7 review)
+Status: approved (2026-11-23; from the U7 review). U8b landed as c2d5912 and is **not approved yet**; the next run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: M4e (landed)
+
+## Review follow-up (2026-11-26)
+
+**The next run does only this section.**
+
+1. **The loading tests must catch a visible loading line.** The Pipeline
+   and Schedule `loading_renders_header_only` tests do not catch the bug they
+   exist for: the reviewer re-added U7's visible "Loading" line, and the
+   Schedule test still passed.
+   - Give each page column a debug selector: `pipeline-page` and
+     `schedule-page`.
+   - While loading, assert that the page's content height equals the
+     header's height plus the page's vertical padding, within 1 px.
+     Equivalently, the header's bottom edge is the page's last content edge.
+   - **Revert check:** re-add a visible "Loading" line in a scratch change.
+     The test must fail in both views. Show this in the PR.
+2. **`init_app_with_closed_gate_shows_loading`:**
+   - its polling budget of 50 × 2 ms is too short for Windows CI. Poll
+     until a deadline of about 5 s instead (for example with
+     `Instant::now() + Duration::from_secs(5)`), and fail with a clear
+     message at the deadline;
+   - its "loading: no body" assertion uses the same height check as item 1.
+
+Acceptance: both items' tests pass on both CI jobs, and the revert check
+fails as described.
 
 ## Goal
 

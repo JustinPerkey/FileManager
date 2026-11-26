@@ -532,6 +532,7 @@ recommendation was go-with-conditions; the human decided go (D10–D14).
 | M6 | [`M6-schedule-model.md`](../tasks/gpui-migration/M6-schedule-model.md) | Schedule Creator backend, model, copy, fixtures | M5 | **depends on UI plan** |
 | M7a | [`M7-tarpack-a-manifest-model.md`](../tasks/gpui-migration/M7-tarpack-a-manifest-model.md) | Tar Packager backend; model for manifest, recent, watcher, assignments, drop | M6 | **depends on UI plan** |
 | M7b | [`M7-tarpack-b-build-model.md`](../tasks/gpui-migration/M7-tarpack-b-build-model.md) | Tar Packager model for output, format, build, progress, overwrite, results, dev mode, shortcuts | M7a | **depends on UI plan** |
+| M7c | [`M7c-tarpack-table-copy.md`](../tasks/gpui-migration/M7c-tarpack-table-copy.md) | Move the entry table's copy from `view/entry_cells.rs` into `text.rs`, unchanged | U10 | no |
 | M8 | [`M8-manual-cutover.md`](../tasks/gpui-migration/M8-manual-cutover.md) | Manual and screenshots from the harness; Node screenshot scripts removed | M5–M7b and every U task of the three tools | **depends on UI plan** |
 | M9 | [`M9-cutover-removal.md`](../tasks/gpui-migration/M9-cutover-removal.md) | Remove Tauri, React, npm, ts-rs; rename to `filemanager`; CI cleanup | M8 | no |
 | M10 | [`M10-docs-governance.md`](../tasks/gpui-migration/M10-docs-governance.md) | `CLAUDE.md`, docs, invariants (§10.3), agent roles in both runtimes (plans README text proposed to the planner) | M9, M11 | partly (`DESIGN.md`/`PRODUCT.md` are the ui-designer's) |
