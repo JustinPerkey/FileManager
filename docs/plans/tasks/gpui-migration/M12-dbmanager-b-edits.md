@@ -170,6 +170,23 @@ enough for the job. Fixtures that simulate long work (progress, a running
 step) are timed on purpose; document each fixture's timing in its doc
 comment so the scenario author knows which `Wait` it needs.
 
+**From the M12a review (2026-11-26).**
+
+- `DbmanagerError::conflict_link` is `Option<Box<LinkRef>>`.
+- **A reload after a failed first save must not lose the backup
+  announcement (decided: pass it through).**
+  - Today `reload()` calls `Session::adopt_backup(path)`, which marks the
+    backup as announced. So if the first save took the backup and failed,
+    and then a reload happened, the next successful save never reports
+    `backup_created`.
+  - Carry the session's announced state across the reload: add
+    `Session::backup_announced() -> bool`, and give `adopt_backup` the
+    announced state, as `adopt_backup(path, announced: bool)`. This is the
+    only `crates/fm-dbmanager/src/session/` change this task may make,
+    with its test in the crate.
+  - `Core::reload` passes the old session's state through.
+  - Test: `reload_after_failed_first_save_still_announces_backup`.
+
 ### Rules that bind this task
 
 - **Destructive operations are never silent:** saves are explicit and
@@ -195,7 +212,8 @@ Edit: `crates/fm-dbmanager/src/tool/{core.rs,tests.rs}`,
 `CLAUDE.md` (Status).
 
 Do not touch: `crates/fm-dbmanager/src/{session,rules,model}/` (report a
-needed domain change instead), other tools, `docs/plans/`.
+needed domain change instead; the one exception is the `adopt_backup`
+announced flag above), other tools, `docs/plans/`.
 
 ## Acceptance criteria
 

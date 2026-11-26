@@ -135,6 +135,9 @@ enough for the job. Fixtures that simulate long work (progress, a running
 step) are timed on purpose; document each fixture's timing in its doc
 comment so the scenario author knows which `Wait` it needs.
 
+**From the M12a review (2026-11-26).** `DbmanagerError::conflict_link` is
+`Option<Box<LinkRef>>`; match on it accordingly.
+
 ### Rules that bind this task
 
 - **Destructive operations are never silent:** delete is previewed and

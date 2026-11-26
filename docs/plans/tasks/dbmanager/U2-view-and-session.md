@@ -131,6 +131,13 @@ Debug selectors: `db-open`, `db-recent`, `db-reload`, `db-close`,
 `db-shortcuts`, `db-config-line`, `db-config-problems`, `db-error`,
 `db-empty`.
 
+**Nothing open, with an error (from the M12a review, 2026-11-26).** A
+snapshot with `database: Some(slot)` where the slot has an `error`, and
+`open: false`, means **nothing is open**: the last database failed to open.
+Render the empty state with the slot's error (its message, and the path as
+the subject). Do not render a database header. Test:
+`failed_restore_shows_empty_state_with_error`.
+
 **Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`
