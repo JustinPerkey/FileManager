@@ -29,6 +29,16 @@
 //! (`ToolHooks::inject_file_changed`), which rewrites the temp config so book
 //! `pages` is read-only, reloads and re-checks the draft: add `Wait(300)`.
 //!
+//! [`DbmanagerFixture::Diagnostics`] has a config with exactly one error and
+//! one warning, and [`DbmanagerFixture::ReadonlyConfig`] one with a syntax
+//! error, so everything is read-only with the reason; both answer like
+//! `Loaded` (`Wait(200)` for the loaded list).
+//! The config-reloaded scenario goes through the watcher's own path
+//! (`inject_file_changed` rewrites the config, then reloads it as the watcher
+//! does). That path is: rewrite, a `reload_config` job, a snapshot job and the
+//! re-check read, so add `Wait(300)`. Edit config opens the file with the
+//! platform (the harness's fake platform, so nothing opens).
+//!
 //! **Timing** (the harness's `Step::WaitIdle` is a short fixed settle, not
 //! idle detection). The first `session` call opens a tiny database and
 //! introspects it, and every list or object read queries it, all on the
@@ -93,7 +103,20 @@ pub enum DbmanagerFixture {
     /// As `Loaded`, but `publisher` is editable and may be deleted, while a
     /// book still references it: deleting a publisher is blocked.
     DeleteBlocked,
+    /// As `Loaded`, with a config holding exactly one error (an unknown table
+    /// mode) and one warning (an entry for a table that does not exist).
+    Diagnostics,
+    /// As `Loaded`, with a config that has a syntax error: everything is
+    /// read-only, with the reason.
+    ReadonlyConfig,
 }
+
+/// The config of [`DbmanagerFixture::Diagnostics`].
+const DIAGNOSTICS_CONFIG: &str =
+    "version = 1\n\n[defaults]\ntable_mode = \"bogus\"\n\n[tables.ghost]\nmode = \"editable\"\n";
+
+/// The config of [`DbmanagerFixture::ReadonlyConfig`].
+const SYNTAX_ERROR_CONFIG: &str = "version = 1\n[tables\n";
 
 /// A temp dir with a database, a config and a state folder, shared by the
 /// backends made from it.
@@ -140,6 +163,8 @@ impl FixtureEnv {
             | DbmanagerFixture::ConflictOnSave
             | DbmanagerFixture::LinkConflictOnSave => Some(EXAMPLE_CONFIG),
             DbmanagerFixture::DeleteBlocked => Some(DELETE_BLOCKED_CONFIG.as_str()),
+            DbmanagerFixture::Diagnostics => Some(DIAGNOSTICS_CONFIG),
+            DbmanagerFixture::ReadonlyConfig => Some(SYNTAX_ERROR_CONFIG),
             DbmanagerFixture::ConfigMissing => None,
             DbmanagerFixture::ConfigFailClosed => Some("version = 2\n"),
         };
@@ -301,6 +326,14 @@ impl DbmanagerBackend for FixtureDbmanager {
 
     fn reload(&mut self) -> Result<DbmanagerSnapshot, DbmanagerError> {
         self.real.reload()
+    }
+
+    fn reload_config(&mut self) -> DbmanagerSnapshot {
+        self.real.reload_config()
+    }
+
+    fn edit_config_target(&mut self) -> Result<(PathBuf, bool), DbmanagerError> {
+        self.real.edit_config_target()
     }
 
     fn close(&mut self) -> DbmanagerSnapshot {

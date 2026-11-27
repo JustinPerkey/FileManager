@@ -948,3 +948,69 @@ fn save_with_links_through_core() {
         .iter()
         .any(|v| v.column == "role" && v.value == DbValue::Text("translator".into())));
 }
+
+// ---- Edit config ----
+
+#[test]
+fn edit_config_creates_starter_when_missing() {
+    let fx = Fx::new(None);
+    let nested = fx.dir.path().join("a").join("b").join("dbmanager.toml");
+    let core = Core::new(&fx.dirs(), Some(nested.clone()));
+    let (path, created) = core.edit_config_target().unwrap();
+    assert_eq!(path, nested);
+    assert!(created);
+    assert_eq!(
+        fs::read_to_string(&nested).unwrap(),
+        include_str!("../../../../examples/dbmanager/starter.toml")
+    );
+}
+
+#[test]
+fn edit_config_never_overwrites() {
+    let fx = Fx::new(Some("version = 1\n# mine\n"));
+    let core = fx.core();
+    let (path, created) = core.edit_config_target().unwrap();
+    assert_eq!(path, fx.cfg);
+    assert!(!created);
+    assert_eq!(
+        fs::read_to_string(&fx.cfg).unwrap(),
+        "version = 1\n# mine\n"
+    );
+    // A second call after a creation is not a creation either.
+    let missing = Fx::new(None);
+    let core = missing.core();
+    assert!(core.edit_config_target().unwrap().1);
+    assert!(!core.edit_config_target().unwrap().1);
+}
+
+#[test]
+fn edit_config_without_a_location_is_io() {
+    let fx = Fx::new(None);
+    let core = Core::new(&fx.dirs(), None);
+    assert_eq!(
+        core.edit_config_target().unwrap_err().kind,
+        DbmanagerErrorKind::Io
+    );
+}
+
+#[test]
+fn edit_config_under_a_file_is_io() {
+    let fx = Fx::new(None);
+    let blocker = fx.dir.path().join("blocker");
+    fs::write(&blocker, "x").unwrap();
+    let core = Core::new(&fx.dirs(), Some(blocker.join("dbmanager.toml")));
+    assert_eq!(
+        core.edit_config_target().unwrap_err().kind,
+        DbmanagerErrorKind::Io
+    );
+}
+
+#[test]
+fn starter_is_inert() {
+    let fx = Fx::new(None);
+    fx.core().edit_config_target().unwrap();
+    let loaded = LoadedConfig::load(&fx.cfg);
+    assert_eq!(loaded.diagnostics(), &[]);
+    assert_eq!(loaded.status(), ConfigStatus::Loaded);
+    assert_eq!(loaded.fail_closed_reason(), None);
+}

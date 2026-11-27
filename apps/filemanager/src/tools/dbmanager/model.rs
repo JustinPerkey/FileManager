@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use fm_core::watch::FileWatcher;
 use fm_dbmanager::config::{RelationMode, TableMode};
 use fm_dbmanager::model::{FieldView, TableView};
 use fm_dbmanager::session::{
@@ -22,11 +23,12 @@ use fm_dbmanager::session::{
     ObjectKey, ObjectPage, ObjectSummary, ObjectView, ReferencingFilter, SaveRequest, SaveResult,
 };
 use fm_dbmanager::tool::{DbmanagerError, DbmanagerErrorKind, DbmanagerSnapshot};
-use gpui::Context;
+use gpui::{Context, Task};
 
+use crate::app::dev_mode::DevMode;
 use crate::app::text::PICK_FAILED;
 use crate::jobs::{JobPanicked, Worker};
-use crate::platform::{platform, FileFilter, OpenSpec, PickError, PickKind};
+use crate::platform::{platform, FileFilter, OpenError, OpenSpec, PickError, PickKind};
 
 use super::backend::DbmanagerBackend;
 pub use super::draft::EditorInput;
@@ -191,6 +193,8 @@ pub enum Notice {
     LinkAlreadyGone,
     /// Re-applying a set-aside edit found the link already holding it.
     LinkAlreadyApplied,
+    /// Edit config created the starter file (display path).
+    StarterCreated { display: String },
     /// An object was deleted (`related` rows went with it; `at_least` when
     /// the count was cut short). `backup` is the display path when this
     /// delete took the session's backup.
@@ -219,6 +223,7 @@ impl Notice {
             Notice::LinkAlreadyLinked => text::LINK_ALREADY_LINKED.to_owned(),
             Notice::LinkAlreadyGone => text::LINK_ALREADY_GONE.to_owned(),
             Notice::LinkAlreadyApplied => text::LINK_ALREADY_APPLIED.to_owned(),
+            Notice::StarterCreated { display } => text::starter_created(display),
             Notice::Deleted {
                 label,
                 related,
@@ -510,12 +515,29 @@ pub struct DbmanagerModel {
     delete: Option<DeleteState>,
     delete_target: Option<DeleteTarget>,
     delete_seq: u64,
+    /// The watcher of the config file, once armed.
+    config_watcher: Option<FileWatcher>,
+    /// Arming was started (once per model).
+    watch_armed: bool,
+    /// The watcher's callback sends here; a foreground task reloads.
+    config_changes: async_channel::Sender<()>,
 }
 
 impl DbmanagerModel {
     /// A model over `backend`; it starts loading the state at once.
     pub fn new(backend: Box<dyn DbmanagerBackend>, cx: &mut Context<Self>) -> Self {
         let worker = Worker::new(backend, cx);
+        let (config_changes, changed) = async_channel::unbounded::<()>();
+        cx.spawn(async move |this, cx| {
+            while changed.recv().await.is_ok() {
+                if this.update(cx, Self::config_file_changed).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        // Edit config shows only in developer mode: a change redraws at once.
+        cx.observe_global::<DevMode>(|_, cx| cx.notify()).detach();
         let mut model = Self {
             worker,
             snapshot: None,
@@ -553,6 +575,9 @@ impl DbmanagerModel {
             delete: None,
             delete_target: None,
             delete_seq: 0,
+            config_watcher: None,
+            watch_armed: false,
+            config_changes,
         };
         model.fetch_snapshot(cx);
         model
@@ -733,6 +758,10 @@ impl DbmanagerModel {
         if changed {
             self.reset_for_database(false, cx);
         }
+        // Tests arm the watcher only where they mean to (a real watcher on
+        // every fixture would reload behind unrelated tests).
+        #[cfg(not(test))]
+        self.arm_config_watcher(cx);
         cx.notify();
     }
 
@@ -1110,6 +1139,10 @@ impl DbmanagerModel {
         self.picker = None;
         self.conflict = None;
         self.link_conflicts.clear();
+        // A link conflict's one-option re-read still in flight belongs to the
+        // place being left: its answer is stale and is dropped.
+        self.link_conflict_seq += 1;
+        self.link_reread = false;
         self.delete = None;
         self.delete_target = None;
         self.leave = None;
@@ -2929,23 +2962,154 @@ impl DbmanagerModel {
         );
     }
 
+    // ---- the config file ----
+
+    /// Starts watching the config file, once per model, after the first
+    /// snapshot, when the config has a location. The watcher starts on the
+    /// background executor (it touches the disk); one that cannot start is
+    /// logged, and the snapshot's `config_changed` and the write path's
+    /// reload cover it.
+    pub(super) fn arm_config_watcher(&mut self, cx: &mut Context<Self>) {
+        if self.watch_armed {
+            return;
+        }
+        let Some(path) = self.snapshot.as_ref().and_then(|s| s.config.path.clone()) else {
+            return;
+        };
+        self.watch_armed = true;
+        let changes = self.config_changes.clone();
+        let target = path.clone();
+        let task = cx.background_executor().spawn(async move {
+            FileWatcher::start(&target, move || {
+                let _ = changes.try_send(());
+            })
+        });
+        cx.spawn(async move |this, cx| match task.await {
+            Ok(watcher) => {
+                this.update(cx, |m, _| m.config_watcher = Some(watcher))
+                    .ok();
+            }
+            Err(e) => log::warn!("dbmanager: cannot watch {}: {e}", path.display()),
+        })
+        .detach();
+    }
+
+    /// Whether the config file is being watched (tests wait on this).
+    #[cfg(test)]
+    pub(super) fn config_watched(&self) -> bool {
+        self.config_watcher.is_some()
+    }
+
+    /// The config file changed on disk (the watcher, or the harness): asks
+    /// the worker to read it again, after any write already queued, so a
+    /// reload never interrupts one. When its hash differs from the one shown,
+    /// the draft is checked against the new rules ([`Self::recheck_after_reload`]);
+    /// the database is not reopened.
+    pub(super) fn config_file_changed(&mut self, cx: &mut Context<Self>) {
+        let order = self.next_seq();
+        self.request(
+            |b| b.reload_config(),
+            cx,
+            move |m, result, cx| match result {
+                Ok(snapshot) => {
+                    let shown = m.snapshot.as_ref().map(|s| s.config.hash.as_str());
+                    if shown.is_some_and(|h| h != snapshot.config.hash) {
+                        m.recheck_after_reload(cx);
+                    } else {
+                        m.snapshot_arrived(order, snapshot, cx);
+                    }
+                }
+                Err(e) => m.fail(e.into(), cx),
+            },
+        );
+    }
+
+    /// Edit config can be used: developer mode is on.
+    #[must_use]
+    pub fn can_edit_config(&self, cx: &gpui::App) -> bool {
+        DevMode::is_on(cx)
+    }
+
+    /// Opens the config in the system editor, first creating a commented
+    /// starter file when there is none (the notice says so). A system that
+    /// cannot open it is the `OpenerFailed` banner. Does nothing outside
+    /// developer mode.
+    pub fn edit_config(&mut self, cx: &mut Context<Self>) {
+        if !self.can_edit_config(cx) {
+            return;
+        }
+        let task = self.worker.run(|b| b.edit_config_target(), cx);
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |m, cx| match result {
+                Ok(Ok((path, created))) => {
+                    if created {
+                        let display = m
+                            .snapshot
+                            .as_ref()
+                            .and_then(|s| s.config.display.clone())
+                            .unwrap_or_else(|| path.display().to_string());
+                        m.notice = Some(Notice::StarterCreated { display });
+                        cx.notify();
+                    }
+                    let opened = platform(cx).open_with_system(&path, cx);
+                    Self::report_open(opened, cx);
+                }
+                Ok(Err(e)) => m.fail_db(e, cx),
+                Err(e) => m.fail(e.into(), cx),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Waits for the system's answer to an open and shows its failure as the
+    /// banner (`OpenerFailed`, the system's words as the detail).
+    fn report_open(task: Task<Result<(), OpenError>>, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = task.await {
+                this.update(cx, |m, cx| {
+                    m.fail_db(
+                        DbmanagerError::new(DbmanagerErrorKind::OpenerFailed, e.detail),
+                        cx,
+                    );
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// The re-check's notice, when the config was reloaded (by the watcher,
+    /// or after a refused save): `None` for any other notice.
+    #[must_use]
+    pub fn config_reloaded_notice(&self) -> Option<String> {
+        self.notice
+            .as_ref()
+            .filter(|n| {
+                matches!(
+                    n,
+                    Notice::ConfigReloaded { .. }
+                        | Notice::ConfigChangedWhileEditing { .. }
+                        | Notice::ConfigReloadedGone { .. }
+                )
+            })
+            .map(Notice::copy)
+    }
+
     /// Screenshot harness and tests: edits the config as a user would, then
-    /// reloads and checks the draft, as the watcher will.
+    /// takes the watcher's path: reload the config, and re-check the draft
+    /// when its hash changed.
     #[cfg(any(test, feature = "shoot"))]
     pub fn inject_file_changed(&mut self, cx: &mut Context<Self>) {
         self.request(
-            |b| {
-                b.simulate_config_edit();
-                b.reload()
-            },
+            |b| b.simulate_config_edit(),
             cx,
             |m, result, cx| {
-                match result {
-                    Ok(Ok(_)) => {}
-                    Ok(Err(e)) => m.fail_db(e, cx),
-                    Err(e) => m.fail(e.into(), cx),
+                if let Err(e) = result {
+                    m.fail(e.into(), cx);
                 }
-                m.recheck_after_reload(cx);
+                m.config_file_changed(cx);
             },
         );
     }

@@ -14,6 +14,9 @@ use crate::session::{
 };
 use crate::state::RememberedState;
 
+/// The commented, inert starter config Edit config creates.
+const STARTER_CONFIG: &str = include_str!("../../../../examples/dbmanager/starter.toml");
+
 /// The Database Manager's state: the one config, the recent databases and
 /// the open database.
 pub struct Core {
@@ -351,6 +354,55 @@ impl Core {
             session.set_config(fresh.clone());
         }
         self.config = Some(fresh);
+    }
+
+    /// Where Edit config opens the config, and whether this call created it.
+    /// When the file is missing its directory is created and the commented
+    /// starter is written with `create_new`; an existing file is never
+    /// touched (losing a race to create it is fine: `created` is `false`).
+    ///
+    /// # Errors
+    /// `Io` when the location is unknown or the file cannot be created; a
+    /// permission failure says that the folder is not writable by this
+    /// account.
+    pub fn edit_config_target(&self) -> Result<(PathBuf, bool), DbmanagerError> {
+        use std::io::{ErrorKind, Write as _};
+
+        let io = |message: String| DbmanagerError::new(K::Io, message);
+        let path = self
+            .config_path
+            .clone()
+            .ok_or_else(|| io("The config location could not be determined.".to_owned()))?;
+        if path.is_file() {
+            return Ok((path, false));
+        }
+        let denied = |what: &str, e: &std::io::Error| {
+            if e.kind() == ErrorKind::PermissionDenied {
+                io(format!(
+                    "This account may not create {what}. Ask the account that owns the folder to create the config file."
+                ))
+            } else {
+                io(format!("Could not create {what}: {e}."))
+            }
+        };
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| denied(&format!("the folder {}", dir.display()), &e))?;
+        }
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                file.write_all(STARTER_CONFIG.as_bytes())
+                    .and_then(|()| file.flush())
+                    .map_err(|e| denied(&format!("the config {}", path.display()), &e))?;
+                Ok((path, true))
+            }
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok((path, false)),
+            Err(e) => Err(denied(&format!("the config {}", path.display()), &e)),
+        }
     }
 
     /// Drops the session and forgets the database. The config stays loaded.

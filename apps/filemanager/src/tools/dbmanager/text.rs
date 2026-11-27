@@ -304,6 +304,12 @@ pub fn config_reloaded(dropped: &[String]) -> String {
     }
 }
 
+/// Edit config created the starter file.
+#[must_use]
+pub fn starter_created(display: &str) -> String {
+    format!("Created a starter config at {display}.")
+}
+
 /// The notice after a save was refused because the config changed.
 #[must_use]
 pub fn config_changed_while_editing(dropped: &[String]) -> String {

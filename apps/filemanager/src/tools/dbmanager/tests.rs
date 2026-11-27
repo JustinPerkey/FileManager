@@ -828,6 +828,12 @@ impl DbmanagerBackend for Flaky {
     fn reload(&mut self) -> Result<DbmanagerSnapshot, DbmanagerError> {
         self.inner.reload()
     }
+    fn reload_config(&mut self) -> DbmanagerSnapshot {
+        self.inner.reload_config()
+    }
+    fn edit_config_target(&mut self) -> Result<(PathBuf, bool), DbmanagerError> {
+        self.inner.edit_config_target()
+    }
     fn close(&mut self) -> DbmanagerSnapshot {
         self.inner.close()
     }
@@ -1083,6 +1089,12 @@ impl DbmanagerBackend for Recording {
     }
     fn reload(&mut self) -> Result<DbmanagerSnapshot, DbmanagerError> {
         self.inner.reload()
+    }
+    fn reload_config(&mut self) -> DbmanagerSnapshot {
+        self.inner.reload_config()
+    }
+    fn edit_config_target(&mut self) -> Result<(PathBuf, bool), DbmanagerError> {
+        self.inner.edit_config_target()
     }
     fn close(&mut self) -> DbmanagerSnapshot {
         self.inner.close()
@@ -2890,4 +2902,261 @@ fn delete_notice_hint_is_raised(cx: &mut TestAppContext) {
     act(cx, &model, DbmanagerModel::confirm_delete);
     idle(cx, &model);
     assert_eq!(hint(cx, &model), Some(FocusHint::DeleteNotice));
+}
+
+// ---- M12c follow-up: leaving cancels a link re-read ----
+
+#[gpui::test]
+fn leaving_cancels_link_reread(cx: &mut TestAppContext) {
+    let env = loaded();
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, &env);
+    handle.open();
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    handle.close();
+    // 1. The re-read of a link conflict starts and waits at the gate.
+    act(cx, &model, |m, cx| {
+        m.begin_link_conflict(
+            fm_dbmanager::session::LinkRef {
+                relation: CONTRIB.to_owned(),
+                other: rowid(2),
+            },
+            cx,
+        );
+    });
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::save_blocked_reason),
+        Some(text::REASON_LINK_CHECK)
+    );
+    // 2. The user goes to a new book, whose draft exists at once.
+    act(cx, &model, |m, cx| m.new_object("book", cx));
+    assert!(matches!(place(cx, &model), Place::New { .. }));
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::save_blocked_reason),
+        None,
+        "the re-read no longer holds this place's save"
+    );
+    // 3. The gate opens: the old answer arrives and is dropped.
+    handle.open();
+    idle(cx, &model);
+    toggle(cx, &model, CONTRIB, &rowid(2));
+    assert!(read(cx, &model, |m| m
+        .staged_link(CONTRIB, &rowid(2))
+        .is_some()));
+    assert!(read(cx, &model, |m| m.link_conflict(CONTRIB).is_none()));
+    assert!(read(cx, &model, |m| m.draft().is_some()));
+    assert_eq!(read(cx, &model, DbmanagerModel::save_blocked_reason), None);
+}
+
+// ---- the config file: watcher, reload, Edit config ----
+
+fn config_hash(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>) -> String {
+    snapshot(cx, model).config.hash
+}
+
+/// Pumps the executor until `done` holds (events from the real watcher come
+/// from another thread).
+fn wait_until(
+    cx: &mut TestAppContext,
+    model: &Entity<DbmanagerModel>,
+    what: &str,
+    done: impl Fn(&DbmanagerModel) -> bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        cx.run_until_parked();
+        if read(cx, model, |m| done(m) && !m.busy()) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[gpui::test]
+fn config_edit_reloads_and_rechecks_draft(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    act(cx, &model, DbmanagerModel::arm_config_watcher);
+    wait_until(cx, &model, "the watcher", DbmanagerModel::config_watched);
+    // Let the watch settle before the edit.
+    std::thread::sleep(Duration::from_millis(300));
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "400");
+    type_in(cx, &model, "title", "Edited");
+    let before = config_hash(cx, &model);
+    env.edit_config_book_pages_read_only();
+    wait_until(cx, &model, "the reload notice", |m| m.notice().is_some());
+    assert_ne!(config_hash(cx, &model), before);
+    let Some(Notice::ConfigReloaded { dropped }) = read(cx, &model, |m| m.notice().cloned()) else {
+        panic!("expected the reload notice");
+    };
+    assert_eq!(dropped.len(), 1);
+    assert_eq!(read(cx, &model, DbmanagerModel::dirty_count), 1);
+    assert!(read(cx, &model, |m| m.config_reloaded_notice().is_some()));
+    // Drop the model (and its watcher) before the temp dir goes.
+    cx.update(|_| drop(model));
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn inject_file_changed_reloads(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    let before = config_hash(cx, &model);
+    cx.update(|cx| model.update(cx, DbmanagerModel::inject_file_changed));
+    idle(cx, &model);
+    assert_ne!(config_hash(cx, &model), before);
+    assert_eq!(
+        read(cx, &model, |m| m.table_view("book").and_then(|t| t
+            .fields
+            .iter()
+            .find(|f| f.column == "pages")
+            .map(|f| f.mode))),
+        Some(fm_dbmanager::config::FieldMode::ReadOnly)
+    );
+    assert!(
+        snapshot(cx, &model).open,
+        "the database stays open, not reopened"
+    );
+    // The same hash again changes nothing and raises no notice.
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    cx.update(|cx| model.update(cx, DbmanagerModel::config_file_changed));
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+}
+
+#[gpui::test]
+fn reload_drops_edits_that_no_longer_apply(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "400");
+    cx.update(|cx| model.update(cx, DbmanagerModel::inject_file_changed));
+    idle(cx, &model);
+    let copy = read(cx, &model, DbmanagerModel::config_reloaded_notice).expect("a notice");
+    assert!(
+        copy.starts_with(
+            "The config was reloaded. These changes no longer apply and were removed: "
+        ),
+        "{copy}"
+    );
+    assert!(!dirty(cx, &model));
+}
+
+#[gpui::test]
+fn reload_waits_for_running_save(cx: &mut TestAppContext) {
+    let env = loaded();
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, &env);
+    handle.open();
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "title", "Saved first");
+    handle.close();
+    act(cx, &model, DbmanagerModel::save);
+    cx.update(|cx| model.update(cx, DbmanagerModel::inject_file_changed));
+    cx.run_until_parked();
+    assert!(read(cx, &model, DbmanagerModel::saving));
+    // Only the save may run: the config edit and reload wait behind it.
+    handle.release_one();
+    cx.run_until_parked();
+    assert_eq!(
+        std::fs::read_to_string(&env.config).unwrap(),
+        include_str!("../../../../../examples/dbmanager/example.toml"),
+        "the config is not touched while the save is queued ahead"
+    );
+    handle.open();
+    idle(cx, &model);
+    assert_eq!(
+        db_count(
+            &env,
+            "SELECT COUNT(*) FROM book WHERE title = 'Saved first'"
+        ),
+        1
+    );
+    assert!(read(cx, &model, |m| m.error().is_none()));
+    assert!(read(cx, &model, |m| !m.saving()));
+}
+
+#[gpui::test]
+fn edit_config_needs_dev_mode(cx: &mut TestAppContext) {
+    use crate::app::dev_mode::DevMode;
+
+    let (env, model, fake) = started(cx);
+    cx.update(DevMode::init);
+    assert!(!cx.update(|cx| model.read(cx).can_edit_config(cx)));
+    act(cx, &model, DbmanagerModel::edit_config);
+    idle(cx, &model);
+    assert!(fake.calls().is_empty(), "nothing opened");
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+    cx.update(DevMode::toggle);
+    assert!(cx.update(|cx| model.read(cx).can_edit_config(cx)));
+    drop(env);
+}
+
+#[gpui::test]
+fn edit_config_opens_with_system_and_notices_creation(cx: &mut TestAppContext) {
+    use crate::app::dev_mode::DevMode;
+
+    let env = FixtureEnv::new(DbmanagerFixture::ConfigMissing);
+    let (model, fake) = start(cx, &env);
+    idle(cx, &model);
+    cx.update(DevMode::init);
+    cx.update(DevMode::toggle);
+    assert!(!env.config.exists());
+    act(cx, &model, DbmanagerModel::edit_config);
+    idle(cx, &model);
+    assert!(env.config.is_file(), "the starter was created");
+    assert_eq!(
+        fake.calls(),
+        vec![PlatformCall::OpenWithSystem(env.config.clone())]
+    );
+    let copy = read(cx, &model, |m| m.notice().map(Notice::copy)).expect("a notice");
+    assert!(copy.starts_with("Created a starter config at "), "{copy}");
+    assert!(copy.contains("dbmanager.toml"), "{copy}");
+    // An existing file is opened as it is, with no notice.
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    let text = std::fs::read_to_string(&env.config).unwrap();
+    act(cx, &model, DbmanagerModel::edit_config);
+    idle(cx, &model);
+    assert_eq!(fake.calls().len(), 2);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+    assert_eq!(std::fs::read_to_string(&env.config).unwrap(), text);
+}
+
+#[gpui::test]
+fn edit_config_opener_failure_shows_opener_failed(cx: &mut TestAppContext) {
+    use crate::app::dev_mode::DevMode;
+    use crate::platform::OpenError;
+
+    let (_env, model, fake) = started(cx);
+    cx.update(DevMode::init);
+    cx.update(DevMode::toggle);
+    fake.answer_open(Err(OpenError {
+        detail: "no handler for .toml".to_owned(),
+    }));
+    act(cx, &model, DbmanagerModel::edit_config);
+    idle(cx, &model);
+    let Some(ViewError::Dbmanager { error, .. }) = read(cx, &model, |m| m.error().cloned()) else {
+        panic!("expected the banner");
+    };
+    assert_eq!(error.kind, DbmanagerErrorKind::OpenerFailed);
+    assert_eq!(error.message, "no handler for .toml");
+}
+
+#[gpui::test]
+fn fixtures_build_diagnostics_and_readonly_config_states(cx: &mut TestAppContext) {
+    let diagnostics = state_of(cx, DbmanagerFixture::Diagnostics);
+    assert!(diagnostics.open);
+    assert_eq!(diagnostics.error_count, 1, "{:?}", diagnostics.diagnostics);
+    assert_eq!(
+        diagnostics.warning_count, 1,
+        "{:?}",
+        diagnostics.diagnostics
+    );
+
+    let readonly = state_of(cx, DbmanagerFixture::ReadonlyConfig);
+    assert!(readonly.open);
+    assert!(readonly.config_fail_closed.is_some());
+    assert!(readonly.tables.iter().all(|t| !t.can_create));
+    assert!(text::config_notice(&readonly).is_some());
 }

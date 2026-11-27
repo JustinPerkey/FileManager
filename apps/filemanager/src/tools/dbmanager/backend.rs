@@ -45,6 +45,17 @@ pub trait DbmanagerBackend: Send + 'static {
     /// The database cannot be reopened.
     fn reload(&mut self) -> Result<DbmanagerSnapshot, DbmanagerError>;
 
+    /// Reads the config file again and applies it to the open database; the
+    /// database is not reopened. Runs after any write already queued.
+    fn reload_config(&mut self) -> DbmanagerSnapshot;
+
+    /// Where Edit config opens the config and whether this call created it
+    /// (a commented starter, only when the file was missing).
+    ///
+    /// # Errors
+    /// `Io`: the location is unknown or the file cannot be created.
+    fn edit_config_target(&mut self) -> Result<(PathBuf, bool), DbmanagerError>;
+
     /// Closes the database; the config stays.
     fn close(&mut self) -> DbmanagerSnapshot;
 
@@ -180,6 +191,15 @@ impl DbmanagerBackend for RealDbmanager {
     fn reload(&mut self) -> Result<DbmanagerSnapshot, DbmanagerError> {
         self.core.reload()?;
         Ok(self.core.session())
+    }
+
+    fn reload_config(&mut self) -> DbmanagerSnapshot {
+        self.core.reload_config();
+        self.core.session()
+    }
+
+    fn edit_config_target(&mut self) -> Result<(PathBuf, bool), DbmanagerError> {
+        self.core.edit_config_target()
     }
 
     fn close(&mut self) -> DbmanagerSnapshot {
