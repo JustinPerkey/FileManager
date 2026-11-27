@@ -76,7 +76,15 @@ fn backend_for(cx: &App) -> Box<dyn DbmanagerBackend> {
 
 pub(super) fn slot(_window: &mut Window, cx: &mut App) -> ToolSlot {
     let backend = backend_for(cx);
-    let model = cx.new(|cx| DbmanagerModel::new(backend, cx));
+    let real = matches!(BackendSet::get(cx).dbmanager, Backend::Real);
+    let model = cx.new(|cx| {
+        let model = DbmanagerModel::new(backend, cx);
+        if real {
+            model.with_config_watcher()
+        } else {
+            model
+        }
+    });
     ToolSlot {
         id: ToolId::Dbmanager,
         label: "Database Manager",

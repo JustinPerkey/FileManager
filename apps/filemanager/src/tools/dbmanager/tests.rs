@@ -2975,6 +2975,45 @@ fn wait_until(
 }
 
 #[gpui::test]
+fn first_snapshot_arms_watcher_once(cx: &mut TestAppContext) {
+    // Off unless asked: a plain fixture model never arms.
+    let (_env, plain, _) = started(cx);
+    assert_eq!(read(cx, &plain, |m| m.watch_arms), 0);
+
+    let env = loaded();
+    cx.executor().allow_parking();
+    let fake = FakePlatform::new();
+    cx.update(|cx| platform::set_platform(cx, fake));
+    let backend = Box::new(env.backend());
+    let model = cx.new(|cx| DbmanagerModel::new(backend, cx).with_config_watcher());
+    idle(cx, &model);
+    wait_until(cx, &model, "the watcher", DbmanagerModel::config_watched);
+    assert_eq!(read(cx, &model, |m| m.watch_arms), 1);
+    // Later snapshots do not arm it again.
+    act(cx, &model, DbmanagerModel::fetch_snapshot);
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, |m| m.watch_arms), 1);
+    cx.update(|_| drop(model));
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn no_config_path_never_arms_watcher(cx: &mut TestAppContext) {
+    let env = loaded();
+    cx.executor().allow_parking();
+    let fake = FakePlatform::new();
+    cx.update(|cx| platform::set_platform(cx, fake));
+    let backend = Box::new(env.backend_without_config_path());
+    let model = cx.new(|cx| DbmanagerModel::new(backend, cx).with_config_watcher());
+    idle(cx, &model);
+    assert!(snapshot(cx, &model).config.path.is_none());
+    act(cx, &model, DbmanagerModel::fetch_snapshot);
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, |m| m.watch_arms), 0);
+    assert!(!read(cx, &model, DbmanagerModel::config_watched));
+}
+
+#[gpui::test]
 fn config_edit_reloads_and_rechecks_draft(cx: &mut TestAppContext) {
     let (env, model, _) = started(cx);
     act(cx, &model, DbmanagerModel::arm_config_watcher);

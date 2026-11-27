@@ -358,8 +358,9 @@ impl Core {
 
     /// Where Edit config opens the config, and whether this call created it.
     /// When the file is missing its directory is created and the commented
-    /// starter is written with `create_new`; an existing file is never
-    /// touched (losing a race to create it is fine: `created` is `false`).
+    /// starter is written to a temp file in the same folder, then moved into
+    /// place without replacing anything (so a failed write leaves no partial
+    /// config); an existing file is never touched (losing a race to create it is fine: `created` is `false`).
     ///
     /// # Errors
     /// `Io` when the location is unknown or the file cannot be created; a
@@ -389,19 +390,14 @@ impl Core {
             std::fs::create_dir_all(dir)
                 .map_err(|e| denied(&format!("the folder {}", dir.display()), &e))?;
         }
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(mut file) => {
-                file.write_all(STARTER_CONFIG.as_bytes())
-                    .and_then(|()| file.flush())
-                    .map_err(|e| denied(&format!("the config {}", path.display()), &e))?;
-                Ok((path, true))
-            }
+        let what = format!("the config {}", path.display());
+        match write_starter(&path, |file| {
+            file.write_all(STARTER_CONFIG.as_bytes())?;
+            file.flush()
+        }) {
+            Ok(()) => Ok((path, true)),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok((path, false)),
-            Err(e) => Err(denied(&format!("the config {}", path.display()), &e)),
+            Err(e) => Err(denied(&what, &e)),
         }
     }
 
@@ -549,5 +545,47 @@ impl Core {
     #[cfg(test)]
     pub(super) fn backup_announced_for_tests(&self) -> bool {
         self.session.as_ref().is_some_and(Session::backup_announced)
+    }
+}
+
+/// Writes a file at `path` through `fill` and moves it into place only if
+/// nothing is there: the file appears whole or not at all. `AlreadyExists`
+/// when `path` is taken (the temp file is removed).
+fn write_starter(
+    path: &Path,
+    fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(dir)?;
+    fill(temp.as_file_mut())?;
+    temp.persist_noclobber(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod starter_tests {
+    use super::write_starter;
+
+    #[test]
+    fn starter_write_failure_leaves_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dbmanager.toml");
+        let err = write_starter(&path, |_| Err(std::io::Error::other("disk full"))).unwrap_err();
+        assert_eq!(err.to_string(), "disk full");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn starter_never_replaces_and_cleans_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dbmanager.toml");
+        std::fs::write(&path, "mine").unwrap();
+        let err = write_starter(&path, |_| Ok(())).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "mine");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }

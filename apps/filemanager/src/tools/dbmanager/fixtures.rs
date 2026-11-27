@@ -206,6 +206,12 @@ impl FixtureEnv {
         }
     }
 
+    /// A backend over a core that has no config location.
+    #[must_use]
+    pub fn backend_without_config_path(&self) -> RealDbmanager {
+        RealDbmanager::with_core(Core::new(&self.dirs, None))
+    }
+
     /// Makes an `open` of `path` through a backend of this env panic.
     ///
     /// # Panics

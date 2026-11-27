@@ -517,10 +517,24 @@ pub struct DbmanagerModel {
     delete_seq: u64,
     /// The watcher of the config file, once armed.
     config_watcher: Option<FileWatcher>,
-    /// Arming was started (once per model).
-    watch_armed: bool,
+    /// Whether the first snapshot arms the watcher, and whether it did.
+    watch: WatchState,
+    /// How many times a watcher was started (tests count them).
+    #[cfg(test)]
+    pub(super) watch_arms: usize,
     /// The watcher's callback sends here; a foreground task reloads.
     config_changes: async_channel::Sender<()>,
+}
+
+/// Arming of the config watcher (once per model).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WatchState {
+    /// Never armed (fixtures, tests).
+    Off,
+    /// The first snapshot arms it.
+    Wanted,
+    /// Arming was started.
+    Armed,
 }
 
 impl DbmanagerModel {
@@ -576,11 +590,21 @@ impl DbmanagerModel {
             delete_target: None,
             delete_seq: 0,
             config_watcher: None,
-            watch_armed: false,
+            watch: WatchState::Off,
+            #[cfg(test)]
+            watch_arms: 0,
             config_changes,
         };
         model.fetch_snapshot(cx);
         model
+    }
+
+    /// Makes the first snapshot arm the config watcher. The real app sets
+    /// this; fixtures and tests leave it off unless they test the watcher.
+    #[must_use]
+    pub fn with_config_watcher(mut self) -> Self {
+        self.watch = WatchState::Wanted;
+        self
     }
 
     // ---- reading ----
@@ -727,7 +751,7 @@ impl DbmanagerModel {
         self.next_seq
     }
 
-    fn fetch_snapshot(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn fetch_snapshot(&mut self, cx: &mut Context<Self>) {
         let order = self.next_seq();
         self.request(
             |b| b.session(),
@@ -758,10 +782,11 @@ impl DbmanagerModel {
         if changed {
             self.reset_for_database(false, cx);
         }
-        // Tests arm the watcher only where they mean to (a real watcher on
-        // every fixture would reload behind unrelated tests).
-        #[cfg(not(test))]
-        self.arm_config_watcher(cx);
+        // Only a model set up with `with_config_watcher` watches (a real
+        // watcher on every fixture would reload behind unrelated tests).
+        if self.watch == WatchState::Wanted {
+            self.arm_config_watcher(cx);
+        }
         cx.notify();
     }
 
@@ -2970,13 +2995,17 @@ impl DbmanagerModel {
     /// logged, and the snapshot's `config_changed` and the write path's
     /// reload cover it.
     pub(super) fn arm_config_watcher(&mut self, cx: &mut Context<Self>) {
-        if self.watch_armed {
+        if self.watch == WatchState::Armed {
             return;
         }
         let Some(path) = self.snapshot.as_ref().and_then(|s| s.config.path.clone()) else {
             return;
         };
-        self.watch_armed = true;
+        self.watch = WatchState::Armed;
+        #[cfg(test)]
+        {
+            self.watch_arms += 1;
+        }
         let changes = self.config_changes.clone();
         let target = path.clone();
         let task = cx.background_executor().spawn(async move {
@@ -3080,8 +3109,11 @@ impl DbmanagerModel {
         .detach();
     }
 
-    /// The re-check's notice, when the config was reloaded (by the watcher,
-    /// or after a refused save): `None` for any other notice.
+    /// The copy of the current notice when it is one of the three
+    /// config-reload notices ("The config was reloaded.", "The config was
+    /// reloaded. These changes no longer apply and were removed: ...", and
+    /// the save-refused-after-reload notice). `None` for any other notice,
+    /// or none.
     #[must_use]
     pub fn config_reloaded_notice(&self) -> Option<String> {
         self.notice
