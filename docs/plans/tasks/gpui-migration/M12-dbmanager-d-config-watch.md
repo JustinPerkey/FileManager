@@ -1,7 +1,46 @@
 # M12d — Database Manager, part D: config watcher, automatic reload, Edit config
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21). M12d landed as 3d52c56 and is approved; the next run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: M12c (landed)
+
+## Review follow-up (2026-11-27)
+
+M12d is approved, and with it the Database Manager model is complete.
+These P3s are optional but small: **the next run does only this section.**
+
+1. **Watcher arming is covered by a test.** Arming is `#[cfg(not(test))]`
+   inside `snapshot_arrived`, so nothing tests the call site itself: "the
+   first snapshot arms the watcher, once, only when `config.path` is
+   `Some`".
+   - Remove the `cfg(not(test))`. Make arming opt-in through a flag the
+     setup controls: a `BackendSet` or fixture option such as
+     `FixtureEnv::with_config_watcher()`. The real `run()` sets it, and
+     tests leave it off unless they test it.
+   - Test: `first_snapshot_arms_watcher_once`. With the flag on and a temp
+     config path, the first snapshot arms the watcher and later snapshots
+     do not arm it again (count arms through a test hook or the watcher's
+     path). Also cover the case where `config.path` is `None`: the watcher
+     is never armed.
+2. **Edit config never leaves a partial starter.** `edit_config_target` can
+   leave an empty or partial file if `write_all` fails after `create_new`.
+   - Write the starter to a temp file in the **same folder**
+     (`tempfile::NamedTempFile::new_in(dir)`), then move it into place with
+     `persist_noclobber`. That keeps the never-overwrite guarantee: an
+     existing file means `created = false`, and the temp file is removed.
+   - Test: `starter_write_failure_leaves_no_file`. Simulate a failure, for
+     example a read-only directory, or a test hook that fails the write;
+     assert no `dbmanager.toml` remains.
+3. **`config_reloaded_notice()`**, as built and recorded: it returns the
+   notice's copy **only** when the current notice is one of the three
+   config-reload notices ("The config was reloaded.", "The config was
+   reloaded. These changes no longer apply and were removed: …", and the
+   save-refused-after-reload notice). For any other notice, or none, it
+   returns `None`. Put that in its doc comment.
+4. **Windows note:** if the watcher tests are flaky on the Windows CI job,
+   first raise the 200 ms settle before `watch()`, then look elsewhere.
+
+Acceptance: the named tests pass; fmt (linux job), clippy pedantic (with and
+without `--features shoot`), and `cargo test --workspace` pass.
 
 ## First: finish M12c's P3 (from the M12c review, 2026-11-27)
 
