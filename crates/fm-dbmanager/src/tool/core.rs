@@ -9,8 +9,8 @@ use super::types::{
 };
 use crate::config::{ConfigDiagnostic, DiagnosticSeverity, LoadedConfig};
 use crate::session::{
-    ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView, SaveRequest, SaveResult,
-    Session, SessionError,
+    DeleteImpact, DeleteResult, ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView,
+    SaveRequest, SaveResult, Session, SessionError,
 };
 use crate::state::RememberedState;
 
@@ -419,6 +419,56 @@ impl Core {
             .as_mut()
             .ok_or_else(|| DbmanagerError::new(K::NoDatabase, "no database is open"))?;
         match session.save(request) {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                if matches!(e, SessionError::ConfigChangedOnDisk) {
+                    self.reload_config();
+                }
+                Err(DbmanagerError::from(e))
+            }
+        }
+    }
+
+    /// What deleting the object would do to every table that references it,
+    /// hidden tables counted. Reads only.
+    ///
+    /// # Errors
+    /// `NoDatabase`, or the session's error (`UnknownTable`, `UnknownObject`,
+    /// `SchemaChanged`, ...).
+    pub fn delete_preview(
+        &self,
+        table: &str,
+        key: &ObjectKey,
+    ) -> Result<DeleteImpact, DbmanagerError> {
+        self.open_session()?
+            .delete_preview(table, key)
+            .map_err(DbmanagerError::from)
+    }
+
+    /// Deletes one object in one transaction, after the session's one backup,
+    /// when `version` and `token` are still what the caller previewed and
+    /// `config_hash` is the config it was shown under. When the config changed
+    /// on disk it is reloaded **before** the error is returned, and nothing is
+    /// deleted; the caller previews again. Never retried here.
+    ///
+    /// # Errors
+    /// `NoDatabase`, or the session's error (`ConfigChangedOnDisk`,
+    /// `Conflict`, `ImpactChanged`, `DeleteBlocked`, `NotEditable`, `Busy`,
+    /// ...).
+    pub fn delete(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+        version: &str,
+        token: &str,
+        config_hash: &str,
+    ) -> Result<DeleteResult, DbmanagerError> {
+        self.start();
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| DbmanagerError::new(K::NoDatabase, "no database is open"))?;
+        match session.delete(table, key, version, token, config_hash) {
             Ok(result) => Ok(result),
             Err(e) => {
                 if matches!(e, SessionError::ConfigChangedOnDisk) {

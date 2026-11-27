@@ -821,3 +821,130 @@ fn reload_after_failed_first_save_still_announces_backup() {
     assert!(core.save(&request).unwrap().backup_created.is_some());
     assert_eq!(baks(&fx), 1);
 }
+
+#[test]
+fn delete_stale_config_hash_reloads_and_refuses() {
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.open(&fx.db).unwrap();
+    let impact = core.delete_preview("member", &rk(2)).unwrap();
+    let err = core
+        .delete(
+            "member",
+            &rk(2),
+            &impact.version,
+            &impact.token,
+            "not-the-hash",
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DbmanagerErrorKind::ConfigChangedOnDisk);
+    assert!(core.object("member", &rk(2)).is_ok(), "nothing was deleted");
+    assert_eq!(baks(&fx), 0, "refused before the backup");
+    // The config was reloaded, so the current hash goes through.
+    let hash = core.session().config.hash;
+    let done = core
+        .delete("member", &rk(2), &impact.version, &impact.token, &hash)
+        .unwrap();
+    assert_eq!(done.table, "member");
+    assert_eq!(
+        core.object("member", &rk(2)).unwrap_err().kind,
+        DbmanagerErrorKind::UnknownObject
+    );
+    assert_eq!(baks(&fx), 1);
+}
+
+#[test]
+fn delete_without_database_fails() {
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.close();
+    assert_eq!(
+        core.delete_preview("member", &rk(2)).unwrap_err().kind,
+        DbmanagerErrorKind::NoDatabase
+    );
+    assert_eq!(
+        core.delete("member", &rk(2), "v", "t", "h")
+            .unwrap_err()
+            .kind,
+        DbmanagerErrorKind::NoDatabase
+    );
+}
+
+#[test]
+fn save_with_links_through_core() {
+    use crate::session::{LinkAdd, LinkChange, LinkRemove, LinkUpdate};
+
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.open(&fx.db).unwrap();
+    let hash = core.session().config.hash;
+    let book = core.object("book", &rk(1)).unwrap();
+    let query = M2mQuery {
+        search: None,
+        offset: 0,
+        limit: 50,
+        linked_only: true,
+        only: None,
+    };
+    let contribution = core
+        .m2m_options("book", Some(&rk(1)), "m2m:contribution", &query)
+        .unwrap();
+    let editor = contribution.items.first().expect("a linked contributor");
+    let version = editor.link_version.clone().expect("a link version");
+    let poetry = ObjectKey::Primary {
+        values: vec![DbValue::Text("poetry".into())],
+    };
+    let request = SaveRequest {
+        table: "book".into(),
+        key: Some(rk(1)),
+        version: Some(book.version),
+        config_hash: hash,
+        changes: Vec::new(),
+        links: vec![
+            LinkChange {
+                relation: "m2m:book_genre".into(),
+                add: vec![LinkAdd {
+                    other: poetry.clone(),
+                    fields: Vec::new(),
+                }],
+                update: Vec::new(),
+                remove: vec![LinkRemove {
+                    other: ObjectKey::Primary {
+                        values: vec![DbValue::Text("fiction".into())],
+                    },
+                    version: None,
+                }],
+            },
+            LinkChange {
+                relation: "m2m:contribution".into(),
+                add: Vec::new(),
+                update: vec![LinkUpdate {
+                    other: editor.key.clone(),
+                    version,
+                    fields: vec![FieldChange {
+                        column: "role".into(),
+                        input: FieldInput::Value {
+                            value: DbValue::Text("translator".into()),
+                        },
+                    }],
+                }],
+                remove: Vec::new(),
+            },
+        ],
+    };
+    let saved = core.save(&request).unwrap();
+    assert!(saved.backup_created.is_some());
+    assert_eq!(baks(&fx), 1);
+    let genres = core
+        .m2m_options("book", Some(&rk(1)), "m2m:book_genre", &query)
+        .unwrap();
+    let keys: Vec<_> = genres.items.iter().map(|i| i.key.clone()).collect();
+    assert_eq!(keys, vec![poetry], "fiction was removed, poetry added");
+    let contribution = core
+        .m2m_options("book", Some(&rk(1)), "m2m:contribution", &query)
+        .unwrap();
+    let values = contribution.items[0].link_values.clone().unwrap();
+    assert!(values
+        .iter()
+        .any(|v| v.column == "role" && v.value == DbValue::Text("translator".into())));
+}

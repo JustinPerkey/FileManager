@@ -14,6 +14,17 @@
 //! conflict panel adds `Step::Wait(200)` after the Save click. Typing and the
 //! picker's first page behave like reads (`Wait(200)` for the picker's rows).
 //! [`DbmanagerFixture::ConflictOnSave`] makes the first `book` save conflict.
+//! **Links and delete.** Staging a link (tick, untick, edit a link field) and
+//! opening the delete confirmation need no wait beyond the click's own read:
+//! the delete preview is a read (`Wait(200)` after pressing Delete, "Checking..."
+//! is gone by then). A confirmed delete is a write like a save (`Wait(200)`).
+//! [`DbmanagerFixture::LinkConflictOnSave`] makes the first save that carries
+//! a change to the book's contributors meet a link another program changed
+//! (add: the link appears; update or remove: the link row is rewritten), so
+//! the save ends in the section's link-conflict notice (`Wait(200)`).
+//! [`DbmanagerFixture::DeleteBlocked`] has `publisher` editable with
+//! `allow_delete = true` while books still reference publishers
+//! (`ON DELETE RESTRICT`): deleting one is a blocked delete.
 //! The `dbmanager-config-reloaded` scenario injects the file-changed signal
 //! (`ToolHooks::inject_file_changed`), which rewrites the temp config so book
 //! `pages` is read-only, reloads and re-checks the draft: add `Wait(300)`.
@@ -31,7 +42,8 @@ use std::sync::{Arc, Mutex};
 
 use fm_core::AppDirs;
 use fm_dbmanager::session::{
-    ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView, SaveRequest, SaveResult,
+    DeleteImpact, DeleteResult, ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView,
+    SaveRequest, SaveResult,
 };
 use fm_dbmanager::tool::{Core, DbmanagerError, DbmanagerSnapshot};
 
@@ -39,6 +51,20 @@ use super::backend::{DbmanagerBackend, RealDbmanager};
 
 const SCHEMA: &str = include_str!("../../../../../examples/dbmanager/schema.sql");
 const EXAMPLE_CONFIG: &str = include_str!("../../../../../examples/dbmanager/example.toml");
+
+/// The example config with `publisher` editable and deletable.
+static DELETE_BLOCKED_CONFIG: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let text = EXAMPLE_CONFIG.replacen(
+        "mode = \"pickable\"",
+        "mode = \"editable\"\nallow_delete = true",
+        1,
+    );
+    assert_ne!(
+        text, EXAMPLE_CONFIG,
+        "the example config has the pickable line"
+    );
+    text
+});
 
 /// Which screenshot state a fixture starts in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +87,12 @@ pub enum DbmanagerFixture {
     /// just before the first save reaches the database, so that save ends in
     /// the conflict panel. Only a `book` save is disturbed, once.
     ConflictOnSave,
+    /// As `Loaded`, but another program changes the book's contributor link
+    /// that the first save changes, so that save ends in a link conflict.
+    LinkConflictOnSave,
+    /// As `Loaded`, but `publisher` is editable and may be deleted, while a
+    /// book still references it: deleting a publisher is blocked.
+    DeleteBlocked,
 }
 
 /// A temp dir with a database, a config and a state folder, shared by the
@@ -105,7 +137,9 @@ impl FixtureEnv {
             DbmanagerFixture::Empty
             | DbmanagerFixture::Loaded
             | DbmanagerFixture::StateWarning
-            | DbmanagerFixture::ConflictOnSave => Some(EXAMPLE_CONFIG),
+            | DbmanagerFixture::ConflictOnSave
+            | DbmanagerFixture::LinkConflictOnSave => Some(EXAMPLE_CONFIG),
+            DbmanagerFixture::DeleteBlocked => Some(DELETE_BLOCKED_CONFIG.as_str()),
             DbmanagerFixture::ConfigMissing => None,
             DbmanagerFixture::ConfigFailClosed => Some("version = 2\n"),
         };
@@ -143,6 +177,7 @@ impl FixtureEnv {
             real: RealDbmanager::with_core(self.core()),
             env: self.clone(),
             conflict_on_save: false,
+            link_conflict_on_save: false,
         }
     }
 
@@ -194,6 +229,7 @@ pub struct FixtureDbmanager {
     real: RealDbmanager,
     env: FixtureEnv,
     conflict_on_save: bool,
+    link_conflict_on_save: bool,
 }
 
 impl FixtureDbmanager {
@@ -202,7 +238,45 @@ impl FixtureDbmanager {
     pub fn from_fixture(fixture: DbmanagerFixture) -> Self {
         let mut backend = FixtureEnv::new(fixture).backend();
         backend.conflict_on_save = fixture == DbmanagerFixture::ConflictOnSave;
+        backend.link_conflict_on_save = fixture == DbmanagerFixture::LinkConflictOnSave;
         backend
+    }
+}
+
+impl FixtureDbmanager {
+    /// Changes the first contributor link `request` touches behind its back:
+    /// an added link appears, an edited or removed one is rewritten.
+    fn disturb_contributors(&self, request: &SaveRequest) {
+        let Some(ObjectKey::Rowid { value: book }) = &request.key else {
+            return;
+        };
+        let book = book.parse::<i64>().unwrap_or(0);
+        for change in request
+            .links
+            .iter()
+            .filter(|c| c.relation == "m2m:contribution")
+        {
+            let touched = change
+                .add
+                .iter()
+                .map(|a| (&a.other, true))
+                .chain(change.update.iter().map(|u| (&u.other, false)))
+                .chain(change.remove.iter().map(|r| (&r.other, false)))
+                .next();
+            if let Some((ObjectKey::Rowid { value }, add)) = touched {
+                let author = value.parse::<i64>().unwrap_or(0);
+                self.env.exec(&if add {
+                    format!(
+                        "INSERT INTO contribution (book_id, author_id, role) VALUES ({book}, {author}, 'editor')"
+                    )
+                } else {
+                    format!(
+                        "UPDATE contribution SET position = COALESCE(position, 0) + 1 WHERE book_id = {book} AND author_id = {author}"
+                    )
+                });
+                return;
+            }
+        }
     }
 }
 
@@ -260,7 +334,29 @@ impl DbmanagerBackend for FixtureDbmanager {
                 ));
             }
         }
+        if request.table == "book" && std::mem::take(&mut self.link_conflict_on_save) {
+            self.disturb_contributors(&request);
+        }
         self.real.save(request)
+    }
+
+    fn delete_preview(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+    ) -> Result<DeleteImpact, DbmanagerError> {
+        self.real.delete_preview(table, key)
+    }
+
+    fn delete(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+        version: &str,
+        token: &str,
+        config_hash: &str,
+    ) -> Result<DeleteResult, DbmanagerError> {
+        self.real.delete(table, key, version, token, config_hash)
     }
 
     fn simulate_config_edit(&mut self) {
