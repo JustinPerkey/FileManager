@@ -44,7 +44,7 @@ Every scenario starts with `SelectTool(ToolId::Dbmanager)`.
 | Scenario | Size | Fixture / steps | Shows |
 |---|---|---|---|
 | `dbmanager-empty` | 1000×700 | nothing open, two recent | the empty state, recent databases, the config line |
-| `dbmanager-no-config` | 1366×800 | example open, config missing | the calm "No config file" banner and header line |
+| `dbmanager-no-config` | 1366×800 | example open, config missing | the "No config file" header line |
 | `dbmanager-tables` | 1366×800 | example open; choose Authors | three panes; a read-only table tagged; no Publishers (pickable) |
 | `dbmanager-object` | 1366×800 | open book "Dune" | Author link, Publisher, Format, In print, Audiobook length `1h30m` with hint, Revision read-only, the Genres checklist |
 | `dbmanager-object-two-pane` | 1000×700 | open "Dune" | two panes |
