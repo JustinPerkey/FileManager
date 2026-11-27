@@ -61,6 +61,17 @@ Today's React errors region (`apps/desktop/src/tools/tarpack/ManifestErrors.tsx`
    - **"empty outcome: text and icon are muted, no disclosure":** add
      `drop_result_empty_outcome_is_muted` if no test covers it.
 
+4. **Column test reads the drawn header cells (P3 from the U10 review,
+   2026-11-27).**
+   - In the entry table's `render_th`, give each header cell a debug
+     selector `tarpack-th-<i>` (0-based).
+   - Change `column_x_positions_match_today_with_sidebar` to assert each
+     header cell's **drawn** left edge (`debug_bounds`) against 216, 332,
+     534, 737, 939, 1071 and 1151, within 2 px, instead of computing the
+     edges from the delegate's widths.
+   - This touches the table's view file and its test, which U10 owns. U10
+     has landed, so this task may edit them.
+
 ### Rules that bind this task
 
 - Views call only the model; copy from `text.rs`. Every interactive element
@@ -76,7 +87,7 @@ Edit:
 - `apps/filemanager/src/tools/tarpack/view/` (the errors region, tests);
 - `docs/gpui-test-ledger.md`.
 
-Do not touch: models, text (report missing copy), the entry table (U10),
+Do not touch: models, text (report missing copy), the entry table (U10) except item 4's selector and test,
 the build bar (U11), `docs/plans/`.
 
 ## Skill
