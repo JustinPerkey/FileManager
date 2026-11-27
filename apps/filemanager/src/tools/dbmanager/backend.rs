@@ -6,7 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
-use fm_dbmanager::session::{ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView};
+use fm_dbmanager::session::{
+    ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView, SaveRequest, SaveResult,
+};
 use fm_dbmanager::tool::{Core, DbmanagerError, DbmanagerErrorKind, DbmanagerSnapshot};
 
 /// What the Database Manager model needs from its core: one method per
@@ -68,6 +70,19 @@ pub trait DbmanagerBackend: Send + 'static {
         relation: &str,
         query: &M2mQuery,
     ) -> Result<M2mPage, DbmanagerError>;
+
+    /// Saves one object's changes, or creates one, in one transaction after
+    /// the session's one backup. A stale config is reloaded before the
+    /// `ConfigChangedOnDisk` error comes back; nothing is retried.
+    ///
+    /// # Errors
+    /// `NoDatabase`, or the session's error.
+    fn save(&mut self, request: SaveRequest) -> Result<SaveResult, DbmanagerError>;
+
+    /// Fixtures only: rewrites the config file as a user's edit would. Does
+    /// nothing by default.
+    #[cfg(any(test, feature = "shoot"))]
+    fn simulate_config_edit(&mut self) {}
 }
 
 /// The real core.
@@ -160,5 +175,9 @@ impl DbmanagerBackend for RealDbmanager {
         query: &M2mQuery,
     ) -> Result<M2mPage, DbmanagerError> {
         self.core.m2m_options(table, key, relation, query)
+    }
+
+    fn save(&mut self, request: SaveRequest) -> Result<SaveResult, DbmanagerError> {
+        self.core.save(&request)
     }
 }

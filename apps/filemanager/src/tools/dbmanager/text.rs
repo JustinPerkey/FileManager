@@ -32,6 +32,8 @@ pub const EMPTY_HINT: &str =
 
 pub const DROP_LABEL: &str = "Drop one database file";
 pub const REASON_SAVING: &str = "Wait for the save to finish";
+/// Why Save is refused while the conflict panel is up.
+pub const REASON_CONFLICT: &str = "Resolve the conflict first.";
 
 // ---- the file dialog ----
 
@@ -175,4 +177,144 @@ pub fn error_message(e: &DbmanagerError, config_location: Option<&str>) -> Strin
         K::Io => "The database could not be read or written. See Details.",
     };
     fixed.to_owned()
+}
+
+// ---- editing ----
+
+pub const NOT_SET: &str = "Not set";
+pub const YES: &str = "Yes";
+pub const NO: &str = "No";
+/// A picked reference whose label is not known.
+pub const REFERENCE_UNNAMED: &str = "Selected";
+pub const SET_AUTOMATICALLY: &str = "Set automatically";
+pub const DATABASE_DEFAULT: &str = "Database default";
+pub const SAVE: &str = "Save";
+pub const DISCARD_CHANGES: &str = "Discard changes";
+pub const SAVED_SENTENCE: &str = "Saved.";
+pub const CANCEL: &str = "Cancel";
+pub const TRY_AGAIN: &str = "Try again";
+pub const SHOW_MORE: &str = "Show more";
+
+/// The announcement after a create.
+#[must_use]
+pub fn created_sentence(label: &str) -> String {
+    format!("Created {label}.")
+}
+
+/// The button that starts a new object: "New <objectName>", else "New".
+#[must_use]
+pub fn new_button(object_name: Option<&str>) -> String {
+    match object_name {
+        Some(name) if !name.trim().is_empty() => format!("New {}", name.trim()),
+        _ => "New".to_owned(),
+    }
+}
+
+/// The new-object sheet's title: "New <objectName>", else "New object".
+#[must_use]
+pub fn new_title(object_name: Option<&str>) -> String {
+    match object_name {
+        Some(name) if !name.trim().is_empty() => format!("New {}", name.trim()),
+        _ => "New object".to_owned(),
+    }
+}
+
+// ---- leaving a dirty draft ----
+
+pub const LEAVE_TITLE: &str = "Discard unsaved changes?";
+pub const LEAVE_KEEP: &str = "Keep editing";
+pub const LEAVE_DISCARD: &str = "Discard changes";
+
+/// The leave dialog's body.
+#[must_use]
+pub fn leave_body(label: &str) -> String {
+    format!("Your changes to \u{201c}{label}\u{201d} are not saved. If you leave now, they are discarded.")
+}
+
+/// The close guard's one item.
+#[must_use]
+pub fn unsaved_item(label: &str) -> String {
+    format!("Database Manager: your changes to \u{201c}{label}\u{201d} are not saved.")
+}
+
+// ---- the conflict panel ----
+
+pub const CONFLICT_REAPPLY: &str = "Re-apply my changes";
+pub const CONFLICT_DISCARD: &str = "Discard my changes";
+
+#[must_use]
+pub fn conflict_title(label: &str) -> String {
+    format!(
+        "\u{201c}{label}\u{201d} was changed by another program after you opened it. Nothing was saved."
+    )
+}
+
+#[must_use]
+pub fn conflict_yours(value: &str) -> String {
+    format!("Yours: {value}")
+}
+
+#[must_use]
+pub fn conflict_now(value: &str) -> String {
+    format!("Now: {value}")
+}
+
+/// "N other fields changed too" (singular for one).
+#[must_use]
+pub fn conflict_others(n: usize) -> String {
+    if n == 1 {
+        "1 other field changed too".to_owned()
+    } else {
+        format!("{n} other fields changed too")
+    }
+}
+
+// ---- notices ----
+
+/// The backup notice: the first write of the session took a backup.
+#[must_use]
+pub fn backup_notice(path: &str) -> String {
+    format!("A backup of the database was saved first: {path}")
+}
+
+pub const CONFIG_RELOADED: &str = "The config was reloaded.";
+pub const CONFIG_CHANGED_WHILE_EDITING: &str =
+    "The config changed while you were editing and was reloaded. Nothing was saved. Check your changes and save again.";
+
+fn dropped_sentence(dropped: &[String]) -> String {
+    format!(
+        "These changes no longer apply and were removed: {}.",
+        dropped.join(", ")
+    )
+}
+
+/// The reload notice, with the removed fields when there are any.
+#[must_use]
+pub fn config_reloaded(dropped: &[String]) -> String {
+    if dropped.is_empty() {
+        CONFIG_RELOADED.to_owned()
+    } else {
+        format!("The config was reloaded. {}", dropped_sentence(dropped))
+    }
+}
+
+/// The notice after a save was refused because the config changed.
+#[must_use]
+pub fn config_changed_while_editing(dropped: &[String]) -> String {
+    if dropped.is_empty() {
+        CONFIG_CHANGED_WHILE_EDITING.to_owned()
+    } else {
+        format!(
+            "{CONFIG_CHANGED_WHILE_EDITING} {}",
+            dropped_sentence(dropped)
+        )
+    }
+}
+
+/// The draft was dropped after a reload because its object is gone.
+#[must_use]
+pub fn config_reloaded_gone(label: &str) -> String {
+    format!(
+        "The config was reloaded. \u{201c}{label}\u{201d} is no longer available, so your changes to it were discarded."
+    )
 }

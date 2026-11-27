@@ -10,7 +10,11 @@ use fm_core::AppDirs;
 use super::*;
 use crate::config::{ConfigStatus, LoadedConfig, TableMode};
 use crate::db::OpenError;
-use crate::session::{DeleteImpact, ListQuery, M2mQuery, ObjectKey, SessionError};
+use crate::session::{
+    DeleteImpact, FieldChange, FieldInput, ListQuery, M2mQuery, ObjectKey, SaveRequest,
+    SessionError,
+};
+use crate::value::DbValue;
 
 const SCHEMA: &str = include_str!("../../../../examples/dbmanager/schema.sql");
 const EXAMPLE: &str = include_str!("../../../../examples/dbmanager/example.toml");
@@ -624,4 +628,193 @@ fn display_root_maps_paths() {
         "/fixture/t.db".replace('/', std::path::MAIN_SEPARATOR_STR)
     );
     assert_eq!(s.recent.len(), 1);
+}
+
+// ---- save ----
+
+fn rk(n: i64) -> ObjectKey {
+    ObjectKey::Rowid {
+        value: n.to_string(),
+    }
+}
+
+fn author_change(core: &mut Core, hash: &str, last_name: &str) -> SaveRequest {
+    SaveRequest {
+        table: "author".into(),
+        key: Some(rk(1)),
+        version: Some(core.object("author", &rk(1)).unwrap().version),
+        config_hash: hash.to_owned(),
+        changes: vec![FieldChange {
+            column: "last_name".into(),
+            input: FieldInput::Value {
+                value: DbValue::Text(last_name.into()),
+            },
+        }],
+        links: Vec::new(),
+    }
+}
+
+fn baks(fx: &Fx) -> usize {
+    fs::read_dir(fx.dir.path())
+        .unwrap()
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".bak")
+        })
+        .count()
+}
+
+fn last_name(core: &Core) -> String {
+    let view = core.object("author", &rk(1)).unwrap();
+    match &view
+        .fields
+        .iter()
+        .find(|f| f.column == "last_name")
+        .unwrap()
+        .value
+    {
+        DbValue::Text(t) => t.clone(),
+        other => panic!("{other:?}"),
+    }
+}
+
+const READ_ONLY_CONFIG: &str = "version = 1\n[defaults]\ntable_mode = \"read-only\"\n";
+
+#[test]
+fn stale_config_hash_reloads_and_refuses() {
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.open(&fx.db).unwrap();
+    let request = author_change(&mut core, "not-the-hash", "Changed");
+    let err = core.save(&request).unwrap_err();
+    assert_eq!(err.kind, DbmanagerErrorKind::ConfigChangedOnDisk);
+    assert_eq!(last_name(&core), "Lindqvist", "nothing was saved");
+    assert_eq!(baks(&fx), 0, "refused before the backup");
+}
+
+#[test]
+fn changed_file_without_reload_refuses_and_reloads() {
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.open(&fx.db).unwrap();
+    let old = core.session().config.hash;
+    fs::write(&fx.cfg, READ_ONLY_CONFIG).unwrap();
+    assert!(core.session().config_changed);
+    let request = author_change(&mut core, &old, "Changed");
+    let err = core.save(&request).unwrap_err();
+    assert_eq!(err.kind, DbmanagerErrorKind::ConfigChangedOnDisk);
+    let s = core.session();
+    assert!(!s.config_changed, "the core reloaded before returning");
+    assert_ne!(s.config.hash, old);
+    assert!(s.tables.iter().all(|t| !t.can_create));
+    assert_eq!(last_name(&core), "Lindqvist");
+}
+
+#[test]
+fn retry_with_new_hash_succeeds() {
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.open(&fx.db).unwrap();
+    let old = core.session().config.hash;
+    fs::write(&fx.cfg, format!("{EXAMPLE}\n# touched\n")).unwrap();
+    let request = author_change(&mut core, &old, "Changed");
+    assert!(core.save(&request).is_err());
+    let hash = core.session().config.hash;
+    assert_ne!(hash, old);
+    let request = author_change(&mut core, &hash, "Changed");
+    core.save(&request).unwrap();
+    assert_eq!(last_name(&core), "Changed");
+}
+
+#[test]
+fn backup_path_after_first_save() {
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.open(&fx.db).unwrap();
+    assert!(core.session().backup_path.is_none());
+    let hash = core.session().config.hash;
+    let request = author_change(&mut core, &hash, "One");
+    let first = core.save(&request).unwrap();
+    let path = core.session().backup_path.expect("a backup");
+    assert!(path.exists());
+    assert_eq!(first.backup_created, Some(path.display().to_string()));
+    assert_eq!(baks(&fx), 1);
+    let request = author_change(&mut core, &hash, "Two");
+    assert!(core.save(&request).unwrap().backup_created.is_none());
+    assert_eq!(baks(&fx), 1);
+}
+
+#[test]
+fn reload_keeps_backup() {
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.open(&fx.db).unwrap();
+    let hash = core.session().config.hash;
+    let request = author_change(&mut core, &hash, "One");
+    core.save(&request).unwrap();
+    let path = core.session().backup_path;
+    core.reload().unwrap();
+    assert_eq!(core.session().backup_path, path);
+    let request = author_change(&mut core, &hash, "Two");
+    assert!(core.save(&request).unwrap().backup_created.is_none());
+    assert_eq!(baks(&fx), 1);
+}
+
+#[test]
+fn open_again_resets_backup() {
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.open(&fx.db).unwrap();
+    let hash = core.session().config.hash;
+    let request = author_change(&mut core, &hash, "One");
+    core.save(&request).unwrap();
+    core.open(&fx.db).unwrap();
+    assert!(core.session().backup_path.is_none());
+    let request = author_change(&mut core, &hash, "Two");
+    assert!(core.save(&request).unwrap().backup_created.is_some());
+    assert_eq!(baks(&fx), 2);
+}
+
+#[test]
+fn reload_after_failed_first_save_still_announces_backup() {
+    let fx = Fx::example();
+    let mut core = fx.core();
+    core.open(&fx.db).unwrap();
+    let hash = core.session().config.hash;
+    // Fails after the backup: the isbn is taken.
+    let dup = SaveRequest {
+        table: "book".into(),
+        key: None,
+        version: None,
+        config_hash: hash.clone(),
+        changes: [
+            ("title", DbValue::Text("T".into())),
+            ("isbn", DbValue::Text("9780000000011".into())),
+        ]
+        .into_iter()
+        .map(|(column, value)| FieldChange {
+            column: column.into(),
+            input: FieldInput::Value { value },
+        })
+        .chain([FieldChange {
+            column: "author_id".into(),
+            input: FieldInput::Reference { key: Some(rk(1)) },
+        }])
+        .collect(),
+        links: Vec::new(),
+    };
+    assert_eq!(
+        core.save(&dup).unwrap_err().kind,
+        DbmanagerErrorKind::ValidationFailed
+    );
+    assert!(core.session().backup_path.is_some());
+    assert!(!core.backup_announced_for_tests());
+    core.reload().unwrap();
+    assert!(!core.backup_announced_for_tests(), "carried across");
+    let request = author_change(&mut core, &hash, "One");
+    assert!(core.save(&request).unwrap().backup_created.is_some());
+    assert_eq!(baks(&fx), 1);
 }

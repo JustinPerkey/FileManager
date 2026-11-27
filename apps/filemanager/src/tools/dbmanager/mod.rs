@@ -3,6 +3,7 @@
 //! `view/` holds a plain stand-in until it replaces it.
 
 pub mod backend;
+pub mod draft;
 #[cfg(any(test, feature = "shoot"))]
 pub mod fixtures;
 pub mod model;
@@ -14,7 +15,7 @@ mod tests;
 
 use std::path::PathBuf;
 
-use gpui::{App, AppContext as _, Entity, Window};
+use gpui::{App, AppContext as _, Entity, SharedString, Window};
 
 pub use self::model::DbmanagerModel;
 use crate::app::drop::DropTarget;
@@ -44,6 +45,20 @@ impl ToolHooks for Hooks {
 
     fn dropped(&self, paths: Vec<PathBuf>, _window: &mut Window, cx: &mut App) {
         self.model.update(cx, |m, cx| m.dropped(paths, cx));
+    }
+
+    fn unsaved_work(&self, cx: &App) -> Vec<SharedString> {
+        self.model
+            .read(cx)
+            .unsaved_description()
+            .map(SharedString::from)
+            .into_iter()
+            .collect()
+    }
+
+    #[cfg(any(test, feature = "shoot"))]
+    fn inject_file_changed(&self, _window: &mut Window, cx: &mut App) {
+        self.model.update(cx, DbmanagerModel::inject_file_changed);
     }
 }
 

@@ -9,7 +9,8 @@ use super::types::{
 };
 use crate::config::{ConfigDiagnostic, DiagnosticSeverity, LoadedConfig};
 use crate::session::{
-    ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView, Session, SessionError,
+    ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView, SaveRequest, SaveResult,
+    Session, SessionError,
 };
 use crate::state::RememberedState;
 
@@ -325,13 +326,12 @@ impl Core {
         if let Some(slot) = &self.slot {
             let mut session =
                 Self::new_session(&slot.path, fresh.clone()).map_err(DbmanagerError::from)?;
-            if let Some(backup) = self
+            if let Some((backup, announced)) = self
                 .session
                 .as_ref()
-                .and_then(|s| s.backup_path())
-                .map(Path::to_path_buf)
+                .and_then(|s| Some((s.backup_path()?.to_path_buf(), s.backup_announced())))
             {
-                session.adopt_backup(backup);
+                session.adopt_backup(backup, announced);
             }
             self.session = Some(session);
             if let Some(slot) = &mut self.slot {
@@ -402,6 +402,33 @@ impl Core {
             .map_err(DbmanagerError::from)
     }
 
+    /// Saves one object's changes (or creates one) in one transaction, after
+    /// the session's one backup. When the config changed on disk (the
+    /// request's hash is stale, or the file differs from what was loaded) the
+    /// config is reloaded **before** the error is returned, and nothing is
+    /// saved; the caller checks its draft against the new rules and sends a
+    /// new request with the new `config.hash`. Never retried here.
+    ///
+    /// # Errors
+    /// `NoDatabase`, or the session's error (`ConfigChangedOnDisk`,
+    /// `ValidationFailed`, `Conflict`, `SchemaChanged`, `Busy`, ...).
+    pub fn save(&mut self, request: &SaveRequest) -> Result<SaveResult, DbmanagerError> {
+        self.start();
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| DbmanagerError::new(K::NoDatabase, "no database is open"))?;
+        match session.save(request) {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                if matches!(e, SessionError::ConfigChangedOnDisk) {
+                    self.reload_config();
+                }
+                Err(DbmanagerError::from(e))
+            }
+        }
+    }
+
     /// Tests: how many sessions this thread has opened.
     #[cfg(test)]
     pub(super) fn session_opens() -> usize {
@@ -412,7 +439,13 @@ impl Core {
     #[cfg(test)]
     pub(super) fn adopt_backup_for_tests(&mut self, backup: PathBuf) {
         if let Some(s) = self.session.as_mut() {
-            s.adopt_backup(backup);
+            s.adopt_backup(backup, true);
         }
+    }
+
+    /// Tests: the open session's `backup_announced`.
+    #[cfg(test)]
+    pub(super) fn backup_announced_for_tests(&self) -> bool {
+        self.session.as_ref().is_some_and(Session::backup_announced)
     }
 }

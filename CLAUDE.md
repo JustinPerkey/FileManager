@@ -12,8 +12,9 @@ hosts several independent tools: the Pipeline (`pipeline`, UI and plumbing
 only: its four step hooks are stubs), the Tar Packager (`tarpack`) and the
 Schedule Creator (`schedule`, UI and plumbing only: its parse and merge hooks
 are stubs). The Database Manager (`dbmanager`) is in progress: crate
-(`fm-dbmanager`) and, in the GPUI app, its tool core and read-side model
-(views to come). Its one app-wide config is
+(`fm-dbmanager`) and, in the GPUI app, its tool core and model (reads, and
+edits: drafts, validation while typing, save, create, conflicts, the leave and
+close guards; views to come; links and delete are next). Its one app-wide config is
 `%ProgramData%\FileManager\dbmanager.toml` (`/etc/filemanager/dbmanager.toml`
 elsewhere); the app only reads it, and a config that cannot be used fails
 closed (everything read-only).
@@ -191,8 +192,9 @@ apps/filemanager/             GPUI app: package and binary `filemanager-gpui`, l
                               models, backends, text and fixtures), each with a view/
                               placeholder; tools never import each other
   src/tools/dbmanager/        backend.rs (DbmanagerBackend over fm_dbmanager's tool Core;
-                              RealDbmanager), model.rs (DbmanagerModel, read side: places and
-                              history, lists, object, referenced-by, many-to-many), text.rs,
+                              RealDbmanager), model.rs (DbmanagerModel: places and history,
+                              lists, object, referenced-by, many-to-many, the draft, picker,
+                              save, conflict panel), draft.rs (Draft: pure edit state), text.rs,
                               fixtures.rs (FixtureEnv: a real Core over a temp-dir database;
                               test and `shoot` builds), tests.rs; view/ is a placeholder
   src/tools/schedule/         same shape as pipeline/ (ScheduleBackend over fm_schedule's

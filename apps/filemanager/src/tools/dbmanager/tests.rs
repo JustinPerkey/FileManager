@@ -855,6 +855,12 @@ impl DbmanagerBackend for Flaky {
     ) -> Result<fm_dbmanager::session::M2mPage, DbmanagerError> {
         self.inner.m2m_options(table, key, relation, query)
     }
+    fn save(
+        &mut self,
+        request: fm_dbmanager::session::SaveRequest,
+    ) -> Result<fm_dbmanager::session::SaveResult, DbmanagerError> {
+        self.inner.save(request)
+    }
 }
 
 #[gpui::test]
@@ -1004,4 +1010,1108 @@ fn file_names_and_sentences() {
         text::config_fail_closed("the config could not be read: gone."),
         "Everything is read-only: the config could not be read: gone."
     );
+}
+
+// ---- editing: helpers ----
+
+use std::sync::{Arc, Mutex};
+
+use fm_dbmanager::rules::FieldIssueCode;
+use fm_dbmanager::session::{FieldInput, SaveRequest, SaveResult};
+use fm_dbmanager::value::DbValue;
+
+use super::draft::{EditorInput, Input};
+use super::model::{Nav, Notice};
+
+/// Forwards to a fixture backend, records every save request, and can answer
+/// the first save `Busy`.
+struct Recording {
+    inner: FixtureDbmanager,
+    saves: Arc<Mutex<Vec<SaveRequest>>>,
+    busy_once: bool,
+}
+
+impl Recording {
+    fn new(env: &FixtureEnv) -> (Self, Arc<Mutex<Vec<SaveRequest>>>) {
+        let saves = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                inner: env.backend(),
+                saves: saves.clone(),
+                busy_once: false,
+            },
+            saves,
+        )
+    }
+}
+
+impl DbmanagerBackend for Recording {
+    fn session(&mut self) -> DbmanagerSnapshot {
+        self.inner.session()
+    }
+    fn open(&mut self, path: &std::path::Path) -> Result<DbmanagerSnapshot, DbmanagerError> {
+        self.inner.open(path)
+    }
+    fn open_recent(&mut self, index: usize) -> Result<DbmanagerSnapshot, DbmanagerError> {
+        self.inner.open_recent(index)
+    }
+    fn open_dropped(&mut self, paths: Vec<PathBuf>) -> Result<DbmanagerSnapshot, DbmanagerError> {
+        self.inner.open_dropped(paths)
+    }
+    fn reload(&mut self) -> Result<DbmanagerSnapshot, DbmanagerError> {
+        self.inner.reload()
+    }
+    fn close(&mut self) -> DbmanagerSnapshot {
+        self.inner.close()
+    }
+    fn list(
+        &mut self,
+        table: &str,
+        query: &fm_dbmanager::session::ListQuery,
+    ) -> Result<fm_dbmanager::session::ObjectPage, DbmanagerError> {
+        self.inner.list(table, query)
+    }
+    fn object(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+    ) -> Result<fm_dbmanager::session::ObjectView, DbmanagerError> {
+        self.inner.object(table, key)
+    }
+    fn m2m_options(
+        &mut self,
+        table: &str,
+        key: Option<&ObjectKey>,
+        relation: &str,
+        query: &fm_dbmanager::session::M2mQuery,
+    ) -> Result<fm_dbmanager::session::M2mPage, DbmanagerError> {
+        self.inner.m2m_options(table, key, relation, query)
+    }
+    fn save(&mut self, request: SaveRequest) -> Result<SaveResult, DbmanagerError> {
+        self.saves.lock().unwrap().push(request.clone());
+        if std::mem::take(&mut self.busy_once) {
+            return Err(DbmanagerError::new(DbmanagerErrorKind::Busy, "locked"));
+        }
+        self.inner.save(request)
+    }
+}
+
+type Attempt = Box<dyn Fn(&mut DbmanagerModel, &mut Context<DbmanagerModel>)>;
+
+/// The book list and book `n` open, on a started model.
+fn open_book(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>, n: i64) {
+    choose(cx, model, "book");
+    open_object(cx, model, "book", n);
+}
+
+fn type_in(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>, field: &str, text: &str) {
+    act(cx, model, |m, cx| {
+        m.edit(field, EditorInput::Text(text.to_owned()), cx);
+    });
+}
+
+fn save_and_idle(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>) {
+    act(cx, model, DbmanagerModel::save);
+    idle(cx, model);
+}
+
+fn stored(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>, column: &str) -> DbValue {
+    read(cx, model, |m| match m.object() {
+        Some(ObjectLoad::Loaded(view)) => view
+            .fields
+            .iter()
+            .find(|f| f.column == column)
+            .map(|f| f.value.clone())
+            .expect("the field"),
+        other => panic!("no loaded object: {other:?}"),
+    })
+}
+
+fn dirty(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>) -> bool {
+    read(cx, model, DbmanagerModel::dirty)
+}
+
+fn error_kind(
+    cx: &mut TestAppContext,
+    model: &Entity<DbmanagerModel>,
+) -> Option<DbmanagerErrorKind> {
+    read(cx, model, |m| match m.error() {
+        Some(ViewError::Dbmanager { error, .. }) => Some(error.kind),
+        _ => None,
+    })
+}
+
+fn issue_codes(
+    cx: &mut TestAppContext,
+    model: &Entity<DbmanagerModel>,
+    field: &str,
+) -> Vec<FieldIssueCode> {
+    read(cx, model, |m| {
+        m.draft()
+            .map(|d| d.issues(field).iter().map(|i| i.code).collect())
+            .unwrap_or_default()
+    })
+}
+
+/// A new book with the required fields filled in (author picked).
+fn fill_new_book(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>, isbn: &str) {
+    act(cx, model, |m, cx| m.new_object("book", cx));
+    idle(cx, model);
+    type_in(cx, model, "title", "Created Book");
+    type_in(cx, model, "isbn", isbn);
+    act(cx, model, |m, cx| m.open_picker("author_id", cx));
+    idle(cx, model);
+    act(cx, model, |m, cx| m.pick(rowid(1), cx));
+}
+
+// ---- editing: validation and save ----
+
+#[gpui::test]
+fn edit_validates_on_change(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    assert!(!dirty(cx, &model));
+    type_in(cx, &model, "pages", "abc");
+    assert!(dirty(cx, &model));
+    assert_eq!(
+        issue_codes(cx, &model, "pages"),
+        vec![FieldIssueCode::NotInteger]
+    );
+    assert!(read(cx, &model, |m| !m.draft().unwrap().shown("pages")));
+    type_in(cx, &model, "pages", "321");
+    assert_eq!(issue_codes(cx, &model, "pages").len(), 0);
+    act(cx, &model, |m, cx| m.blur("pages", cx));
+    type_in(cx, &model, "pages", "0");
+    assert_eq!(
+        issue_codes(cx, &model, "pages"),
+        vec![FieldIssueCode::BelowMin],
+        "the config's bounds apply"
+    );
+    assert!(read(cx, &model, |m| m.draft().unwrap().shown("pages")));
+}
+
+#[gpui::test]
+fn save_refused_with_issues_shows_all(cx: &mut TestAppContext) {
+    let env = loaded();
+    let (backend, saves) = Recording::new(&env);
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "abc");
+    type_in(cx, &model, "price", "x");
+    hint(cx, &model);
+    act(cx, &model, DbmanagerModel::save);
+    idle(cx, &model);
+    assert_eq!(hint(cx, &model), Some(FocusHint::ErrorSummary));
+    assert!(saves.lock().unwrap().is_empty(), "nothing was sent");
+    let shown = read(cx, &model, |m| m.draft().unwrap().summary().len());
+    assert_eq!(shown, 2);
+    assert!(!read(cx, &model, DbmanagerModel::saving));
+    assert!(snapshot(cx, &model).backup_path.is_none());
+}
+
+#[gpui::test]
+fn required_on_create_missing_refuses(cx: &mut TestAppContext) {
+    let env = loaded();
+    let (backend, saves) = Recording::new(&env);
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    choose(cx, &model, "book");
+    act(cx, &model, |m, cx| m.new_object("book", cx));
+    idle(cx, &model);
+    hint(cx, &model);
+    act(cx, &model, DbmanagerModel::save);
+    idle(cx, &model);
+    assert_eq!(hint(cx, &model), Some(FocusHint::ErrorSummary));
+    assert!(saves.lock().unwrap().is_empty());
+    for field in ["title", "isbn", "author_id"] {
+        assert_eq!(
+            issue_codes(cx, &model, field),
+            vec![FieldIssueCode::Required],
+            "{field}"
+        );
+    }
+    assert!(matches!(place(cx, &model), Place::New { .. }));
+}
+
+#[gpui::test]
+fn save_sends_changed_fields_with_hash(cx: &mut TestAppContext) {
+    let env = loaded();
+    let (backend, saves) = Recording::new(&env);
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    type_in(cx, &model, "price", "24.50");
+    type_in(cx, &model, "price", "24.5");
+    save_and_idle(cx, &model);
+    let sent = saves.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].table, "book");
+    assert_eq!(sent[0].config_hash, snapshot(cx, &model).config.hash);
+    assert!(sent[0].version.is_some() && sent[0].key.is_some());
+    assert_eq!(sent[0].changes.len(), 1, "price is not a change");
+    assert_eq!(sent[0].changes[0].column, "pages");
+    assert_eq!(
+        sent[0].changes[0].input,
+        FieldInput::Value {
+            value: DbValue::Integer("330".into())
+        }
+    );
+}
+
+#[gpui::test]
+fn saving_refuses_navigation_and_disables_drop(cx: &mut TestAppContext) {
+    let env = loaded();
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, &env);
+    handle.open();
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    handle.close();
+    act(cx, &model, DbmanagerModel::save);
+    assert!(read(cx, &model, DbmanagerModel::saving));
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::drop_availability),
+        Err(text::REASON_SAVING)
+    );
+    let before = place(cx, &model);
+    act(cx, &model, DbmanagerModel::back);
+    act(cx, &model, |m, cx| m.choose_table("member", cx));
+    act(cx, &model, |m, cx| m.new_object("author", cx));
+    act(cx, &model, |m, cx| m.dropped(vec![env.db.clone()], cx));
+    type_in(cx, &model, "pages", "999");
+    assert_eq!(place(cx, &model), before);
+    assert!(read(cx, &model, |m| m.leave_request().is_none()));
+    assert_eq!(
+        read(cx, &model, |m| m.draft().unwrap().value("pages")),
+        Some(DbValue::Integer("330".into())),
+        "editors are read-only while saving"
+    );
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::save_blocked_reason),
+        Some(text::REASON_SAVING)
+    );
+    handle.open();
+    idle(cx, &model);
+    assert!(!read(cx, &model, DbmanagerModel::saving));
+    assert_eq!(read(cx, &model, DbmanagerModel::drop_availability), Ok(()));
+}
+
+#[gpui::test]
+fn save_success_clears_draft_and_rereads(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    // The list the user came from, read before the save.
+    let label_before = read(cx, &model, |m| {
+        m.list_state("book")
+            .and_then(|l| l.page.as_ref())
+            .and_then(|p| p.items.iter().find(|i| i.key == rowid(1)))
+            .map(|i| i.label.clone())
+    });
+    assert_eq!(label_before.as_deref(), Some("The Quiet Harbour"));
+    type_in(cx, &model, "title", "A New Title");
+    type_in(cx, &model, "pages", "330");
+    save_and_idle(cx, &model);
+    assert!(!dirty(cx, &model));
+    assert!(read(cx, &model, |m| m.draft().is_some()), "a clean draft");
+    assert_eq!(stored(cx, &model, "pages"), DbValue::Integer("330".into()));
+    assert_eq!(
+        read(cx, &model, |m| m.announcement().map(str::to_owned)),
+        Some("Saved.".into())
+    );
+    let label_after = read(cx, &model, |m| {
+        m.list_state("book")
+            .and_then(|l| l.page.as_ref())
+            .and_then(|p| p.items.iter().find(|i| i.key == rowid(1)))
+            .map(|i| i.label.clone())
+    });
+    assert_eq!(
+        label_after.as_deref(),
+        Some("A New Title"),
+        "the list page was read again"
+    );
+    assert!(read(cx, &model, |m| m.error().is_none()
+        && m.conflict().is_none()));
+}
+
+#[gpui::test]
+fn first_save_shows_backup_notice(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+    type_in(cx, &model, "pages", "330");
+    save_and_idle(cx, &model);
+    let notice = read(cx, &model, |m| m.notice().cloned());
+    let Some(Notice::Backup { path }) = notice else {
+        panic!("expected the backup notice, got {notice:?}");
+    };
+    assert!(path.contains(".bak"));
+    let backup = snapshot(cx, &model)
+        .backup_path
+        .expect("the snapshot was read again");
+    assert!(backup.exists());
+    assert_eq!(
+        std::fs::read_dir(env.dir())
+            .unwrap()
+            .filter(|e| e
+                .as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".bak"))
+            .count(),
+        1
+    );
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+    type_in(cx, &model, "pages", "331");
+    save_and_idle(cx, &model);
+    assert!(
+        read(cx, &model, |m| m.notice().is_none()),
+        "only the first save has one"
+    );
+}
+
+#[gpui::test]
+fn server_validation_replaces_inline_until_edited(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    choose(cx, &model, "book");
+    fill_new_book(cx, &model, "9780000000011");
+    assert!(issue_codes(cx, &model, "isbn").is_empty(), "valid locally");
+    save_and_idle(cx, &model);
+    assert!(matches!(place(cx, &model), Place::New { .. }));
+    assert_eq!(hint(cx, &model), Some(FocusHint::ErrorSummary));
+    let shown = read(cx, &model, |m| {
+        m.draft()
+            .unwrap()
+            .shown_issues("isbn")
+            .iter()
+            .map(|i| i.code)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(shown, vec![FieldIssueCode::Unique]);
+    type_in(cx, &model, "isbn", "9780000000105");
+    assert!(read(cx, &model, |m| m
+        .draft()
+        .unwrap()
+        .shown_issues("isbn")
+        .is_empty()));
+}
+
+#[gpui::test]
+fn conflict_panel_reapply_and_discard(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "title", "Mine");
+    env.exec("UPDATE book SET title = 'Theirs', summary = 'edited elsewhere' WHERE id = 1");
+    save_and_idle(cx, &model);
+    let panel = read(cx, &model, |m| m.conflict().cloned()).expect("the conflict panel");
+    assert_eq!(panel.label, "The Quiet Harbour");
+    assert_eq!(panel.diff.fields.len(), 1);
+    assert_eq!(panel.diff.fields[0].yours, "Mine");
+    assert_eq!(panel.diff.fields[0].now, "Theirs");
+    assert_eq!(panel.diff.others_changed, 1);
+    assert!(dirty(cx, &model), "the draft is kept");
+    // Save is refused until one is chosen.
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::save_blocked_reason),
+        Some("Resolve the conflict first.")
+    );
+    save_and_idle(cx, &model);
+    assert!(read(cx, &model, |m| m.conflict().is_some()));
+    // Re-apply: the draft sits on the new version and saves.
+    act(cx, &model, DbmanagerModel::reapply);
+    assert!(read(cx, &model, |m| m.conflict().is_none()));
+    assert!(dirty(cx, &model));
+    save_and_idle(cx, &model);
+    assert_eq!(stored(cx, &model, "title"), DbValue::Text("Mine".into()));
+    assert!(!dirty(cx, &model));
+    // Discard: the other program's value is loaded.
+    type_in(cx, &model, "title", "Mine again");
+    env.exec("UPDATE book SET title = 'Theirs again' WHERE id = 1");
+    save_and_idle(cx, &model);
+    assert!(read(cx, &model, |m| m.conflict().is_some()));
+    act(cx, &model, DbmanagerModel::discard_mine);
+    assert!(read(cx, &model, |m| m.conflict().is_none()));
+    assert!(!dirty(cx, &model));
+    assert_eq!(
+        stored(cx, &model, "title"),
+        DbValue::Text("Theirs again".into())
+    );
+}
+
+#[gpui::test]
+fn config_changed_on_save_rechecks_without_retry(cx: &mut TestAppContext) {
+    let env = loaded();
+    let (backend, saves) = Recording::new(&env);
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "400");
+    type_in(cx, &model, "title", "Kept edit");
+    let old_hash = snapshot(cx, &model).config.hash;
+    env.edit_config_book_pages_read_only();
+    save_and_idle(cx, &model);
+    assert_eq!(
+        saves.lock().unwrap().len(),
+        1,
+        "never retried automatically"
+    );
+    assert_eq!(stored(cx, &model, "pages"), DbValue::Integer("320".into()));
+    assert_eq!(
+        stored(cx, &model, "title"),
+        DbValue::Text("The Quiet Harbour".into())
+    );
+    assert_ne!(snapshot(cx, &model).config.hash, old_hash);
+    let Some(Notice::ConfigChangedWhileEditing { dropped }) =
+        read(cx, &model, |m| m.notice().cloned())
+    else {
+        panic!("expected the config-changed notice");
+    };
+    assert_eq!(dropped.len(), 1, "pages is read-only now: {dropped:?}");
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::dirty_count),
+        1,
+        "the title edit stays"
+    );
+    assert!(read(cx, &model, |m| m
+        .draft()
+        .unwrap()
+        .input("pages")
+        .is_none()));
+    // The next save carries the new hash and goes through.
+    save_and_idle(cx, &model);
+    assert_eq!(saves.lock().unwrap().len(), 2);
+    assert_eq!(
+        stored(cx, &model, "title"),
+        DbValue::Text("Kept edit".into())
+    );
+}
+
+#[gpui::test]
+fn schema_changed_and_busy_banners(cx: &mut TestAppContext) {
+    let env = loaded();
+    let (backend, _saves) = Recording::new(&env);
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    env.exec("CREATE TABLE zz_new (a)");
+    save_and_idle(cx, &model);
+    assert_eq!(
+        error_kind(cx, &model),
+        Some(DbmanagerErrorKind::SchemaChanged)
+    );
+    assert!(dirty(cx, &model), "the draft is kept");
+    assert!(!read(cx, &model, DbmanagerModel::can_try_again));
+    // Busy offers Try again.
+    let env = loaded();
+    let (mut backend, _saves) = Recording::new(&env);
+    backend.busy_once = true;
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    save_and_idle(cx, &model);
+    assert_eq!(error_kind(cx, &model), Some(DbmanagerErrorKind::Busy));
+    assert!(read(cx, &model, DbmanagerModel::can_try_again));
+    assert!(dirty(cx, &model));
+}
+
+#[gpui::test]
+fn busy_try_again_repeats_request(cx: &mut TestAppContext) {
+    let env = loaded();
+    let (mut backend, saves) = Recording::new(&env);
+    backend.busy_once = true;
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    save_and_idle(cx, &model);
+    act(cx, &model, DbmanagerModel::try_again);
+    idle(cx, &model);
+    let sent = saves.lock().unwrap().clone();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0], sent[1], "the same request");
+    assert_eq!(stored(cx, &model, "pages"), DbValue::Integer("330".into()));
+    assert!(read(cx, &model, |m| m.error().is_none() && !m.can_try_again()));
+}
+
+// ---- editing: leaving ----
+
+#[gpui::test]
+fn dirty_navigation_asks_and_confirm_discards(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    let here = place(cx, &model);
+    type_in(cx, &model, "pages", "330");
+    // Every way out asks, and nothing moves.
+    let attempts: Vec<(Attempt, Nav)> = vec![
+        (
+            Box::new(|m, cx| m.choose_table("member", cx)),
+            Nav::Go(table("member")),
+        ),
+        (Box::new(DbmanagerModel::back), Nav::Back),
+        (
+            Box::new(|m, cx| m.open_object("book", rowid(2), cx)),
+            Nav::Go(Place::Object {
+                table: "book".into(),
+                key: rowid(2),
+                label: "Salt and Iron".into(),
+            }),
+        ),
+        (
+            Box::new(|m, cx| m.new_object("author", cx)),
+            Nav::Go(Place::New {
+                table: "author".into(),
+            }),
+        ),
+        (Box::new(|m, cx| m.open_recent(0, cx)), Nav::OpenRecent(0)),
+        (Box::new(DbmanagerModel::close_database), Nav::CloseDatabase),
+        (Box::new(DbmanagerModel::reload), Nav::Reload),
+        (
+            Box::new({
+                let db = env.db.clone();
+                move |m, cx| m.open_path(db.clone(), cx)
+            }),
+            Nav::OpenPath(env.db.clone()),
+        ),
+        (
+            Box::new({
+                let db = env.db.clone();
+                move |m, cx| m.dropped(vec![db.clone()], cx)
+            }),
+            Nav::Dropped(vec![env.db.clone()]),
+        ),
+    ];
+    for (go, expected) in attempts {
+        act(cx, &model, |m, cx| go(m, cx));
+        idle(cx, &model);
+        let request = read(cx, &model, |m| m.leave_request().cloned()).expect("asked");
+        assert_eq!(request.label, "The Quiet Harbour");
+        if let (Nav::Go(Place::Object { .. }), Nav::Go(Place::Object { table, key, .. })) =
+            (&request.action, &expected)
+        {
+            assert!(
+                matches!(&request.action, Nav::Go(Place::Object { table: t, key: k, .. }) if t == table && k == key)
+            );
+        } else {
+            assert_eq!(request.action, expected);
+        }
+        assert_eq!(place(cx, &model), here);
+        assert!(dirty(cx, &model));
+    }
+    // The reference cannot be followed here, but the fixture's author link
+    // is a navigation too.
+    act(cx, &model, |m, cx| m.choose_table("member", cx));
+    act(cx, &model, DbmanagerModel::confirm_leave);
+    idle(cx, &model);
+    assert_eq!(place(cx, &model), table("member"));
+    assert!(read(cx, &model, |m| m.draft().is_none()
+        && m.leave_request().is_none()));
+    // Back and Close ask too, and Close goes once confirmed.
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "331");
+    act(cx, &model, DbmanagerModel::close_database);
+    act(cx, &model, DbmanagerModel::confirm_leave);
+    idle(cx, &model);
+    assert!(!snapshot(cx, &model).open);
+    assert_eq!(stored_pages_after_discard(&env), "320");
+}
+
+/// The database still holds the stored pages of book 1.
+fn stored_pages_after_discard(env: &FixtureEnv) -> String {
+    rusqlite::Connection::open(&env.db)
+        .unwrap()
+        .query_row("SELECT pages FROM book WHERE id = 1", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .unwrap()
+        .to_string()
+}
+
+#[gpui::test]
+fn following_a_reference_asks_when_dirty(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    act(cx, &model, |m, cx| m.follow("author_id", cx));
+    assert!(read(cx, &model, |m| matches!(
+        m.leave_request().map(|r| &r.action),
+        Some(Nav::Go(Place::Object { table, .. })) if table == "author"
+    )));
+    act(cx, &model, DbmanagerModel::cancel_leave);
+    act(cx, &model, DbmanagerModel::discard);
+    act(cx, &model, |m, cx| m.follow("author_id", cx));
+    idle(cx, &model);
+    assert!(matches!(place(cx, &model), Place::Object { table, .. } if table == "author"));
+}
+
+#[gpui::test]
+fn cancel_leave_keeps_draft(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    let here = place(cx, &model);
+    act(cx, &model, |m, cx| m.choose_table("member", cx));
+    assert!(read(cx, &model, |m| m.leave_request().is_some()));
+    act(cx, &model, DbmanagerModel::cancel_leave);
+    assert!(read(cx, &model, |m| m.leave_request().is_none()));
+    assert!(dirty(cx, &model));
+    assert_eq!(place(cx, &model), here);
+    assert_eq!(
+        read(cx, &model, |m| m.draft().unwrap().value("pages")),
+        Some(DbValue::Integer("330".into()))
+    );
+    // Discard changes reverts without asking.
+    act(cx, &model, DbmanagerModel::discard);
+    assert!(!dirty(cx, &model));
+    act(cx, &model, |m, cx| m.choose_table("member", cx));
+    assert!(read(cx, &model, |m| m.leave_request().is_none()));
+}
+
+// ---- editing: create ----
+
+#[gpui::test]
+fn create_prefills_defaults_and_replaces_place(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    choose(cx, &model, "book");
+    let history_before = read(cx, &model, |m| m.history().len());
+    act(cx, &model, |m, cx| m.new_object("book", cx));
+    idle(cx, &model);
+    assert_eq!(hint(cx, &model), Some(FocusHint::SheetHeading));
+    assert!(matches!(place(cx, &model), Place::New { .. }));
+    read(cx, &model, |m| {
+        let d = m.draft().expect("a draft");
+        assert!(d.is_new() && !d.dirty());
+        assert!(
+            matches!(d.input("format"), Some(Input::Text(s) | Input::Choice(Some(s))) if s == "paperback")
+        );
+        assert!(matches!(d.input("in_print"), Some(Input::Bool(Some(true)))));
+        assert!(
+            d.input("revision").is_none(),
+            "read-only fields have no editor"
+        );
+        assert!(d.input("isbn").is_some(), "create-only fields do");
+    });
+    act(cx, &model, DbmanagerModel::close_picker);
+    act(cx, &model, DbmanagerModel::cancel_leave);
+    // Fill in the required fields and create.
+    type_in(cx, &model, "title", "Created Book");
+    type_in(cx, &model, "isbn", "9780000000105");
+    act(cx, &model, |m, cx| m.open_picker("author_id", cx));
+    idle(cx, &model);
+    act(cx, &model, |m, cx| m.pick(rowid(1), cx));
+    hint(cx, &model);
+    save_and_idle(cx, &model);
+    assert_eq!(hint(cx, &model), Some(FocusHint::SheetHeading));
+    let here = place(cx, &model);
+    assert!(
+        matches!(&here, Place::Object { table, label, .. } if table == "book" && label == "Created Book")
+    );
+    assert_eq!(
+        read(cx, &model, |m| m.history().len()),
+        history_before + 1,
+        "the New entry was replaced, not pushed"
+    );
+    assert!(read(cx, &model, |m| !m.draft().unwrap().is_new()));
+    assert_eq!(
+        read(cx, &model, |m| m.announcement().map(str::to_owned)),
+        Some("Created Created Book.".into())
+    );
+    assert_eq!(
+        stored(cx, &model, "format"),
+        DbValue::Text("paperback".into())
+    );
+    // The list the user came from has it.
+    assert!(read(cx, &model, |m| m
+        .list_state("book")
+        .and_then(|l| l.page.as_ref())
+        .is_some_and(|p| p
+            .items
+            .iter()
+            .any(|i| i.label == "Created Book"))));
+}
+
+#[gpui::test]
+fn new_button_noun_uses_object_name(cx: &mut TestAppContext) {
+    assert_eq!(text::new_button(Some("book")), "New book");
+    assert_eq!(text::new_button(None), "New");
+    assert_eq!(text::new_button(Some("  ")), "New");
+    assert_eq!(text::new_title(Some("book")), "New book");
+    assert_eq!(text::new_title(None), "New object");
+    let (_env, model, _) = started(cx);
+    let (with, without) = read(cx, &model, |m| {
+        (
+            m.table_view("book").and_then(|t| t.object_name.clone()),
+            m.table_view("book").map(|t| t.can_create),
+        )
+    });
+    assert_eq!(with.as_deref(), Some("book"));
+    assert_eq!(without, Some(true));
+    act(cx, &model, |m, cx| m.new_object("book", cx));
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, DbmanagerModel::draft_label), "New book");
+    // A table that cannot create refuses.
+    assert!(!read(cx, &model, |m| m.can_create("publisher")));
+    let before = place(cx, &model);
+    act(cx, &model, |m, cx| m.new_object("publisher", cx));
+    assert_eq!(place(cx, &model), before);
+}
+
+#[gpui::test]
+fn cancel_new_goes_back(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    choose(cx, &model, "book");
+    act(cx, &model, |m, cx| m.new_object("book", cx));
+    idle(cx, &model);
+    type_in(cx, &model, "title", "Half a title");
+    assert!(dirty(cx, &model));
+    act(cx, &model, DbmanagerModel::cancel_new);
+    idle(cx, &model);
+    assert_eq!(place(cx, &model), table("book"));
+    assert!(read(cx, &model, |m| m.draft().is_none()
+        && m.leave_request().is_none()));
+}
+
+// ---- editing: inputs and the picker ----
+
+#[gpui::test]
+fn edit_inputs_convert_per_kind(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    let value = |cx: &mut TestAppContext, field: &str| {
+        read(cx, &model, |m| m.draft().unwrap().value(field))
+    };
+    type_in(cx, &model, "pages", " 12 ");
+    assert_eq!(value(cx, "pages"), Some(DbValue::Integer("12".into())));
+    type_in(cx, &model, "pages", "");
+    assert_eq!(
+        value(cx, "pages"),
+        Some(DbValue::Null),
+        "empty nullable is not set"
+    );
+    type_in(cx, &model, "price", " 2.5");
+    assert_eq!(value(cx, "price"), Some(DbValue::Real("2.5".into())));
+    type_in(cx, &model, "title", "  padded  ");
+    assert_eq!(
+        value(cx, "title"),
+        Some(DbValue::Text("  padded  ".into())),
+        "text is not trimmed"
+    );
+    act(cx, &model, |m, cx| {
+        m.edit("in_print", EditorInput::Bool(Some(false)), cx);
+    });
+    assert_eq!(value(cx, "in_print"), Some(DbValue::Integer("0".into())));
+    act(cx, &model, |m, cx| {
+        m.edit("in_print", EditorInput::Bool(None), cx);
+    });
+    assert_eq!(
+        issue_codes(cx, &model, "in_print"),
+        vec![FieldIssueCode::Required]
+    );
+    act(cx, &model, |m, cx| {
+        m.edit("format", EditorInput::Choice(Some("ebook".into())), cx);
+    });
+    assert_eq!(value(cx, "format"), Some(DbValue::Text("ebook".into())));
+    act(cx, &model, |m, cx| {
+        m.edit("format", EditorInput::Choice(None), cx);
+    });
+    assert_eq!(
+        issue_codes(cx, &model, "format"),
+        vec![FieldIssueCode::Required]
+    );
+    // An input of the wrong kind for a field is ignored.
+    act(cx, &model, |m, cx| {
+        m.edit("title", EditorInput::Bool(Some(true)), cx);
+    });
+    assert_eq!(value(cx, "title"), Some(DbValue::Text("  padded  ".into())));
+    // A duration is canonical once it loses focus, and 1h 30m over 7h30m is a change.
+    type_in(cx, &model, "audio_length", "7h 30m");
+    assert!(
+        !read(cx, &model, |m| m.draft().unwrap().changed("audio_length")),
+        "7h30m is stored"
+    );
+    type_in(cx, &model, "audio_length", "8h 15m");
+    act(cx, &model, |m, cx| m.blur("audio_length", cx));
+    assert!(read(cx, &model, |m| matches!(
+        m.draft().unwrap().input("audio_length"),
+        Some(Input::Text(s)) if s == "8h15m"
+    )));
+    // Escape reverts one field.
+    act(cx, &model, |m, cx| m.revert_field("title", cx));
+    assert!(!read(cx, &model, |m| m.draft().unwrap().changed("title")));
+    // Stored-value problems never block other fields: nothing else to check
+    // here, a clean field has no issues.
+    assert_eq!(issue_codes(cx, &model, "summary").len(), 0);
+}
+
+#[gpui::test]
+fn picker_has_its_own_query_and_keeps_list_state(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    choose(cx, &model, "book");
+    act(cx, &model, |m, cx| m.set_search("book", "Salt", cx));
+    idle(cx, &model);
+    open_object(cx, &model, "book", 2);
+    let list_before = read(cx, &model, |m| m.list_state("book").cloned());
+    act(cx, &model, |m, cx| m.open_picker("author_id", cx));
+    idle(cx, &model);
+    let picker = read(cx, &model, |m| m.picker().cloned()).expect("the picker");
+    assert_eq!(picker.table, "author");
+    assert_eq!(picker.field, "author_id");
+    assert_eq!((picker.items.len(), picker.total), (3, 3));
+    assert!(!picker.loading && picker.error.is_none());
+    // The newest search wins, and the table's own list is untouched.
+    act(cx, &model, |m, cx| m.picker_search("Tomas", cx));
+    act(cx, &model, |m, cx| m.picker_search("Ada", cx));
+    idle(cx, &model);
+    let picker = read(cx, &model, |m| m.picker().cloned()).unwrap();
+    assert_eq!(picker.search, "Ada");
+    assert_eq!(picker.items.len(), 1);
+    assert_eq!(
+        read(cx, &model, |m| m.list_state("book").cloned()),
+        list_before
+    );
+    // Nothing more to show.
+    act(cx, &model, DbmanagerModel::picker_more);
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, |m| m.picker().unwrap().items.len()), 1);
+    act(cx, &model, DbmanagerModel::close_picker);
+    assert_eq!(
+        hint(cx, &model),
+        Some(FocusHint::PickerTrigger("author_id".into()))
+    );
+    assert!(read(cx, &model, |m| m.picker().is_none()));
+    assert!(!dirty(cx, &model), "closing picks nothing");
+}
+
+#[gpui::test]
+fn picker_pages_by_25(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    env.exec(
+        "WITH RECURSIVE n(i) AS (SELECT 10 UNION ALL SELECT i + 1 FROM n WHERE i < 69) \
+         INSERT INTO author (id, first_name, last_name) SELECT i, 'F', 'L' || i FROM n;",
+    );
+    open_book(cx, &model, 1);
+    act(cx, &model, |m, cx| m.open_picker("author_id", cx));
+    idle(cx, &model);
+    let (loaded_now, total) = read(cx, &model, |m| {
+        let p = m.picker().unwrap();
+        (p.items.len(), p.total)
+    });
+    assert_eq!((loaded_now, total), (25, 63));
+    act(cx, &model, DbmanagerModel::picker_more);
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, |m| m.picker().unwrap().items.len()), 50);
+}
+
+#[gpui::test]
+fn pick_stages_reference_and_hints_trigger(cx: &mut TestAppContext) {
+    let env = loaded();
+    let (backend, saves) = Recording::new(&env);
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    act(cx, &model, |m, cx| m.open_picker("author_id", cx));
+    idle(cx, &model);
+    hint(cx, &model);
+    act(cx, &model, |m, cx| m.pick(rowid(2), cx));
+    assert_eq!(
+        hint(cx, &model),
+        Some(FocusHint::PickerTrigger("author_id".into()))
+    );
+    assert!(read(cx, &model, |m| m.picker().is_none()));
+    assert!(read(cx, &model, |m| m
+        .draft()
+        .unwrap()
+        .changed("author_id")));
+    assert!(read(cx, &model, |m| matches!(
+        m.draft().unwrap().input("author_id"),
+        Some(Input::Reference(Some(p))) if p.key == rowid(2) && p.label == "Okafor, Tomas"
+    )));
+    save_and_idle(cx, &model);
+    let sent = saves.lock().unwrap().clone();
+    assert_eq!(sent[0].changes.len(), 1);
+    assert_eq!(
+        sent[0].changes[0].input,
+        FieldInput::Reference {
+            key: Some(rowid(2))
+        }
+    );
+}
+
+#[gpui::test]
+fn clear_reference_only_when_nullable(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    act(cx, &model, |m, cx| m.clear_reference("author_id", cx));
+    assert!(!dirty(cx, &model), "author is required");
+    act(cx, &model, |m, cx| m.clear_reference("publisher_id", cx));
+    assert!(read(cx, &model, |m| m
+        .draft()
+        .unwrap()
+        .changed("publisher_id")));
+    assert!(matches!(
+        read(cx, &model, |m| m
+            .draft()
+            .unwrap()
+            .input("publisher_id")
+            .cloned()),
+        Some(Input::Reference(None))
+    ));
+    assert_eq!(read(cx, &model, DbmanagerModel::dirty_count), 1);
+}
+
+// ---- editing: the close guard ----
+
+#[gpui::test]
+fn unsaved_work_reports_draft_for_close_guard(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    let hooks = hooks(cx, &model);
+    assert_eq!(cx.update(|cx| hooks.unsaved_work(cx)).len(), 0);
+    type_in(cx, &model, "pages", "330");
+    let items = cx.update(|cx| hooks.unsaved_work(cx));
+    assert_eq!(
+        items,
+        vec![gpui::SharedString::from(
+            "Database Manager: your changes to \u{201c}The Quiet Harbour\u{201d} are not saved."
+        )]
+    );
+    act(cx, &model, DbmanagerModel::discard);
+    assert_eq!(cx.update(|cx| hooks.unsaved_work(cx)).len(), 0);
+}
+
+#[gpui::test]
+fn close_guard_holds_window_with_dirty_draft(cx: &mut TestAppContext) {
+    use crate::app::shell::test_support::open;
+    use crate::tools::{self, ToolSlot};
+
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    let given = model.clone();
+    let (shell, vcx) = open(cx, move |window, app| {
+        tools::build(window, app)
+            .into_iter()
+            .map(|slot| {
+                if slot.id == tools::ToolId::Dbmanager {
+                    ToolSlot {
+                        hooks: Box::new(Hooks {
+                            model: given.clone(),
+                        }),
+                        ..slot
+                    }
+                } else {
+                    slot
+                }
+            })
+            .collect()
+    });
+    assert!(!vcx.simulate_close(), "held");
+    let request = shell.read_with(vcx, |s, _| s.close_request().cloned());
+    assert_eq!(
+        request.map(|r| r.items),
+        Some(vec![(
+            tools::ToolId::Dbmanager,
+            "Database Manager: your changes to \u{201c}The Quiet Harbour\u{201d} are not saved."
+                .into()
+        )])
+    );
+}
+
+// ---- editing: reloads ----
+
+#[gpui::test]
+fn reload_rebases_draft_and_drops_read_only_fields(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "400");
+    type_in(cx, &model, "title", "Edited");
+    cx.update(|cx| model.update(cx, DbmanagerModel::inject_file_changed));
+    idle(cx, &model);
+    let Some(Notice::ConfigReloaded { dropped }) = read(cx, &model, |m| m.notice().cloned()) else {
+        panic!("expected the reload notice");
+    };
+    assert_eq!(dropped.len(), 1);
+    assert!(read(cx, &model, |m| m.notice().unwrap().copy())
+        .starts_with("The config was reloaded. These changes no longer apply and were removed: "));
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::dirty_count),
+        1,
+        "the title edit stays"
+    );
+    assert!(read(cx, &model, |m| m
+        .draft()
+        .unwrap()
+        .input("pages")
+        .is_none()));
+}
+
+#[gpui::test]
+fn reload_with_changed_object_raises_the_conflict(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "title", "Mine");
+    env.exec("UPDATE book SET title = 'Theirs' WHERE id = 1");
+    act(cx, &model, DbmanagerModel::recheck_after_reload);
+    idle(cx, &model);
+    let panel = read(cx, &model, |m| m.conflict().cloned()).expect("a conflict");
+    assert_eq!(panel.diff.fields[0].now, "Theirs");
+    assert!(dirty(cx, &model));
+    assert_eq!(
+        read(cx, &model, |m| m.notice().unwrap().copy()),
+        "The config was reloaded."
+    );
+}
+
+#[gpui::test]
+fn reload_with_gone_object_drops_the_draft(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 4);
+    type_in(cx, &model, "title", "Mine");
+    env.exec("DELETE FROM book WHERE id = 4");
+    act(cx, &model, DbmanagerModel::recheck_after_reload);
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.draft().is_none()));
+    assert!(matches!(
+        read(cx, &model, |m| m.object().cloned()),
+        Some(ObjectLoad::Gone)
+    ));
+    assert!(matches!(
+        read(cx, &model, |m| m.notice().cloned()),
+        Some(Notice::ConfigReloadedGone { .. })
+    ));
+}
+
+// ---- opening ----
+
+#[gpui::test]
+fn racing_open_still_raises_list_heading_hint(cx: &mut TestAppContext) {
+    // Through the gate: open(A) is queued, then a fetch; they run in order.
+    let env = FixtureEnv::new(DbmanagerFixture::Empty);
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, &env);
+    act(cx, &model, |m, cx| m.open_path(env.db.clone(), cx));
+    act(cx, &model, DbmanagerModel::activated);
+    handle.open();
+    idle(cx, &model);
+    assert_eq!(hint(cx, &model), Some(FocusHint::ListHeading));
+
+    // Deterministically: the fetch's snapshot is applied first, so the
+    // open's own snapshot is dropped as older, but the database changed.
+    let env = FixtureEnv::new(DbmanagerFixture::Empty);
+    let (model, _) = start(cx, &env);
+    idle(cx, &model);
+    act(cx, &model, |m, cx| m.open_path(env.db.clone(), cx));
+    idle(cx, &model);
+    let mut opened = snapshot(cx, &model);
+    opened.database.as_mut().unwrap().path = env.dir().join("other.db");
+    hint(cx, &model);
+    act(cx, &model, |m, cx| m.race_open_for_tests(&opened, cx));
+    idle(cx, &model);
+    assert_eq!(hint(cx, &model), Some(FocusHint::ListHeading));
+    assert!(snapshot(cx, &model).open);
 }
