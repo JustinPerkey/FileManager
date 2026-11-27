@@ -3,6 +3,24 @@
 Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M12b (landed)
 
+## First: finish M12b's P3 (from the M12b review, 2026-11-27)
+
+Do these before the rest of this plan.
+
+- **Save notices.** `saved()` clears the notice on every successful save
+  and sets `Notice::Backup` again only when `backup_created` is present.
+  That is the intended behaviour; keep it.
+  - Fix the `notice()` doc comment so it says when a notice clears: on the
+    next successful save, on dismiss, and on anything else that replaces
+    it.
+  - Add to `first_save_shows_backup_notice` an assertion that a second
+    successful save clears the backup notice without a dismiss.
+- **Link conflicts on save.** `save_failed` currently falls through to the
+  generic error banner for a `Conflict` that carries `conflict_link`.
+  Replace that fallthrough with this plan's link-conflict handling (the
+  "Link conflict" rules and `link_conflict(relation)` below). Test:
+  `save_with_link_conflict_is_handled_not_bannered`.
+
 ## Goal
 
 Complete the Database Manager's write behaviour in the GPUI view-model:

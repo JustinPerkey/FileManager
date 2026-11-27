@@ -269,3 +269,16 @@ announced flag above), other tools, `docs/plans/`.
   shows saving.
 - Rebase logic is subtle; keep it in `Draft` with unit tests, not in the
   entity.
+
+## Recorded after the review (2026-11-27)
+
+M12b landed as bf822f0 and is approved. Accepted as built:
+
+- The `cfg(test)` helper `race_open_for_tests`. It must stay a thin wrapper
+  over the production handlers, with no logic of its own.
+- The focus hint raised on the `Closed` outcome.
+- `try_again()` and `can_try_again()`, with the banners chosen by error
+  kind.
+
+Carried to M12c: the save-notice doc and assertion, and handling link
+conflicts in `save_failed`.
