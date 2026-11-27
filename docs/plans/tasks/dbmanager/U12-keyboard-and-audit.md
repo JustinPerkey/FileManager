@@ -72,6 +72,16 @@ makes `view/shortcuts.rs` hold exactly this table for `ShortcutsHelp`.
 
 Debug selectors: `db-edit-config`.
 
+**Before this runs (from the U2 review, 2026-11-27).**
+
+- The model gains `set_shortcuts_open(bool)`, as the Tar Packager's has, in
+  the backend task `M12e-dbmanager-view-copy.md`. Call it from
+  `ShortcutsHelp::on_open_change`, so Escape does nothing in the view while
+  the help is open.
+- Shortcuts work wherever focus is in the window: see
+  `U4b-tool-shortcuts-window-wide.md`, which must land first. Bind this
+  tool's shortcuts the way that task describes, not on the tool's own root.
+
 **Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`

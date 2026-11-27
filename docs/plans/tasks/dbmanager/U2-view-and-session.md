@@ -1,7 +1,47 @@
 # U2 — Database Manager: view frame, session header, empty state, banners, config problems
 
-Status: approved (2026-11-21) (rewritten 2026-11-21 for GPUI; the React version is in git history)
+Status: approved (2026-11-21). U2 landed as f7b1848 and is approved on condition of items 1 and 2 of "Review follow-up"; the next run does only that section. (Rewritten 2026-11-21 for GPUI; the React version is in git history)
 Project: dbmanager (GPUI: gpui-migration)   Depends on: gpui-migration U4 (landed), gpui-migration M12a (landed)
+
+## Review follow-up (2026-11-27)
+
+**The next run does only this section.** Items 1 and 2 are the conditions
+of approval.
+
+1. **Empty-state copy comes from `text.rs`.** The view invents
+   `copy::EMPTY_LEAD` and `copy::DROP_HINT`, but
+   `tools/dbmanager/text.rs` already has `EMPTY_TITLE` and `EMPTY_HINT`.
+   Use those, and delete the two view constants.
+2. **"No config" is said once.** The Info banner uses
+   `text::CONFIG_MISSING`, and the config line uses
+   `copy::CONFIG_MISSING_LINE`, so the same fact appears twice.
+   - **Decision pending from the ui-designer** (through the coordinator).
+     The options:
+     - (a) keep the config line as the status, and give the banner another
+       job (for example, the banner only when the missing config is news,
+       after a reload);
+     - (b) drop the banner;
+     - (c) drop the line.
+
+     The chosen option is recorded here before this run starts. **If it is
+     not recorded, stop and report.**
+   - Either way, each sentence has exactly **one** source string, in
+     `text.rs`. If `text.rs` lacks one, the backend task
+     `M12e-dbmanager-view-copy.md` adds it; report the gap.
+3. **Latch revert check.** `held_key_does_not_repeat` counts Ctrl+O picks,
+   but `DialogGate` may already swallow the repeats, so the test might pass
+   without the latch.
+   - Revert check: remove the latch in a scratch change. If the test still
+     passes, rewrite it with **F5** (Reload), which no gate holds, and
+     count reloads instead.
+   - Show the revert run in the PR.
+
+**Recorded (accepted, as built):**
+
+- The config line shows in the empty state when nothing is open.
+- The hand-built problems toggle stays for now. `Disclosure` gains
+  `track_focus` in U3b, and the toggle then switches to it.
+- No scrollbar gutter: the Database Manager never had a Tauri UI to match.
 
 ## Goal
 

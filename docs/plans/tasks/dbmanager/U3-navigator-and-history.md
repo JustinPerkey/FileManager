@@ -119,6 +119,20 @@ Debug selectors: `db-table-<name>`, `db-list`, `db-list-row-<n>`,
 `db-search`, `db-page-prev`, `db-page-next`, `db-back`, `db-forward`,
 `db-crumb-table`, `db-sheet`.
 
+**One focus-hint dispatcher (from the U2 review, 2026-11-27).** The
+model's `take_focus_hint()` can be read only once. U2's view takes it and
+acts only on `ErrorBanner`, so this task's pane hints (`ListHeading`,
+`SheetHeading`) would be lost. Make the dbmanager root view the single
+dispatcher:
+
+- the root view takes the hint once per render and keeps it in view state;
+- it acts on the ones it owns (`ErrorBanner`);
+- this task's panes get theirs through that state, for example
+  `root.pending_focus_hint(kind)` or a passed-down handle;
+- a handled hint is cleared.
+
+Test: `pane_focus_hint_survives_root_dispatch`.
+
 **Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`

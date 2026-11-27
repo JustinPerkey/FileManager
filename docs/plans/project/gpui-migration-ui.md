@@ -484,6 +484,7 @@ Four of today's images are crops of one region (`tarpack-buildbar` 1159×54,
 | U3 | [`U3-widgets-overlays.md`](../tasks/gpui-migration/U3-widgets-overlays.md) | Shared overlays: confirm dialog (extended), menu button, shortcuts help | U2 |
 | U3b | [`U3b-rich-text-and-dialog-defaults.md`](../tasks/gpui-migration/U3b-rich-text-and-dialog-defaults.md) | Rich text (mono paths) in banners and confirmations, if chosen at U6/U8's critique; shared Cancel default | U3, U5, U7 |
 | U4 | [`U4-shell.md`](../tasks/gpui-migration/U4-shell.md) | Chrome: sidebar and current marker, tool area, notice, drop overlay, close prompt | U3, M3b |
+| U4b | [`U4b-tool-shortcuts-window-wide.md`](../tasks/gpui-migration/U4b-tool-shortcuts-window-wide.md) | Tool shortcuts fire wherever focus is: the chrome root carries the current tool's key context and handlers (decided 2026-11-27) | U4, U9; before U11 and dbmanager U12 |
 | U5 | [`U5-pipeline-views.md`](../tasks/gpui-migration/U5-pipeline-views.md) | Pipeline views | U4, M5 |
 | U5b | [`U5b-pipeline-followups.md`](../tasks/gpui-migration/U5b-pipeline-followups.md) | U5 review follow-ups: tags on banner actions, optional accessible label, hidden-view focus, cleaned folder text, long names | U5 |
 | U6 | [`U6-pipeline-scenarios.md`](../tasks/gpui-migration/U6-pipeline-scenarios.md) | Six Pipeline scenarios; `shell-sample` removed | U5, M4 |

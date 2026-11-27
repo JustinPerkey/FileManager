@@ -160,6 +160,11 @@ handles `reload_focus`, `result_focus` and `after_result_focus`.
   `reload_from_inside_build_result_focuses_reload`,
   `create_archive_hints_focus_the_button`.
 
+**Shortcuts work wherever focus is (2026-11-27).**
+`U4b-tool-shortcuts-window-wide.md` lands first. Bind the Tar Packager's
+shortcuts the way it describes, so Ctrl+O, F5, F8, Ctrl+E and Ctrl+Enter
+also work after a sidebar click.
+
 **Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`
