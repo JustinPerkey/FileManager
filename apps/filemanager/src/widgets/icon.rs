@@ -17,11 +17,21 @@ pub enum IconName {
     Copy,
     X,
     Keyboard,
+    ArrowLeft,
+    ArrowRight,
+    Lock,
+    Plus,
+    Trash,
+    Search,
+    ChevronLeft,
+    ChevronRight,
+    Undo,
+    Check,
 }
 
 impl IconName {
     /// Every name, in the order of `ICON_NAMES`.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 20] = [
         Self::CheckCircle,
         Self::AlertTriangle,
         Self::Circle,
@@ -32,6 +42,16 @@ impl IconName {
         Self::Copy,
         Self::X,
         Self::Keyboard,
+        Self::ArrowLeft,
+        Self::ArrowRight,
+        Self::Lock,
+        Self::Plus,
+        Self::Trash,
+        Self::Search,
+        Self::ChevronLeft,
+        Self::ChevronRight,
+        Self::Undo,
+        Self::Check,
     ];
 
     /// The asset name, as in `icons.tsx` and `ICON_NAMES`.
@@ -48,6 +68,16 @@ impl IconName {
             Self::Copy => "copy",
             Self::X => "x",
             Self::Keyboard => "keyboard",
+            Self::ArrowLeft => "arrow-left",
+            Self::ArrowRight => "arrow-right",
+            Self::Lock => "lock",
+            Self::Plus => "plus",
+            Self::Trash => "trash",
+            Self::Search => "search",
+            Self::ChevronLeft => "chevron-left",
+            Self::ChevronRight => "chevron-right",
+            Self::Undo => "undo",
+            Self::Check => "check",
         }
     }
 }
