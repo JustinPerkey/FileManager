@@ -12,4 +12,4 @@ pub mod text;
 pub mod view;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

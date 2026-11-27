@@ -222,6 +222,7 @@ impl Render for PipelineView {
             .px(px(SPACE_5))
             .py(px(SPACE_4))
             .gap(px(SPACE_4))
+            .debug_selector(|| "pipeline-page".into())
             .child(
                 v_flex()
                     .gap(px(crate::theme::tokens::SPACE_1))

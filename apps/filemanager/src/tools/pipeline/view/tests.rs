@@ -519,6 +519,7 @@ fn loading_renders_header_only(cx: &mut TestAppContext) {
         "gate closed: loading"
     );
     assert!(has(cx, "pipeline-header"), "header while loading");
+    crate::app::tests::assert_header_only(cx, "pipeline-page", "pipeline-header");
     for name in body {
         assert!(!has(cx, name), "{name} drawn while loading");
     }

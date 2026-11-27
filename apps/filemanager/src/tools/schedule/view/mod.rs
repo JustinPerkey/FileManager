@@ -208,6 +208,7 @@ impl Render for ScheduleView {
             .px(px(SPACE_5))
             .py(px(SPACE_4))
             .gap(px(SPACE_4))
+            .debug_selector(|| "schedule-page".into())
             .child(
                 v_flex()
                     .gap(px(SPACE_1))
