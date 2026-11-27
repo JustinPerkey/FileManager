@@ -22,6 +22,7 @@ use crate::app::dev_mode::DevMode;
 use crate::jobs::WorkerGate;
 use crate::platform;
 use crate::platform::fake::{FakePlatform, PlatformCall};
+use crate::theme::tokens::SCROLLBAR_GUTTER;
 use crate::tools::tarpack::fixtures::{Call, FixtureTarpack, Gate, TarpackFixture};
 use crate::tools::tarpack::model::{DropState, TarpackModel, SKELETON_DELAY};
 
@@ -716,6 +717,18 @@ fn delete_clears_only_assigned_row(cx: &mut TestAppContext) {
     assert!(focused, "focus did not fall to the window");
 }
 
+/// Starts a build and runs until the model reports it building.
+fn start_build(vcx: &mut VisualTestContext, host: &Host) {
+    act(vcx, host, TarpackModel::build);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !host.model.read_with(vcx, |m, _| m.building()) {
+        vcx.run_until_parked();
+        assert!(Instant::now() < deadline, "the build never started");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    vcx.run_until_parked();
+}
+
 #[gpui::test]
 fn keys_inert_while_building(cx: &mut TestAppContext) {
     let (host, vcx) = open_fixture(cx, TarpackFixture::Building);
@@ -727,14 +740,7 @@ fn keys_inert_while_building(cx: &mut TestAppContext) {
         |vcx: &mut VisualTestContext| vcx.update(|_, cx| table.read(cx).focus_handle(cx).tab_stop);
     assert!(tab_stop(vcx), "the table is a Tab stop");
 
-    act(vcx, &host, TarpackModel::build);
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while !host.model.read_with(vcx, |m, _| m.building()) {
-        vcx.run_until_parked();
-        assert!(Instant::now() < deadline, "the build never started");
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    vcx.run_until_parked();
+    start_build(vcx, &host);
     let picks = host.platform.calls().len();
     let before = host.backend.calls().len();
     for key in ["down", "down", "end", "enter", "delete"] {
@@ -757,6 +763,49 @@ fn keys_inert_while_building(cx: &mut TestAppContext) {
     assert!(tab_stop(vcx), "and comes back");
     press(vcx, "down");
     assert_eq!(selected_row(vcx, &host), Some(1), "the keys work again");
+}
+
+/// Whether focus is on the table or inside it.
+fn table_has_focus(vcx: &mut VisualTestContext, host: &Host) -> bool {
+    let table = table_state(vcx, host);
+    vcx.update(|window, cx| {
+        let handle = table.read(cx).focus_handle(cx);
+        handle.contains_focused(window, cx)
+    })
+}
+
+#[gpui::test]
+fn tab_skips_the_table_while_building(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Building);
+    // Control: with no build, Tab reaches the table.
+    vcx.update(Window::blur);
+    let mut reached = false;
+    for _ in 0..40 {
+        tab(vcx);
+        reached |= table_has_focus(vcx, &host);
+    }
+    assert!(reached, "Tab reaches the table when nothing builds");
+
+    start_build(vcx, &host);
+    vcx.update(Window::blur);
+    for step in 0..40 {
+        tab(vcx);
+        assert!(
+            !table_has_focus(vcx, &host),
+            "Tab {step} landed in the table while building"
+        );
+    }
+    // Shift+Tab does not land there either.
+    for step in 0..40 {
+        vcx.update(Window::focus_prev);
+        vcx.run_until_parked();
+        assert!(
+            !table_has_focus(vcx, &host),
+            "Shift+Tab {step} landed in the table while building"
+        );
+    }
+    host.backend.release_build();
+    idle(vcx, &host);
 }
 
 #[gpui::test]
@@ -818,17 +867,94 @@ fn column_widths_follow_width(cx: &mut TestAppContext) {
     resize(vcx, 1400.0, 800.0);
     let a = widths(vcx);
     assert!(
-        (a.iter().sum::<f32>() - (1400.0 - 48.0)).abs() < 1.0,
+        (a.iter().sum::<f32>() - (1400.0 - 48.0 - SCROLLBAR_GUTTER)).abs() < 1.0,
         "{a:?}"
     );
     resize(vcx, 1200.0, 800.0);
     let b = widths(vcx);
     assert!(b[1] < a[1], "{a:?} then {b:?}");
     assert!(
-        (b.iter().sum::<f32>() - (1200.0 - 48.0)).abs() < 1.0,
+        (b.iter().sum::<f32>() - (1200.0 - 48.0 - SCROLLBAR_GUTTER)).abs() < 1.0,
         "{b:?}"
     );
     assert_eq!(b[0], 116.0);
+}
+
+#[gpui::test]
+fn column_x_positions_match_today_with_sidebar(cx: &mut TestAppContext) {
+    use crate::app::shell::test_support::open as open_shell;
+    use crate::tools::{self, Backend, BackendSet, FixtureId};
+
+    // The whole shell at 1366x800, the sidebar and the `ready` fixture.
+    let view = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let grab = view.clone();
+    let build = move |window: &mut Window, cx: &mut gpui::App| {
+        cx.set_global(BackendSet {
+            tarpack: Backend::Fixture(FixtureId::Tarpack(TarpackFixture::Ready)),
+            ..BackendSet::fixtures()
+        });
+        let slots = tools::build(window, cx);
+        let ours = slots
+            .iter()
+            .find(|s| s.id == tools::ToolId::Tarpack)
+            .and_then(|s| s.view.clone().downcast::<TarpackView>().ok());
+        *grab.borrow_mut() = ours;
+        slots
+    };
+    let (_shell, vcx) = open_shell(cx, build);
+    vcx.simulate_resize(size(px(1366.0), px(800.0)));
+    click(vcx, "tool-nav-tarpack");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !has(vcx, "tarpack-table") {
+        vcx.run_until_parked();
+        settle(vcx);
+        assert!(Instant::now() < deadline, "the table never appeared");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    settle(vcx);
+
+    // Each column's left edge: the table's left edge plus the widths before it.
+    // The widths are what the columns were laid out at, so they must also fill
+    // the table, or the edges are not where the cells are.
+    let table = bounds(vcx, "tarpack-table");
+    let row = bounds(vcx, "tarpack-row-0");
+    assert!(
+        (row.left() - table.left()).abs() < px(0.5),
+        "rows start at the table"
+    );
+    let state = view
+        .borrow()
+        .as_ref()
+        .expect("the Tar Packager view")
+        .read_with(vcx, |v, cx| {
+            v.entry_table
+                .as_ref()
+                .expect("the table was made")
+                .read(cx)
+                .table()
+                .clone()
+        });
+    let widths = state.read_with(vcx, |t, _| t.delegate().widths());
+    assert!(
+        (widths.iter().sum::<f32>() - f32::from(table.size.width)).abs() < 1.0,
+        "{widths:?} fill {:?}",
+        table.size.width
+    );
+    let mut left = f32::from(table.left());
+    let mut edges = Vec::new();
+    for w in widths {
+        edges.push(left);
+        left += w;
+    }
+    for (got, want) in edges
+        .iter()
+        .zip([216.0, 332.0, 534.0, 737.0, 939.0, 1071.0, 1151.0])
+    {
+        assert!(
+            (got - want).abs() <= 2.0,
+            "column at {got}, wanted {want}: {edges:?}"
+        );
+    }
 }
 
 #[gpui::test]

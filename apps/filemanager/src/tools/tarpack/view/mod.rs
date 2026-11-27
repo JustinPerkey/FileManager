@@ -4,7 +4,8 @@
 //! The entry table, the build result and the build bar fill the three slots
 //! below it.
 //!
-//! The root fills the tool area, pads itself (16 px by 24 px) and holds a body
+//! The root fills the tool area, pads itself (16 px by 24 px, plus the 15 px
+//! scrollbar gutter on the right, as today) and holds a body
 //! and the build bar. With a manifest the body does not scroll: the entry table
 //! takes the room the rest leaves and scrolls its rows inside itself. Only if
 //! the window is shorter than everything above the table plus three rows does
@@ -34,7 +35,7 @@ use super::model::{DropState, FocusHint, TarpackModel};
 use super::text;
 use crate::app::dev_mode::DevMode;
 use crate::theme::palette;
-use crate::theme::tokens::{SPACE_2, SPACE_3, SPACE_4, SPACE_5};
+use crate::theme::tokens::{SCROLLBAR_GUTTER, SPACE_2, SPACE_3, SPACE_4, SPACE_5};
 use crate::widgets::skeleton_bar;
 
 pub struct TarpackView {
@@ -235,7 +236,9 @@ impl Render for TarpackView {
 
         v_flex()
             .size_full()
-            .px(px(SPACE_5))
+            .pl(px(SPACE_5))
+            // Today's scrollbar gutter, which GPUI's overlay scrollbars lack.
+            .pr(px(SPACE_5 + SCROLLBAR_GUTTER))
             .py(px(SPACE_4))
             .gap(px(SPACE_3))
             .bg(p.bg)
