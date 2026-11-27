@@ -3,6 +3,25 @@
 Status: approved (2026-11-21)
 Project: gpui-migration   Depends on: M12c (landed)
 
+## First: finish M12c's P3 (from the M12c review, 2026-11-27)
+
+Do this before the rest of this plan.
+
+- `enter()` clears `link_conflicts`, but it does not cancel a link
+  conflict's one-option re-read that is still in flight. If the user leaves
+  the page while one runs, its answer can undo a matching staged link on the
+  new place's draft.
+- **Fix:** in `enter()` (or in `confirm_leave`, if every navigation passes
+  through it), add `self.link_conflict_seq += 1; self.link_reread = false;`,
+  so a late answer is recognised as stale and dropped.
+- **Test:** `leaving_cancels_link_reread`:
+  1. start a link conflict's re-read (closed `WorkerGate`);
+  2. navigate to another object and stage a link there with the same
+     relation and other key;
+  3. release the gate and run until parked;
+  4. assert the new place's draft, its staged link and `link_conflicts` are
+     untouched.
+
 ## Goal
 
 Watch the app-wide Database Manager config and reload it automatically
