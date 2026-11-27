@@ -1,6 +1,6 @@
 # M12a — Database Manager, part A: tool core, snapshot, errors, backend trait, and the reading model
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21). M12a landed as 0ec70dc; the next run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: dbmanager M9 (delete, landed), gpui-migration M7b (landed)
 
 ## Goal
@@ -12,6 +12,92 @@ close, snapshot, error kinds), a backend trait over it, and a model for
 places, history, lists, objects, "referenced by" and many-to-many pages,
 with copy and fixtures. Writes come in parts B and C, config watching in
 part D.
+
+## Windows CI follow-up (2026-11-27)
+
+PR #44's Windows CI fails two tests in `crates/fm-dbmanager/src/tool/tests.rs`.
+**This run fixes only these tests,** and test code only. The M12c
+implementer works in the same crate, so touch nothing else.
+
+1. **`display_root_maps_paths`** (around line 626). Left is
+   `"/fixture\t.db"`, right is `"\fixture\t.db"`. The test builds its
+   expectation by replacing every `/` with `MAIN_SEPARATOR`, but the code
+   keeps the display root **as given**.
+   - **Decision: the display root is kept as given.** It is a fixture's fake
+     display path, written in the form the screenshots should show. Only
+     the part appended to it uses the platform separator.
+   - Fix the **test**: build the expectation as the root string unchanged,
+     followed by the appended components joined with `MAIN_SEPARATOR`. The
+     code is unchanged. It must pass on both Linux and Windows.
+2. **`failed_restore_warns_and_keeps_entry`** (around line 258).
+   `fs::remove_file(&fx.db)` fails on Windows with OS error 32 (the file is
+   in use), because the first `Core` still has the database open.
+   - Drop the first `Core` (and anything holding its `Session`) before
+     deleting the file, for example by scoping it in a block or calling
+     `drop(core)`.
+   - **Check the others:** grep `crates/fm-dbmanager/src/tool/tests.rs` and
+     `apps/filemanager/src/tools/dbmanager/tests.rs` for
+     `remove_file`, `rename`, `remove_dir` and `fs::write` over a database
+     or config file that a live `Core`, `Session` or model may still hold
+     open. Fix each the same way, and list them in the PR. (Rewriting a
+     config file while it is open for reading is fine on Windows; deleting
+     or renaming an open database is not.)
+
+Acceptance: both tests, and any others found, pass on the Windows CI job;
+the Linux job stays green; no non-test code changes.
+
+## Review follow-up (2026-11-26)
+
+The review of 0ec70dc found one P2. **The next run does only this section.**
+Read `apps/filemanager/src/tools/dbmanager/model.rs` and its tests first.
+
+### P2: a superseded command's effect is dropped
+
+- `command_done` drops every result whose sequence number is not the
+  newest. But the Worker runs jobs in order, so a superseded command has
+  **already taken effect in the backend**. For example: open A succeeds,
+  open B (queued behind it) fails, and the backend keeps A. The model then
+  discards A's snapshot and keeps the pre-A snapshot and history.
+- The `JobPanicked` branch has the same gap: `snapshot_arrived` resets
+  nothing once a snapshot exists.
+- **Fix:**
+  - When a command fails (`Ok(Err)`) or panics, re-fetch the snapshot
+    through the Worker. Do not keep the model's old copy.
+  - Whenever a snapshot arrives (from a command or a fetch), compare its
+    database path and `open` state with the model's. If they differ, call
+    `reset_for_database` (place, history, list states, object) before
+    applying it.
+  - The "newest result wins" rule still applies to what is **shown**
+    (errors, list pages). It must never leave the model on a snapshot
+    older than the backend's.
+- **Test:** `superseded_open_keeps_the_backend_state`.
+  1. Install a closed `WorkerGate` (`jobs.rs`).
+  2. Queue `open(A, valid)`, then `open(B, missing)`.
+  3. Release the gate, then `run_until_parked`.
+  4. Assert that the place, the snapshot (database A, open) and the listed
+     tables are database A's, and that B's error banner shows.
+- Add `panicked_command_refetches_snapshot` too, using the fixture's panic
+  hook if it has one; otherwise add a minimal hook to the dbmanager fixture.
+
+### Recorded (as built and accepted)
+
+- Choosing the **current** place again pushes no history entry and does not
+  refresh. Reload refreshes.
+- List states (search text, offset) are kept **per database**: cleared when
+  a database is opened or closed, kept across a reload. This replaces "for
+  the whole app run" below.
+- `DbmanagerError::conflict_link` is `Option<Box<LinkRef>>`.
+
+### Later (not this run)
+
+- Perf note: both the Tar Packager's and the Database Manager's `Core::new`
+  read the persisted store on the UI thread, at startup. A later backend
+  task moves that read onto the Worker.
+
+### Acceptance
+
+- The two tests pass. fmt (linux job), clippy pedantic (with and without
+  `--features shoot`), and `cargo test --workspace` pass.
 
 ## Context
 
@@ -129,7 +215,7 @@ pub enum DbmanagerErrorKind { NoDatabase, NotAbsolute, NotAFile, DatabaseUnreada
 pub struct DbmanagerError {
     pub kind: DbmanagerErrorKind, pub message: String,               // technical detail
     pub field_errors: Vec<FieldError>, pub link_errors: Vec<LinkError>,
-    pub current: Option<Box<ObjectView>>, pub conflict_link: Option<LinkRef>,
+    pub current: Option<Box<ObjectView>>, pub conflict_link: Option<Box<LinkRef>>,
     pub impact: Option<Box<DeleteImpact>>,
 }
 ```
@@ -205,8 +291,9 @@ with:
     object was deleted shows `ObjectLoad::Gone`; it is not removed. (Part B
     adds "replace" after create and delete, and the leave-a-dirty-draft
     confirmation.)
-  - **Lists:** 25 per page; each table keeps its search text and offset for
-    the whole app run, so returning shows it as left. Only the newest
+  - **Lists:** 25 per page; each table keeps its search text and offset while
+    the database stays open (cleared on open and close, kept across a
+    reload), so returning shows it as left. Only the newest
     request for a list applies.
   - **Referenced by:** one entry per `ReverseRelationView`, closed by
     default; opening loads `list(rel.table, { referencing: { relation, key }, offset, limit: 25 })`;

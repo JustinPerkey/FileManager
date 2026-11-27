@@ -52,7 +52,9 @@ again", "Choose an object from the list" (+ "or create one with New"),
 missing from `text.rs`, report it; do not write copy in the view.
 
 Focus hints: `take_focus_hint()` if present (R5), else a changed
-`focus_hint()`; this task handles `ListHeading` and `SheetHeading`.
+`focus_hint()`; this task handles `ListHeading` and `SheetHeading`. (A racing open can also raise `ListHeading` from a fetch's reset; the
+model guarantees one hint per open, gpui-migration M12b. The view just
+follows the hint.)
 
 ### Widgets and tokens
 

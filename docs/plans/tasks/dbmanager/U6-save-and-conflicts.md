@@ -105,6 +105,17 @@ Debug selectors: `db-save`, `db-discard`, `db-save-status`,
 `db-error-summary`, `db-conflict`, `db-reapply`, `db-discard-mine`,
 `db-notice`.
 
+**Navigation while saving (from the M12b review, 2026-11-27).** While
+`saving()`, the model refuses navigation silently. The view must make the
+refusal visible:
+
+- disable Back, Forward, the table choice, the list's object links and
+  Reload;
+- show the model's `REASON_SAVING` text (from `text.rs`) as their reason,
+  in the tooltip or beside the save bar.
+
+Test: `navigation_disabled_with_reason_while_saving`.
+
 **Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`

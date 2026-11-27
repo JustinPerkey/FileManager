@@ -1,7 +1,30 @@
 # M4e — A cooperative gate for background work, so tests can see the loading state
 
-Status: approved (2026-11-23; from the U7 review)
+Status: approved (2026-11-23; from the U7 review). M4e landed and is approved; the next backend run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: M7b and M4d (landed)
+
+## Review follow-up (2026-11-23)
+
+M4e is approved. **The next run does only this section.** It changes doc
+comments in `apps/filemanager/src/jobs.rs` only; no behaviour changes.
+
+**Accepted deviation, recorded:** `WorkerGate::handle(cx)` returns the
+installed gate's handle (so a test that installed the gate through
+`AppSetup::for_tests().with_closed_worker_gate()` can reach it). It is kept.
+
+1. **`release_one`'s doc comment** must say:
+   - a release made while no job is waiting is kept as a **credit**, and the
+     next queued job runs at once;
+   - `open` and `close` do not clear credits;
+   - which Worker takes a released job is not fixed, when several Workers
+     share the gate.
+2. **The `jobs.rs` module doc** must say: awaiting gated work while the gate
+   is closed (for example `run_until_parked` followed by awaiting a Worker
+   task's result in a test) panics with GPUI's "Parking forbidden", because
+   nothing can make progress. Open the gate first, or use `release_one`.
+
+Acceptance: the doc comments read as above; fmt (linux job), clippy
+pedantic and `cargo test --workspace` pass.
 
 ## Goal
 

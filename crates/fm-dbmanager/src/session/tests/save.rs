@@ -263,7 +263,7 @@ fn adopted_backup_is_not_retaken() {
     let fx = Fixture::example();
     let mut s = fx.session();
     let adopted = fx.db.with_file_name("adopted.bak");
-    s.adopt_backup(adopted.clone());
+    s.adopt_backup(adopted.clone(), true);
     let r = update(&mut s, "author", 1, vec![("last_name", text("X"))]).unwrap();
     assert!(r.backup_created.is_none());
     assert_eq!(s.backup_path(), Some(adopted.as_path()));
@@ -359,7 +359,7 @@ fn rejects_schema_changed() {
 fn busy_when_locked() {
     let fx = Fixture::example();
     let mut s = fx.session();
-    s.adopt_backup(fx.db.with_file_name("adopted.bak"));
+    s.adopt_backup(fx.db.with_file_name("adopted.bak"), true);
     s.database
         .conn()
         .busy_timeout(std::time::Duration::from_millis(50))

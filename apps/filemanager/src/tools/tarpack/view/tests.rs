@@ -2,20 +2,27 @@
 //! table, in a headless window under `Root`, over [`FixtureTarpack`] and
 //! [`FakePlatform`].
 
+use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
 use fm_tarpack::session::{TarpackError, TarpackErrorKind};
 use fm_tarpack::sources::{DropOutcome, Unmatched, UnmatchedReason};
+use gpui::Focusable as _;
 use gpui::{
     px, size, AppContext as _, Entity, Modifiers, Pixels, TestAppContext, VisualTestContext, Window,
 };
+use gpui_component::table::TableState;
 use gpui_component::{Root, ThemeMode};
 
+use super::entry_cells;
+use super::entry_table::{self, EntryDelegate};
 use super::shortcuts::SHORTCUT_ROWS;
 use super::TarpackView;
 use crate::app::dev_mode::DevMode;
+use crate::jobs::WorkerGate;
 use crate::platform;
 use crate::platform::fake::{FakePlatform, PlatformCall};
+use crate::theme::tokens::SCROLLBAR_GUTTER;
 use crate::tools::tarpack::fixtures::{Call, FixtureTarpack, Gate, TarpackFixture};
 use crate::tools::tarpack::model::{DropState, TarpackModel, SKELETON_DELAY};
 
@@ -74,6 +81,15 @@ fn idle(cx: &mut VisualTestContext, host: &Host) {
     }
 }
 
+/// Draws until the table has measured itself and followed (it takes a frame
+/// each: measure while painting, then lay the columns out again).
+fn settle(vcx: &mut VisualTestContext) {
+    for _ in 0..3 {
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+    }
+}
+
 /// Runs everything queued until the platform has been asked `n` times.
 fn wait_for_calls(cx: &mut VisualTestContext, host: &Host, n: usize) {
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -91,6 +107,7 @@ fn open_fixture(
 ) -> (Host, &mut VisualTestContext) {
     let (host, vcx) = open(cx, FixtureTarpack::from_fixture(fixture));
     idle(vcx, &host);
+    settle(vcx);
     (host, vcx)
 }
 
@@ -214,22 +231,28 @@ fn renders_error_banner_and_dismisses(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn skeleton_only_when_model_says(cx: &mut TestAppContext) {
+    let gate = cx.update(WorkerGate::install_closed);
     let (host, vcx) = open(cx, FixtureTarpack::loaded());
-    let check = |vcx: &mut VisualTestContext, host: &Host| {
-        let shown = host.model.read_with(vcx, |m, _| m.show_skeleton());
-        assert_eq!(has(vcx, "tarpack-skeleton"), shown);
-        // While loading, nothing else of the view shows.
-        if host.model.read_with(vcx, |m, _| m.loading()) {
-            assert!(!has(vcx, "tarpack-open"));
-            assert!(!has(vcx, "tarpack-shortcuts"));
-        }
-    };
     vcx.run_until_parked();
-    check(vcx, &host);
+    assert!(
+        host.model.read_with(vcx, |m, _| m.loading()),
+        "gate closed: loading"
+    );
+    // Within the delay nothing shows yet, not even the skeleton.
+    assert!(!host.model.read_with(vcx, |m, _| m.show_skeleton()));
+    assert!(!has(vcx, "tarpack-skeleton"));
+
     vcx.executor().advance_clock(SKELETON_DELAY);
     vcx.run_until_parked();
-    check(vcx, &host);
+    assert!(host.model.read_with(vcx, |m, _| m.loading()));
+    assert!(host.model.read_with(vcx, |m, _| m.show_skeleton()));
+    assert!(has(vcx, "tarpack-skeleton"), "skeleton after the delay");
+    assert!(!has(vcx, "tarpack-open"));
+    assert!(!has(vcx, "tarpack-shortcuts"));
+
+    gate.open();
     idle(vcx, &host);
+    assert!(!host.model.read_with(vcx, |m, _| m.loading()));
     assert!(!has(vcx, "tarpack-skeleton"), "gone once loaded");
     assert!(has(vcx, "tarpack-header"));
 }
@@ -491,4 +514,527 @@ fn drop_pending_line_after_the_delay(cx: &mut TestAppContext) {
     gate.open();
     idle(vcx, &host);
     assert!(has(vcx, "tarpack-drop-dismiss"), "the result replaces it");
+}
+
+// ---- the entry table (U10) ----
+
+/// A manifest of `n` entries, none assigned.
+fn big_manifest(n: usize) -> String {
+    let mut text = String::from("version = 1\nname = \"Big\"\n");
+    for i in 0..n {
+        let _ = writeln!(
+            text,
+            "[[file]]\nid = \"f{i}\"\nsource = \"file-{i}.bin\"\ndir = \"/srv/gateway/in\""
+        );
+    }
+    text
+}
+
+/// A host showing `n` unassigned entries.
+fn open_big(cx: &mut TestAppContext, n: usize) -> (Host, &mut VisualTestContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Loaded);
+    host.backend.set_text(&big_manifest(n));
+    act(vcx, &host, TarpackModel::reload);
+    idle(vcx, &host);
+    settle(vcx);
+    (host, vcx)
+}
+
+fn table_state(vcx: &mut VisualTestContext, host: &Host) -> Entity<TableState<EntryDelegate>> {
+    host.view.read_with(vcx, |v, cx| {
+        v.entry_table
+            .as_ref()
+            .expect("the table was made")
+            .read(cx)
+            .table()
+            .clone()
+    })
+}
+
+fn focus_table(vcx: &mut VisualTestContext, host: &Host) {
+    let table = table_state(vcx, host);
+    vcx.update(|window, cx| {
+        let handle = table.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+    });
+    vcx.run_until_parked();
+}
+
+fn selected_row(vcx: &mut VisualTestContext, host: &Host) -> Option<usize> {
+    let table = table_state(vcx, host);
+    table.read_with(vcx, |t, _| t.selected_row())
+}
+
+fn resize(vcx: &mut VisualTestContext, width: f32, height: f32) {
+    vcx.simulate_resize(size(px(width), px(height)));
+    settle(vcx);
+}
+
+#[gpui::test]
+fn table_renders_status_cells(cx: &mut TestAppContext) {
+    // Missing: five rows, the second chosen file is gone.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Missing);
+    for row in 0..5 {
+        assert!(has(vcx, format!("tarpack-row-{row}").leak()), "row {row}");
+        assert!(has(vcx, format!("tarpack-browse-{row}").leak()));
+        // Every entry is assigned here, so every row can be cleared.
+        assert!(has(vcx, format!("tarpack-clear-{row}").leak()));
+    }
+    assert!(!has(vcx, "tarpack-row-5"));
+    assert!(has(vcx, "tarpack-table"));
+    assert!(!has(vcx, "tarpack-no-entries"));
+    let statuses: Vec<_> = host.model.read_with(vcx, |m, _| {
+        m.session()
+            .and_then(|s| s.manifest.as_ref())
+            .expect("manifest")
+            .entries
+            .iter()
+            .map(|e| entry_cells::status_parts(e.status).2)
+            .collect()
+    });
+    assert_eq!(statuses.iter().filter(|w| **w == "Missing").count(), 1);
+    assert_eq!(statuses.iter().filter(|w| **w == "Ready").count(), 4);
+
+    // Partial: Clear only where a file is assigned.
+    let (_host, vcx) = open_fixture(cx, TarpackFixture::Partial);
+    assert!(has(vcx, "tarpack-clear-0"));
+    assert!(
+        !has(vcx, "tarpack-clear-3"),
+        "an unassigned row has no Clear"
+    );
+    assert!(has(vcx, "tarpack-browse-3"));
+}
+
+#[gpui::test]
+fn crlf_marker_shown_for_converting_entries(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    let converting: Vec<bool> = host.model.read_with(vcx, |m, _| {
+        m.session()
+            .and_then(|s| s.manifest.as_ref())
+            .expect("manifest")
+            .entries
+            .iter()
+            .map(|e| e.view.normalize_eol)
+            .collect()
+    });
+    assert_eq!(converting.iter().filter(|c| **c).count(), 1, "one converts");
+    for (row, converts) in converting.iter().enumerate() {
+        assert_eq!(
+            has(vcx, format!("tarpack-eol-{row}").leak()),
+            *converts,
+            "row {row}"
+        );
+    }
+}
+
+#[gpui::test]
+fn down_moves_focus_and_scrolls(cx: &mut TestAppContext) {
+    let (host, vcx) = open_big(cx, 10_000);
+    focus_table(vcx, &host);
+    assert_eq!(selected_row(vcx, &host), None);
+    for _ in 0..60 {
+        press(vcx, "down");
+    }
+    assert_eq!(selected_row(vcx, &host), Some(59));
+    assert!(has(vcx, "tarpack-row-59"), "row 59 is drawn");
+    assert!(!has(vcx, "tarpack-row-0"), "row 0 scrolled away");
+    assert!(
+        !has(vcx, "tarpack-row-200"),
+        "rows far below are not drawn: the list is virtual"
+    );
+    // The selected row is inside the table.
+    let row = bounds(vcx, "tarpack-row-59");
+    let table = bounds(vcx, "tarpack-table");
+    assert!(row.top() >= table.top() && row.bottom() <= table.bottom() + px(1.0));
+    // Up does not wrap past the first row.
+    for _ in 0..70 {
+        press(vcx, "up");
+    }
+    assert_eq!(selected_row(vcx, &host), Some(0));
+    press(vcx, "up");
+    assert_eq!(selected_row(vcx, &host), Some(0), "no wrapping");
+}
+
+#[gpui::test]
+fn enter_browses_focused_row(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    focus_table(vcx, &host);
+    press(vcx, "enter");
+    assert!(
+        host.platform.calls().is_empty(),
+        "no row, nothing to browse"
+    );
+    press(vcx, "down");
+    press(vcx, "down");
+    press(vcx, "enter");
+    wait_for_calls(vcx, &host, 1);
+    assert!(matches!(host.platform.calls()[0], PlatformCall::Pick(_)));
+    idle(vcx, &host);
+    // Enter on the table did one browse, not two.
+    assert_eq!(host.platform.calls().len(), 1);
+
+    // The Browse button of a row does the same by click.
+    click(vcx, "tarpack-browse-3");
+    wait_for_calls(vcx, &host, 2);
+}
+
+#[gpui::test]
+fn delete_clears_only_assigned_row(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Partial);
+    let cleared = |host: &Host| -> Vec<String> {
+        host.backend
+            .calls()
+            .into_iter()
+            .filter_map(|c| match c {
+                Call::Clear(id) => Some(id),
+                _ => None,
+            })
+            .collect()
+    };
+    focus_table(vcx, &host);
+    // Row 3 is unassigned: Delete does nothing.
+    for _ in 0..4 {
+        press(vcx, "down");
+    }
+    assert_eq!(selected_row(vcx, &host), Some(3));
+    press(vcx, "delete");
+    idle(vcx, &host);
+    assert_eq!(cleared(&host), Vec::<String>::new());
+    // Row 0 is assigned.
+    for _ in 0..3 {
+        press(vcx, "up");
+    }
+    press(vcx, "delete");
+    idle(vcx, &host);
+    assert_eq!(cleared(&host), vec!["gateway-bin".to_string()]);
+    assert!(!has(vcx, "tarpack-clear-0"), "the row no longer has a file");
+    // Clear by the button leaves focus on the table.
+    click(vcx, "tarpack-clear-1");
+    idle(vcx, &host);
+    assert_eq!(cleared(&host).len(), 2);
+    let table = table_state(vcx, &host);
+    let focused = vcx.update(|window, cx| table.read(cx).focus_handle(cx).is_focused(window));
+    assert!(focused, "focus did not fall to the window");
+}
+
+/// Starts a build and runs until the model reports it building.
+fn start_build(vcx: &mut VisualTestContext, host: &Host) {
+    act(vcx, host, TarpackModel::build);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !host.model.read_with(vcx, |m, _| m.building()) {
+        vcx.run_until_parked();
+        assert!(Instant::now() < deadline, "the build never started");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    vcx.run_until_parked();
+}
+
+#[gpui::test]
+fn keys_inert_while_building(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Building);
+    focus_table(vcx, &host);
+    press(vcx, "down");
+    assert_eq!(selected_row(vcx, &host), Some(0));
+    let table = table_state(vcx, &host);
+    let tab_stop =
+        |vcx: &mut VisualTestContext| vcx.update(|_, cx| table.read(cx).focus_handle(cx).tab_stop);
+    assert!(tab_stop(vcx), "the table is a Tab stop");
+
+    start_build(vcx, &host);
+    let picks = host.platform.calls().len();
+    // The build job records its own calls (`BuildRun`) on its worker thread,
+    // at a time the test does not control, so count only the calls the keys
+    // could cause: a Clear or an Assign.
+    let edits = |host: &Host| {
+        host.backend
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, Call::Clear(_) | Call::Assign(..)))
+            .count()
+    };
+    let before = edits(&host);
+    for key in ["down", "down", "end", "enter", "delete"] {
+        press(vcx, key);
+    }
+    assert_eq!(selected_row(vcx, &host), Some(0), "the selection stays");
+    assert_eq!(host.platform.calls().len(), picks, "no Browse");
+    assert_eq!(edits(&host), before, "no Clear");
+    assert!(!tab_stop(vcx), "the table leaves the Tab order");
+
+    host.backend.release_build();
+    idle(vcx, &host);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while host.model.read_with(vcx, |m, _| m.building()) {
+        vcx.run_until_parked();
+        assert!(Instant::now() < deadline, "the build never finished");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    vcx.run_until_parked();
+    assert!(tab_stop(vcx), "and comes back");
+    press(vcx, "down");
+    assert_eq!(selected_row(vcx, &host), Some(1), "the keys work again");
+}
+
+/// Whether focus is on the table or inside it.
+fn table_has_focus(vcx: &mut VisualTestContext, host: &Host) -> bool {
+    let table = table_state(vcx, host);
+    vcx.update(|window, cx| {
+        let handle = table.read(cx).focus_handle(cx);
+        handle.contains_focused(window, cx)
+    })
+}
+
+#[gpui::test]
+fn tab_skips_the_table_while_building(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Building);
+    // Control: with no build, Tab reaches the table.
+    vcx.update(Window::blur);
+    let mut reached = false;
+    for _ in 0..40 {
+        tab(vcx);
+        reached |= table_has_focus(vcx, &host);
+    }
+    assert!(reached, "Tab reaches the table when nothing builds");
+
+    start_build(vcx, &host);
+    vcx.update(Window::blur);
+    for step in 0..40 {
+        tab(vcx);
+        assert!(
+            !table_has_focus(vcx, &host),
+            "Tab {step} landed in the table while building"
+        );
+    }
+    // Shift+Tab does not land there either.
+    for step in 0..40 {
+        vcx.update(Window::focus_prev);
+        vcx.run_until_parked();
+        assert!(
+            !table_has_focus(vcx, &host),
+            "Shift+Tab {step} landed in the table while building"
+        );
+    }
+    host.backend.release_build();
+    idle(vcx, &host);
+}
+
+#[gpui::test]
+fn narrow_window_scrolls_sideways(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    resize(vcx, 1000.0, 700.0);
+    let table = table_state(vcx, &host);
+    let (max, bounds_w) = table.read_with(vcx, |t, _| {
+        (
+            t.horizontal_scroll_handle.max_offset().x,
+            t.horizontal_scroll_handle.bounds().size.width,
+        )
+    });
+    assert!(
+        max > px(0.0),
+        "the content is wider than the table: {max:?}"
+    );
+    assert!(bounds_w < px(1024.0));
+    // No row stacks: every row has the one height.
+    for row in 0..5 {
+        let b = bounds(vcx, &format!("tarpack-row-{row}"));
+        assert_eq!(b.size.height, px(entry_table::ROW_HEIGHT), "row {row}");
+    }
+    // Right scrolls the columns sideways; Left brings them back.
+    focus_table(vcx, &host);
+    press(vcx, "right");
+    let x = table.read_with(vcx, |t, _| t.horizontal_scroll_handle.offset().x);
+    assert!(x < px(0.0), "scrolled: {x:?}");
+    assert_eq!(
+        selected_row(vcx, &host),
+        None,
+        "Right does not turn into a column selection"
+    );
+    press(vcx, "left");
+    let x = table.read_with(vcx, |t, _| t.horizontal_scroll_handle.offset().x);
+    assert_eq!(x, px(0.0));
+}
+
+#[gpui::test]
+fn column_widths_follow_width(cx: &mut TestAppContext) {
+    // The pure rule.
+    let wide = entry_table::column_widths(1366.0);
+    assert_eq!(wide[0], 116.0);
+    assert_eq!(wide[4], 132.0);
+    assert_eq!(wide[5], 80.0);
+    assert_eq!(wide[6], 176.0);
+    assert!((wide.iter().sum::<f32>() - 1366.0).abs() < 0.01);
+    assert_eq!(wide[1], wide[2]);
+    assert_eq!(wide[2], wide[3]);
+    // Below 1024 the shares stop shrinking.
+    let narrow = entry_table::column_widths(800.0);
+    assert!((narrow.iter().sum::<f32>() - 1024.0).abs() < 0.01);
+    assert!((narrow[1] - 520.0 / 3.0).abs() < 0.01);
+
+    // In the window: the table's width, less the padding, is shared out.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    let table = table_state(vcx, &host);
+    let widths = |vcx: &mut VisualTestContext| table.read_with(vcx, |t, _| t.delegate().widths());
+    resize(vcx, 1400.0, 800.0);
+    let a = widths(vcx);
+    assert!(
+        (a.iter().sum::<f32>() - (1400.0 - 48.0 - SCROLLBAR_GUTTER)).abs() < 1.0,
+        "{a:?}"
+    );
+    resize(vcx, 1200.0, 800.0);
+    let b = widths(vcx);
+    assert!(b[1] < a[1], "{a:?} then {b:?}");
+    assert!(
+        (b.iter().sum::<f32>() - (1200.0 - 48.0 - SCROLLBAR_GUTTER)).abs() < 1.0,
+        "{b:?}"
+    );
+    assert_eq!(b[0], 116.0);
+}
+
+#[gpui::test]
+fn column_x_positions_match_today_with_sidebar(cx: &mut TestAppContext) {
+    use crate::app::shell::test_support::open as open_shell;
+    use crate::tools::{self, Backend, BackendSet, FixtureId};
+
+    // The whole shell at 1366x800, the sidebar and the `ready` fixture.
+    let view = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let grab = view.clone();
+    let build = move |window: &mut Window, cx: &mut gpui::App| {
+        cx.set_global(BackendSet {
+            tarpack: Backend::Fixture(FixtureId::Tarpack(TarpackFixture::Ready)),
+            ..BackendSet::fixtures()
+        });
+        let slots = tools::build(window, cx);
+        let ours = slots
+            .iter()
+            .find(|s| s.id == tools::ToolId::Tarpack)
+            .and_then(|s| s.view.clone().downcast::<TarpackView>().ok());
+        *grab.borrow_mut() = ours;
+        slots
+    };
+    let (_shell, vcx) = open_shell(cx, build);
+    vcx.simulate_resize(size(px(1366.0), px(800.0)));
+    click(vcx, "tool-nav-tarpack");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !has(vcx, "tarpack-table") {
+        vcx.run_until_parked();
+        settle(vcx);
+        assert!(Instant::now() < deadline, "the table never appeared");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    settle(vcx);
+
+    // Each column's left edge: the table's left edge plus the widths before it.
+    // The widths are what the columns were laid out at, so they must also fill
+    // the table, or the edges are not where the cells are.
+    let table = bounds(vcx, "tarpack-table");
+    let row = bounds(vcx, "tarpack-row-0");
+    assert!(
+        (row.left() - table.left()).abs() < px(0.5),
+        "rows start at the table"
+    );
+    let state = view
+        .borrow()
+        .as_ref()
+        .expect("the Tar Packager view")
+        .read_with(vcx, |v, cx| {
+            v.entry_table
+                .as_ref()
+                .expect("the table was made")
+                .read(cx)
+                .table()
+                .clone()
+        });
+    let widths = state.read_with(vcx, |t, _| t.delegate().widths());
+    assert!(
+        (widths.iter().sum::<f32>() - f32::from(table.size.width)).abs() < 1.0,
+        "{widths:?} fill {:?}",
+        table.size.width
+    );
+    let mut left = f32::from(table.left());
+    let mut edges = Vec::new();
+    for w in widths {
+        edges.push(left);
+        left += w;
+    }
+    for (got, want) in edges
+        .iter()
+        .zip([216.0, 332.0, 534.0, 737.0, 939.0, 1071.0, 1151.0])
+    {
+        assert!(
+            (got - want).abs() <= 2.0,
+            "column at {got}, wanted {want}: {edges:?}"
+        );
+    }
+}
+
+#[gpui::test]
+fn table_scrolls_inside_itself_when_short(cx: &mut TestAppContext) {
+    let (host, vcx) = open_big(cx, 300);
+    resize(vcx, 1100.0, 560.0);
+    let body = host.view.read_with(vcx, |v, _| v.body_scroll.clone());
+    focus_table(vcx, &host);
+    for _ in 0..30 {
+        press(vcx, "down");
+    }
+    assert_eq!(selected_row(vcx, &host), Some(29));
+    assert_eq!(body.offset().y, px(0.0), "the body did not scroll");
+    assert!(
+        body.max_offset().y <= px(0.5),
+        "nothing to scroll in the body"
+    );
+    settle(vcx);
+    assert!(
+        !has(vcx, "tarpack-row-0"),
+        "row 0 scrolled out of the table"
+    );
+    assert!(has(vcx, "tarpack-row-29"), "the selected row is drawn");
+    // The table is at least three rows tall.
+    let b = bounds(vcx, "tarpack-table");
+    assert!(b.size.height >= px(entry_table::HEADER_HEIGHT + 3.0 * entry_table::ROW_HEIGHT));
+
+    // Shorter than everything above plus three rows: the body scrolls.
+    resize(vcx, 1100.0, 260.0);
+    assert!(body.max_offset().y > px(0.0), "the fallback scroll");
+}
+
+#[gpui::test]
+fn build_bar_stays_visible_with_many_rows(cx: &mut TestAppContext) {
+    let (host, vcx) = open_big(cx, 10_000);
+    resize(vcx, 1366.0, 800.0);
+    let b = bounds(vcx, "tarpack-table");
+    // The table ends inside the frame's bottom padding, so what is below it
+    // (the result and the build bar) is in view.
+    assert!(
+        b.bottom() <= px(800.0 - 16.0),
+        "the table ends at {:?}",
+        b.bottom()
+    );
+    assert!(b.size.height > px(200.0));
+    let body = host.view.read_with(vcx, |v, _| v.body_scroll.clone());
+    assert_eq!(body.offset().y, px(0.0));
+}
+
+#[test]
+fn file_name_is_what_follows_the_last_separator() {
+    use crate::tools::tarpack::text::file_name;
+    // `pathParts.test.ts`: fileName.
+    assert_eq!(file_name(r"C:\out\gateway.tar.zst"), "gateway.tar.zst");
+    assert_eq!(file_name("C:/out/\u{1F600}.tar"), "\u{1F600}.tar");
+    assert_eq!(file_name("plain"), "plain");
+    assert_eq!(file_name("/opt/gateway/bin/gateway"), "gateway");
+    assert_eq!(file_name("C:\\d\\bad\u{FFFD}.txt"), "bad\u{FFFD}.txt");
+}
+
+#[test]
+fn display_folder_shows_a_lossy_folder_as_is() {
+    use crate::tools::tarpack::text::display_folder;
+    // `pathParts.test.ts`: displayFolder (the assignedFolder half is
+    // `browse_starts_in_a_folder_that_is_not_valid_unicode`).
+    assert_eq!(display_folder(r"C:\out\a.tar").as_deref(), Some(r"C:\out"));
+    assert_eq!(display_folder(r"C:\a.tar").as_deref(), Some(r"C:\"));
+    assert_eq!(
+        display_folder("C:\\o\u{FFFD}t\\a.tar").as_deref(),
+        Some("C:\\o\u{FFFD}t")
+    );
+    assert_eq!(display_folder("a.tar"), None);
 }

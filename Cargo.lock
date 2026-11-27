@@ -2081,6 +2081,7 @@ dependencies = [
  "image",
  "log",
  "raw-window-handle",
+ "rusqlite",
  "tempfile",
  "windows 0.62.2",
  "winresource",

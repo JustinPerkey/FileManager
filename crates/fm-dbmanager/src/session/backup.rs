@@ -188,12 +188,21 @@ impl Session {
         self.backup.as_deref()
     }
 
-    /// Marks `backup` as the session's backup, already announced, without
-    /// writing anything, so a reload of the same database does not take
-    /// another. Use it only for the same database path.
-    pub fn adopt_backup(&mut self, backup: PathBuf) {
+    /// Whether `SaveResult::backup_created` has already carried the
+    /// backup's path.
+    #[must_use]
+    pub fn backup_announced(&self) -> bool {
+        self.backup_announced
+    }
+
+    /// Marks `backup` as the session's backup, without writing anything, so a
+    /// reload of the same database does not take another. `announced` is
+    /// whether a save result has reported it already (carry the old
+    /// session's [`Session::backup_announced`] across a reload). Use it only
+    /// for the same database path.
+    pub fn adopt_backup(&mut self, backup: PathBuf, announced: bool) {
         self.backup = Some(backup);
-        self.backup_announced = true;
+        self.backup_announced = announced;
     }
 }
 

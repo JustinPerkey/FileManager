@@ -58,6 +58,8 @@ pub struct FmButton {
     on_click: Option<ClickHandler>,
     focus: Option<FocusHandle>,
     debug_selector: Option<SharedString>,
+    accessible_name: Option<SharedString>,
+    tab_stop: bool,
 }
 
 /// A secondary button. `label` is the visible text, and the accessible name
@@ -79,6 +81,8 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> FmBut
         on_click: None,
         focus: None,
         debug_selector: None,
+        accessible_name: None,
+        tab_stop: true,
     }
 }
 
@@ -195,6 +199,29 @@ impl FmButton {
     pub fn debug_selector(mut self, name: impl Into<SharedString>) -> Self {
         self.debug_selector = Some(name.into());
         self
+    }
+
+    /// The accessible name, when it must say more than the visible label (a
+    /// row's "Browse\u{2026}" that names its file). It starts with the label.
+    #[must_use]
+    pub fn accessible_name(mut self, name: impl Into<SharedString>) -> Self {
+        self.accessible_name = Some(name.into());
+        self
+    }
+
+    /// Whether Tab stops on the button (default `true`). A button inside a
+    /// widget that is one Tab stop itself (a table row) turns it off: the mouse
+    /// and the widget's own keys still reach it.
+    #[must_use]
+    pub fn tab_stop(mut self, tab_stop: bool) -> Self {
+        self.tab_stop = tab_stop;
+        self
+    }
+
+    /// The accessible name: [`FmButton::accessible_name`], else the label.
+    #[must_use]
+    pub fn name(&self) -> &SharedString {
+        self.accessible_name.as_ref().unwrap_or(&self.label)
     }
 
     /// The label drawn on the button; `None` for an icon-only button.
@@ -329,7 +356,8 @@ impl FmButton {
         let selector = self.debug_selector;
         Button::new(self.id)
             .custom(variant)
-            .accessibility_label(self.label)
+            .accessibility_label(self.accessible_name.unwrap_or(self.label))
+            .tab_stop(self.tab_stop)
             .h(px(HEIGHT))
             .min_w(px(MIN_SIZE))
             .min_h(px(MIN_SIZE))
@@ -370,6 +398,18 @@ mod tests {
         let b = button("b", "Open").shortcut("Ctrl+O");
         assert_eq!(b.tooltip_text().as_deref(), Some("Shortcut: Ctrl+O"));
         assert_eq!(button("b", "Open").tooltip_text(), None);
+    }
+
+    #[test]
+    fn accessible_name_defaults_to_the_label_and_tab_stop_to_on() {
+        let b = button("b", "Browse\u{2026}");
+        assert_eq!(&**b.name(), "Browse\u{2026}");
+        assert!(b.tab_stop);
+        let b = b
+            .accessible_name("Browse\u{2026} for gateway.conf")
+            .tab_stop(false);
+        assert_eq!(&**b.name(), "Browse\u{2026} for gateway.conf");
+        assert!(!b.tab_stop);
     }
 
     #[test]

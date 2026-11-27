@@ -222,11 +222,13 @@ impl Render for PipelineView {
             .px(px(SPACE_5))
             .py(px(SPACE_4))
             .gap(px(SPACE_4))
+            .debug_selector(|| "pipeline-page".into())
             .child(
                 v_flex()
                     .gap(px(crate::theme::tokens::SPACE_1))
                     .child(h1(text::HEADER))
-                    .child(intro(text::INTRO)),
+                    .child(intro(text::INTRO))
+                    .debug_selector(|| "pipeline-header".into()),
             );
         if model.load_failed() {
             page = page.children(model.error().map(|error| {

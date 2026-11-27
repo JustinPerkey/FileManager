@@ -745,6 +745,19 @@ fn manifest_sentences_match_today() {
 // ---- loading ----
 
 #[gpui::test]
+fn loading_is_observable_with_closed_gate(cx: &mut TestAppContext) {
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, &FixtureTarpack::loaded());
+    cx.run_until_parked();
+    assert!(read(cx, &model, TarpackModel::loading));
+    cx.run_until_parked();
+    assert!(read(cx, &model, |m| m.loading() && m.session().is_none()));
+    handle.open();
+    cx.run_until_parked();
+    assert!(read(cx, &model, |m| !m.loading() && !m.load_failed()));
+}
+
+#[gpui::test]
 fn restores_last_manifest_on_start(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().expect("tempdir");
     let m = write_manifest(dir.path(), "m.toml", GATEWAY);

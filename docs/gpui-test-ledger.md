@@ -274,40 +274,40 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| %s shows %s | U10 |  | open |
+| %s shows %s | U10 | `tools::tarpack::view::tests::table_renders_status_cells`, `entry_cells::tests::status_words_icons_and_tones` | done |
 
 ## `tools/tarpack/EntryTable.keyboard.test.tsx` (9)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| exactly one row is in the tab order, and Up and Down move focus between rows | U10 |  | open |
-| Enter browses the focused row; Delete clears it only when assigned | U10 |  | open |
-| Enter on a row's own button is that button's click, not a second browse | U10 |  | open |
-| row actions carry shortcut hints and keep their names | U10 |  | open |
-| Escape with focus on the drop result's Dismiss moves focus to the tab-stop row | U10 |  | open |
-| Escape with focus elsewhere dismisses the result and leaves focus where it was | U10 |  | open |
-| only the tab-stop row's own buttons are tabbable | U10 |  | open |
-| disabled: no row or row button is tabbable, row keys do nothing, and the tab stop comes back | U10 |  | open |
-| Clear leaves focus on the row: from its button by Delete and by click, and from the row itself | U10 |  | open |
+| exactly one row is in the tab order, and Up and Down move focus between rows | U10 | `tools::tarpack::view::tests::down_moves_focus_and_scrolls` (Up and Down, no wrapping), `keys_inert_while_building` (Tab stop on and off); the table is one focus handle, the rows are not stops | done |
+| Enter browses the focused row; Delete clears it only when assigned | U10 | `tools::tarpack::view::tests::enter_browses_focused_row`, `delete_clears_only_assigned_row` | done |
+| Enter on a row's own button is that button's click, not a second browse | U10 | `tools::tarpack::view::tests::enter_browses_focused_row` (one pick for Enter on the table; the row buttons are not Tab stops and are clicked) | done |
+| row actions carry shortcut hints and keep their names | U10 | `widgets::button::tests::accessible_name_defaults_to_the_label_and_tab_stop_to_on`; tooltips and names built in `entry_cells::actions_cell` (`browse_name`, `clear_name`) | done |
+| Escape with focus on the drop result's Dismiss moves focus to the tab-stop row | U10 | drop result focus and Escape are U11 (the shortcuts); the table has no part in it | open |
+| Escape with focus elsewhere dismisses the result and leaves focus where it was | U10 | U11 (the shortcuts) | open |
+| only the tab-stop row's own buttons are tabbable | U10 | dropped: rows are not elements with their own focus; the buttons have `tab_stop(false)` (D13) | dropped |
+| disabled: no row or row button is tabbable, row keys do nothing, and the tab stop comes back | U10 | `tools::tarpack::view::tests::keys_inert_while_building` | done |
+| Clear leaves focus on the row: from its button by Delete and by click, and from the row itself | U10 | `tools::tarpack::view::tests::delete_clears_only_assigned_row` (by Delete and by the button, focus stays on the table) | done |
 
 ## `tools/tarpack/EntryTable.scale.test.tsx` (1)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| 2,000 rows render; one status change re-renders one row | U10 |  | open |
+| 2,000 rows render; one status change re-renders one row | U10 | `tools::tarpack::view::tests::down_moves_focus_and_scrolls` (10,000 rows, only visible rows drawn), `build_bar_stays_visible_with_many_rows` | done |
 
 ## `tools/tarpack/EntryTable.test.tsx` (11)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders a captioned table with column headers and one row per entry | U10 |  | open |
-| summary: mixed | U10 |  | open |
-| summary: all ready, with and without failed entries | U10 |  | open |
-| line-ending clause and marker only for normalizeEol rows | U10 |  | open |
-| empty cases render no table | U10 |  | open |
-| Clear is disabled when unassigned; buttons call props with the id | U10 |  | open |
-| action names use the target, so repeated sources stay distinct; Clear has a title | U10 |  | open |
-| seven classed columns; cell labels are aria-hidden | U10 |  | open |
+| renders a captioned table with column headers and one row per entry | U10 | `tools::tarpack::view::tests::table_renders_status_cells` (rows, headings are the delegate columns; the table carries its accessible label) | done |
+| summary: mixed | U10 | `entry_cells::tests::summary_cases` | done |
+| summary: all ready, with and without failed entries | U10 | `entry_cells::tests::summary_cases` | done |
+| line-ending clause and marker only for normalizeEol rows | U10 | `entry_cells::tests::summary_cases` (clause), `tools::tarpack::view::tests::crlf_marker_shown_for_converting_entries` (marker) | done |
+| empty cases render no table | U10 | `entry_cells::tests::empty_text_cases` | done |
+| Clear is disabled when unassigned; buttons call props with the id | U10 | `tools::tarpack::view::tests::table_renders_status_cells` (Clear is absent when unassigned, as the plan says) | done |
+| action names use the target, so repeated sources stay distinct; Clear has a title | U10 | names built from the target path (`browse_name`, `clear_name`), the Clear tooltip from `CLEAR_TIP` | done |
+| seven classed columns; cell labels are aria-hidden | U10 | `tools::tarpack::view::tests::column_widths_follow_width`; cell labels do not exist (no stacking), dropped with the reflow | done |
 | target path span is mono, exact, with a wbr after each slash; no td is mono | U10 |  | open |
 | Windows location: full path is the accessible text once, including for a long path | U10 |  | open |
 | has no axe violations | U | dropped: axe is a DOM check; the nav's labels are the buttons' accessibility labels | dropped |
@@ -503,8 +503,8 @@ its heading's count.
 | assignedFolder: drive root keeps its separator | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows paths run in the Windows job; the Unix job runs the `/` root) | done |
 | assignedFolder: nested, forward-slash and UNC paths | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (Windows job) | done |
 | assignedFolder: undefined without a separator or with U+FFFD | M7a | `tools::tarpack::tests::browse_starts_in_the_parent_folder` (no parent: no start folder), `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode` (the stored path has nothing to refuse: a lossy display name still starts in its exact folder). `C:a.txt` is not ported: `Path::parent` gives `C:` and the dialog accepts it | done |
-| fileName is what follows the last separator | U10 | (the entry table renders each row's file name; U10 ports this case as a view-helper test) | open |
-| displayFolder shows a lossy folder as is; assignedFolder refuses it | U10 | `displayFolder` half: U10 renders the row's folder and ports this case. The `assignedFolder` half is `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode`: it no longer refuses, it uses the stored `PathBuf` | open |
+| fileName is what follows the last separator | U10 | `tools::tarpack::view::tests::file_name_is_what_follows_the_last_separator` (over `text::file_name`) | done |
+| displayFolder shows a lossy folder as is; assignedFolder refuses it | U10 | `displayFolder` half: `tools::tarpack::view::tests::display_folder_shows_a_lossy_folder_as_is`. The `assignedFolder` half is `tools::tarpack::tests::browse_starts_in_a_folder_that_is_not_valid_unicode`: it no longer refuses, it uses the stored `PathBuf` | done |
 
 ## `tools/tarpack/reportText.test.ts` (4)
 

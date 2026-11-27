@@ -348,6 +348,19 @@ fn text_matches_ts_sources() {
 // ---- loading ----
 
 #[gpui::test]
+fn loading_is_observable_with_closed_gate(cx: &mut TestAppContext) {
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, FixtureSchedule::ready());
+    cx.run_until_parked();
+    assert!(read(cx, &model, ScheduleModel::loading));
+    cx.run_until_parked();
+    assert!(read(cx, &model, |m| m.loading() && m.session().is_none()));
+    handle.open();
+    cx.run_until_parked();
+    assert!(read(cx, &model, |m| !m.loading() && !m.load_failed()));
+}
+
+#[gpui::test]
 fn loads_session_and_retries_after_failure(cx: &mut TestAppContext) {
     let (model, _) = start(cx, FixtureSchedule::ready());
     assert!(read(cx, &model, |m| m.loading() && m.session().is_none()));

@@ -4,12 +4,19 @@
 //! The entry table, the build result and the build bar fill the three slots
 //! below it.
 //!
-//! The root fills the tool area, pads itself (16 px by 24 px) and scrolls its
-//! own body; the slot under the body (the build bar) stays in view.
+//! The root fills the tool area, pads itself (16 px by 24 px, plus the 15 px
+//! scrollbar gutter on the right, as today) and holds a body
+//! and the build bar. With a manifest the body does not scroll: the entry table
+//! takes the room the rest leaves and scrolls its rows inside itself. Only if
+//! the window is shorter than everything above the table plus three rows does
+//! the body scroll, as a fallback. Without a manifest the body scrolls. The
+//! build bar stays in view.
 
 mod banners;
 mod drop_result;
 mod empty;
+mod entry_cells;
+mod entry_table;
 mod errors;
 mod header;
 pub mod shortcuts;
@@ -18,15 +25,17 @@ mod tests;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, App, Context, Entity, FocusHandle, IntoElement, Render, Role, Window,
+    div, px, AnyElement, App, Context, Entity, FocusHandle, IntoElement, Render, Role,
+    ScrollHandle, Window,
 };
 use gpui_component::v_flex;
 
+use self::entry_table::EntryTable;
 use super::model::{DropState, FocusHint, TarpackModel};
 use super::text;
 use crate::app::dev_mode::DevMode;
 use crate::theme::palette;
-use crate::theme::tokens::{SPACE_2, SPACE_3, SPACE_4, SPACE_5};
+use crate::theme::tokens::{SCROLLBAR_GUTTER, SPACE_2, SPACE_3, SPACE_4, SPACE_5};
 use crate::widgets::skeleton_bar;
 
 pub struct TarpackView {
@@ -43,6 +52,10 @@ pub struct TarpackView {
     after_result_focus: FocusHandle,
     warnings_open: bool,
     paths_open: bool,
+    /// The entry table, made on the first frame that has a window.
+    entry_table: Option<Entity<EntryTable>>,
+    /// The body's scroll position (the fallback scroll, and the empty state).
+    body_scroll: ScrollHandle,
 }
 
 impl TarpackView {
@@ -56,6 +69,8 @@ impl TarpackView {
             after_result_focus: cx.focus_handle(),
             warnings_open: false,
             paths_open: false,
+            entry_table: None,
+            body_scroll: ScrollHandle::new(),
         }
     }
 
@@ -121,9 +136,11 @@ impl TarpackView {
     }
 }
 
-/// The entry table (U10).
-fn table_slot() -> Option<AnyElement> {
-    None
+/// The entry table (U10), once a manifest is shown.
+fn table_slot(table: Option<&Entity<EntryTable>>, shown: bool) -> Option<AnyElement> {
+    table
+        .filter(|_| shown)
+        .map(|t| t.clone().into_any_element())
 }
 
 /// The build result (U11).
@@ -151,6 +168,7 @@ impl Render for TarpackView {
         let loading = state.loading();
         let manifest = state.session().and_then(|s| s.manifest.as_ref());
         let recent = state.recent();
+        let table_shown = !loading && manifest.is_some();
 
         let mut top = v_flex().w_full().gap(px(SPACE_3));
         if loading {
@@ -211,9 +229,16 @@ impl Render for TarpackView {
             }
         }
 
+        if self.entry_table.is_none() {
+            self.entry_table = Some(cx.new(|cx| EntryTable::new(model.clone(), window, cx)));
+        }
+        let table = table_slot(self.entry_table.as_ref(), table_shown);
+
         v_flex()
             .size_full()
-            .px(px(SPACE_5))
+            .pl(px(SPACE_5))
+            // Today's scrollbar gutter, which GPUI's overlay scrollbars lack.
+            .pr(px(SPACE_5 + SCROLLBAR_GUTTER))
             .py(px(SPACE_4))
             .gap(px(SPACE_3))
             .bg(p.bg)
@@ -224,11 +249,18 @@ impl Render for TarpackView {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
+                    .track_scroll(&self.body_scroll)
                     .child(
+                        // At least as tall as the body. The table's region (the
+                        // one flexible child) starts at its three-row minimum
+                        // and grows into what the rest leaves; when the rest
+                        // needs more than the body has, this column is taller
+                        // than the body and the body scrolls.
                         v_flex()
+                            .min_h_full()
                             .gap(px(SPACE_3))
-                            .child(top)
-                            .children(table_slot())
+                            .child(top.flex_none())
+                            .children(table)
                             .children(result_slot()),
                     ),
             )

@@ -1,6 +1,7 @@
 //! The tool registry: the single list of tools. Adding a tool is a module, an
 //! entry in [`build`], and a [`ToolId`] variant. Tools never import each other.
 
+pub mod dbmanager;
 pub mod pipeline;
 pub mod schedule;
 pub mod tarpack;
@@ -18,6 +19,7 @@ pub enum ToolId {
     Pipeline,
     Tarpack,
     Schedule,
+    Dbmanager,
 }
 
 impl ToolId {
@@ -28,6 +30,7 @@ impl ToolId {
             ToolId::Pipeline => "pipeline",
             ToolId::Tarpack => "tarpack",
             ToolId::Schedule => "schedule",
+            ToolId::Dbmanager => "dbmanager",
         }
     }
 }
@@ -52,6 +55,7 @@ pub enum FixtureId {
     Pipeline(pipeline::fixtures::PipelineFixture),
     Tarpack(tarpack::fixtures::TarpackFixture),
     Schedule(schedule::fixtures::ScheduleFixture),
+    Dbmanager(dbmanager::fixtures::DbmanagerFixture),
 }
 
 /// The backend choice for every tool, installed as a global by
@@ -66,6 +70,7 @@ pub struct BackendSet {
     pub pipeline: Backend,
     pub tarpack: Backend,
     pub schedule: Backend,
+    pub dbmanager: Backend,
 }
 
 impl Global for BackendSet {}
@@ -99,6 +104,9 @@ impl BackendSet {
             tarpack: Backend::Fixture(FixtureId::Tarpack(tarpack::fixtures::TarpackFixture::Empty)),
             schedule: Backend::Fixture(FixtureId::Schedule(
                 schedule::fixtures::ScheduleFixture::Empty,
+            )),
+            dbmanager: Backend::Fixture(FixtureId::Dbmanager(
+                dbmanager::fixtures::DbmanagerFixture::Empty,
             )),
         }
     }
@@ -146,6 +154,7 @@ pub fn build(window: &mut Window, cx: &mut App) -> Vec<ToolSlot> {
         pipeline::slot(window, cx),
         tarpack::slot(window, cx),
         schedule::slot(window, cx),
+        dbmanager::slot(window, cx),
     ]
 }
 
@@ -166,11 +175,12 @@ mod tests {
                 ("pipeline", "Pipeline"),
                 ("tarpack", "Tar Packager"),
                 ("schedule", "Schedule Creator"),
+                ("dbmanager", "Database Manager"),
             ]
         );
         let mut ids: Vec<_> = got.iter().map(|(id, _)| *id).collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), 3, "ids are unique");
+        assert_eq!(ids.len(), 4, "ids are unique");
     }
 }

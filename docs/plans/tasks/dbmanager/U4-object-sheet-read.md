@@ -98,6 +98,14 @@ by read-only.
 Debug selectors: `db-sheet-title`, `db-field-<name>`, `db-follow-<name>`,
 `db-refby-<relation>`, `db-refby-more-<relation>`.
 
+**Object load failed (from the M12a review, 2026-11-26).** The model's
+`ObjectLoad` has three outcomes besides `Loading`: `Loaded`, `Gone` (the
+object no longer exists: the "no longer exists" state) and `Failed` (the
+read failed: busy, schema changed, I/O). `Failed` needs its own view state:
+an error banner with the error's message and the detail as Details, plus
+**Try again** when the model offers a retry. Keep it visually and in copy
+separate from `Gone`. Test: `object_load_failed_shows_banner_not_gone`.
+
 **Hosting rules (after the U3 and U4 reviews, 2026-11-23).**
 
 - **Sizing.** The chrome hosts the tool view in a `flex_1` / `min_h_0`

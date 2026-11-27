@@ -23,7 +23,13 @@ required-features = ["shoot"]
 
 [features]
 default = []
-shoot = ["gpui/test-support", "gpui_platform/test-support", "dep:image"]
+shoot = [
+    "gpui/test-support",
+    "gpui_platform/test-support",
+    "dep:image",
+    "dep:rusqlite",
+    "dep:tempfile",
+]
 
 [dependencies]
 fm-core = { path = "../../crates/fm-core" }
@@ -39,10 +45,14 @@ async-channel = { workspace = true }
 directories = { workspace = true }
 log = { workspace = true }
 image = { workspace = true, optional = true }
+# The Database Manager's fixtures build a database in a temp dir (shoot builds).
+rusqlite = { version = "0.43", features = ["bundled"], optional = true }
+tempfile = { workspace = true, optional = true }
 
 [dev-dependencies]
 # test-support must stay a dev-dependency feature: it must not reach the exe.
 gpui = { workspace = true, features = ["test-support"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 tempfile = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]

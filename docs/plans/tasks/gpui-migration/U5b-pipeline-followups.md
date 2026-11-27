@@ -35,7 +35,9 @@ a typed path.
   unsound for the banner's layout, add `FmButton::tag(name)` instead, which
   records the button's own bounds. Say which in the PR. Test: a banner action
   with a tag resolves through `probe::bounds`.
-- **(b) Optional accessible label.** Add `FmButton::accessible_label(text)`,
+- **(b) Optional accessible label: already done** in U10 as
+  `FmButton::accessible_name(text)` (2026-11-26). Use that name; do not add
+  a second method. The original wording, for reference: add `FmButton::accessible_label(text)`,
   which overrides the label assistive technology reads, for icon-only
   buttons whose tooltip is not the best name. It is optional: use it only
   where a button's visible label or tooltip is misleading out of context. No

@@ -12,6 +12,7 @@ use gpui::{px, size, AppContext as _, Entity, Modifiers, TestAppContext, VisualT
 use gpui_component::{Root, ThemeMode};
 
 use super::PipelineView;
+use crate::jobs::{WorkerGate, WorkerGateHandle};
 use crate::platform::fake::{FakePlatform, PlatformCall};
 use crate::platform::{self, PickError};
 use crate::tools::pipeline::backend::{PipelineBackend, StepJob};
@@ -29,6 +30,16 @@ fn open(
     cx: &mut TestAppContext,
     backend: impl PipelineBackend,
 ) -> (Screen, &mut VisualTestContext) {
+    open_with(cx, backend, false).0
+}
+
+/// `gated`: the worker gate is closed, so the model is still loading; the
+/// handle opens it.
+fn open_with(
+    cx: &mut TestAppContext,
+    backend: impl PipelineBackend,
+    gated: bool,
+) -> ((Screen, &mut VisualTestContext), Option<WorkerGateHandle>) {
     // Step jobs run on real threads.
     cx.executor().allow_parking();
     let fake = FakePlatform::new();
@@ -38,6 +49,7 @@ fn open(
         crate::theme::apply(ThemeMode::Light, cx);
         platform::set_platform(cx, installed);
     });
+    let handle = gated.then(|| cx.update(WorkerGate::install_closed));
     let made: std::rc::Rc<std::cell::RefCell<Option<_>>> = std::rc::Rc::default();
     let out = made.clone();
     let (_root, vcx) = cx.add_window_view(move |window, cx| {
@@ -52,8 +64,10 @@ fn open(
     vcx.run_until_parked();
     let (model, view) = made.borrow_mut().take().expect("view created");
     let screen = Screen { model, view, fake };
-    idle(vcx, &screen);
-    (screen, vcx)
+    if !gated {
+        idle(vcx, &screen);
+    }
+    ((screen, vcx), handle)
 }
 
 /// Runs until nothing loads and no step runs.
@@ -486,4 +500,35 @@ fn focus_moves_to_step_when_it_starts_running(cx: &mut TestAppContext) {
     assert!(!next_focused(&s, cx));
     gate.open();
     idle(cx, &s);
+}
+
+#[gpui::test]
+fn loading_renders_header_only(cx: &mut TestAppContext) {
+    let body = [
+        "pipeline-folder-input",
+        "pipeline-browse",
+        "pipeline-run-next",
+        "pipeline-run-all",
+        "pipeline-step-1",
+    ];
+    let ((s, cx), gate) = open_with(cx, FixturePipeline::chosen(), true);
+    let gate = gate.expect("gate installed");
+    cx.run_until_parked();
+    assert!(
+        s.model.read_with(cx, |m, _| m.loading()),
+        "gate closed: loading"
+    );
+    assert!(has(cx, "pipeline-header"), "header while loading");
+    crate::app::tests::assert_header_only(cx, "pipeline-page", "pipeline-header");
+    for name in body {
+        assert!(!has(cx, name), "{name} drawn while loading");
+    }
+
+    gate.open();
+    idle(cx, &s);
+    assert!(!s.model.read_with(cx, |m, _| m.loading()), "loaded");
+    assert!(has(cx, "pipeline-header"));
+    for name in body {
+        assert!(has(cx, name), "{name} missing once loaded");
+    }
 }

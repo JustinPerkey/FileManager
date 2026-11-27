@@ -11,6 +11,7 @@ use gpui::{px, size, AppContext as _, Entity, Modifiers, TestAppContext, VisualT
 use gpui_component::{Root, ThemeMode};
 
 use super::{confirm_spec, ScheduleView};
+use crate::jobs::{WorkerGate, WorkerGateHandle};
 use crate::platform::fake::{FakePlatform, PlatformCall};
 use crate::platform::{self, PickError};
 use crate::tools::schedule::backend::ScheduleBackend;
@@ -28,6 +29,16 @@ fn open(
     cx: &mut TestAppContext,
     backend: impl ScheduleBackend,
 ) -> (Screen, &mut VisualTestContext) {
+    open_with(cx, backend, false).0
+}
+
+/// `gated`: the worker gate is closed, so the model is still loading; the
+/// handle opens it.
+fn open_with(
+    cx: &mut TestAppContext,
+    backend: impl ScheduleBackend,
+    gated: bool,
+) -> ((Screen, &mut VisualTestContext), Option<WorkerGateHandle>) {
     cx.executor().allow_parking();
     let fake = FakePlatform::new();
     let installed = fake.clone();
@@ -36,6 +47,7 @@ fn open(
         crate::theme::apply(ThemeMode::Light, cx);
         platform::set_platform(cx, installed);
     });
+    let handle = gated.then(|| cx.update(WorkerGate::install_closed));
     let made: std::rc::Rc<std::cell::RefCell<Option<_>>> = std::rc::Rc::default();
     let out = made.clone();
     let (_root, vcx) = cx.add_window_view(move |window, cx| {
@@ -50,8 +62,10 @@ fn open(
     vcx.run_until_parked();
     let (model, view) = made.borrow_mut().take().expect("view created");
     let screen = Screen { model, view, fake };
-    idle(vcx);
-    (screen, vcx)
+    if !gated {
+        idle(vcx);
+    }
+    ((screen, vcx), handle)
 }
 
 /// Runs the executor until the worker threads have answered.
@@ -399,4 +413,33 @@ fn retry_after_load_failure(cx: &mut TestAppContext) {
     assert!(!has(cx, "schedule-retry"));
     assert!(has(cx, "schedule-text-input"));
     assert_eq!(field(&s, cx, Slot::Text), TEXT);
+}
+
+#[gpui::test]
+fn loading_renders_header_only(cx: &mut TestAppContext) {
+    let body = [
+        "schedule-text-input",
+        "schedule-xml-input",
+        "schedule-apply",
+    ];
+    let ((s, cx), gate) = open_with(cx, FixtureSchedule::ready(), true);
+    let gate = gate.expect("gate installed");
+    cx.run_until_parked();
+    assert!(
+        s.model.read_with(cx, |m, _| m.loading()),
+        "gate closed: loading"
+    );
+    assert!(has(cx, "schedule-header"), "header while loading");
+    crate::app::tests::assert_header_only(cx, "schedule-page", "schedule-header");
+    for name in body {
+        assert!(!has(cx, name), "{name} drawn while loading");
+    }
+
+    gate.open();
+    idle(cx);
+    assert!(!s.model.read_with(cx, |m, _| m.loading()), "loaded");
+    assert!(has(cx, "schedule-header"));
+    for name in body {
+        assert!(has(cx, name), "{name} missing once loaded");
+    }
 }

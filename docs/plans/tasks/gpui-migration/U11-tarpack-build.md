@@ -128,6 +128,16 @@ Extend `SHORTCUT_ROWS` (U9) only if M7b's `text.rs` holds a different
 list; the Ctrl+E row shows only in developer mode; Ctrl+Alt+Shift+D is never
 listed.
 
+**Escape with the table focused (from the U10 review, 2026-11-26).**
+`DataTable` consumes Escape to clear its selection before the key reaches
+the view, so "Escape dismisses the drop result, else the build result" does
+not fire while the table has focus. Do one of these, and say which in the PR:
+
+- bind Escape for dismiss at a key context above the table, with priority;
+- or let Escape through when the table has no selection.
+
+Test: `escape_dismisses_result_with_table_focused`.
+
 **Focus targets (after the U9 review, 2026-11-23).**
 U9's `TarpackView` (`view/mod.rs`) has `follow_focus_hint` and the focus
 handles `reload_focus`, `result_focus` and `after_result_focus`.

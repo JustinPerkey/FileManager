@@ -1,7 +1,49 @@
 # U10 — Tar Packager: the entry table
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21). U10 landed as ced769f and is approved on condition of item 1 of "Review follow-up"; the next run does only that section.
 Project: gpui-migration   Depends on: U9 (landed), M7a (landed)
+
+## Review follow-up (2026-11-26)
+
+**The next run does only this section.** Item 1 is the condition of
+approval.
+
+1. **Column x positions: reserve today's scrollbar gutter.**
+   - At 1366×800, the columns sit up to 15 px off the acceptance positions
+     (216, 332, 534, 737, 939, 1071, 1151). Today's `.tarpack` has
+     `scrollbar-gutter: stable` (`apps/desktop/src/styles/tarpack.css`,
+     line 8), which reserves about 15 px on the right. GPUI's scrollbars
+     overlay the content instead.
+   - The look must match today, so reserve the same gutter on the right of
+     the Tar Packager's tool view: a right padding of the scrollbar's width,
+     from a `theme::tokens` constant (add `SCROLLBAR_GUTTER` in the theme
+     task's style if none exists, valued at today's 15 px). No pixel literal
+     in the view.
+   - No other tool view had a gutter today (`tarpack.css` is the only
+     stylesheet with one), so this applies to the Tar Packager only.
+   - Test: `column_x_positions_match_today_with_sidebar`. The full shell at
+     1366×800 with the sidebar, the `ready` fixture; each column's left edge
+     (by debug selector or tag) is within 2 px of 216, 332, 534, 737, 939,
+     1071 and 1151. `column_widths_follow_width` has no sidebar, so it
+     cannot catch this.
+2. **(P3) Tab skips the table while a build runs.** Add
+   `tab_skips_the_table_while_building`. It drives Tab through the view with
+   a build running (the `Slow`/building fixture), and asserts that focus
+   never lands in the table. Reading the `tab_stop` flag alone is not
+   enough.
+
+**Recorded (accepted, as built):**
+
+- A row's tooltip uses the **source** name; its accessible name uses the
+  **target** path.
+- Clear is **absent**, not disabled, on an unassigned row.
+- Rows carry no `.tag`.
+- U10 edited outside its file list, and both edits are accepted:
+  - `FmButton::accessible_name` (`widgets/button.rs`), which is U5b's item
+    (b);
+  - `tab_stop(false)` support on the table widget.
+- Moving the table copy into `text.rs` is a backend task:
+  `M7c-tarpack-table-copy.md`.
 
 ## Goal
 

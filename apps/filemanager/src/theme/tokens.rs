@@ -99,6 +99,11 @@ pub const SPACE_3: f32 = 12.0;
 pub const SPACE_4: f32 = 16.0;
 pub const SPACE_5: f32 = 24.0;
 pub const SPACE_6: f32 = 32.0;
+/// The width today's `scrollbar-gutter: stable` reserves on the right of a
+/// scrolling view (about 15 px). GPUI's scrollbars overlay the content, so a
+/// view that had the gutter pads its right edge by this much to keep its
+/// columns where they were.
+pub const SCROLLBAR_GUTTER: f32 = 15.0;
 /// `--radius`, px.
 pub const RADIUS: f32 = 6.0;
 /// Type sizes in rem (1 rem = 16 px): `--font-size-sm/md/lg/xl`.
