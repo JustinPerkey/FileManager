@@ -742,13 +742,23 @@ fn keys_inert_while_building(cx: &mut TestAppContext) {
 
     start_build(vcx, &host);
     let picks = host.platform.calls().len();
-    let before = host.backend.calls().len();
+    // The build job records its own calls (`BuildRun`) on its worker thread,
+    // at a time the test does not control, so count only the calls the keys
+    // could cause: a Clear or an Assign.
+    let edits = |host: &Host| {
+        host.backend
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, Call::Clear(_) | Call::Assign(..)))
+            .count()
+    };
+    let before = edits(&host);
     for key in ["down", "down", "end", "enter", "delete"] {
         press(vcx, key);
     }
     assert_eq!(selected_row(vcx, &host), Some(0), "the selection stays");
     assert_eq!(host.platform.calls().len(), picks, "no Browse");
-    assert_eq!(host.backend.calls().len(), before, "no Clear");
+    assert_eq!(edits(&host), before, "no Clear");
     assert!(!tab_stop(vcx), "the table leaves the Tab order");
 
     host.backend.release_build();
