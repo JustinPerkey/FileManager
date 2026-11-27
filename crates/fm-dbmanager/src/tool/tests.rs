@@ -253,8 +253,10 @@ fn recent_databases_persisted_and_restored() {
 #[test]
 fn failed_restore_warns_and_keeps_entry() {
     let fx = Fx::example();
-    let mut core = fx.core();
-    core.open(&fx.db).unwrap();
+    {
+        let mut core = fx.core();
+        core.open(&fx.db).unwrap();
+    }
     fs::remove_file(&fx.db).unwrap();
 
     let mut again = fx.core();
@@ -623,9 +625,10 @@ fn display_root_maps_paths() {
         .with_display_root(fx.dir.path(), Path::new("/fixture"));
     core.open(&fx.db).unwrap();
     let s = core.session();
+    // The root is kept as given; only the appended part uses the platform separator.
     assert_eq!(
         s.database.unwrap().display,
-        "/fixture/t.db".replace('/', std::path::MAIN_SEPARATOR_STR)
+        format!("/fixture{}t.db", std::path::MAIN_SEPARATOR)
     );
     assert_eq!(s.recent.len(), 1);
 }
