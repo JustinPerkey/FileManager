@@ -15,19 +15,28 @@ of approval.
 2. **"No config" is said once.** The Info banner uses
    `text::CONFIG_MISSING`, and the config line uses
    `copy::CONFIG_MISSING_LINE`, so the same fact appears twice.
-   - **Decision pending from the ui-designer** (through the coordinator).
-     The options:
-     - (a) keep the config line as the status, and give the banner another
-       job (for example, the banner only when the missing config is news,
-       after a reload);
-     - (b) drop the banner;
-     - (c) drop the line.
-
-     The chosen option is recorded here before this run starts. **If it is
-     not recorded, stop and report.**
-   - Either way, each sentence has exactly **one** source string, in
-     `text.rs`. If `text.rs` lacks one, the backend task
-     `M12e-dbmanager-view-copy.md` adds it; report the gap.
+   - **Decision (ui-designer, 2026-11-27): (b), drop the banner.** The
+     config line is the one place that says it. A missing config is the
+     normal state wherever no administrator has set one up. A banner that
+     comes back on every run would be noise in a tool people use all day,
+     and the user cannot act on it, because the config's location is fixed
+     and not theirs to choose. The line is always visible, also in the
+     empty state, so nothing is lost.
+   - The one sentence, final wording, has one source, `text::CONFIG_MISSING`:
+     "No config file: everything is editable unless the database prevents it."
+     This is the current config line's wording, which is the accurate one:
+     forced read-only columns and read-only databases still apply.
+   - **Gap for the backend (`M12e-dbmanager-view-copy.md`):** change the
+     value of the existing `text::CONFIG_MISSING` to that sentence. No new
+     constant. `text::config_notice` keeps returning it for `Missing`.
+   - View changes: the config line uses `text::CONFIG_MISSING`; delete
+     `copy::CONFIG_MISSING_LINE`, the no-config banner (`Kind::NoConfig`,
+     `db-banner-no-config` / `db-no-config-banner`, `no_config_dismissed`)
+     and the test `no_config_banner_dismisses_for_the_run`. The banner order
+     in "Layout" item 2 loses its "no config file" entry. `config_line_per_status`
+     asserts `text::CONFIG_MISSING` for the missing fixture, and
+     `banners_in_fixed_order` asserts that no banner shows for a missing
+     config.
 3. **Latch revert check.** `held_key_does_not_repeat` counts Ctrl+O picks,
    but `DialogGate` may already swallow the repeats, so the test might pass
    without the latch.
@@ -139,8 +148,7 @@ View padding 16/24; regions 12 px apart, top to bottom:
    **Keyboard shortcuts** (quiet, last). (Edit config comes in U12.)
 2. **Banners**, 8 px apart, in this fixed order: command error (`error()`,
    Error, Details, dismissible, re-shown on a new generation); config failed
-   closed (Error, not dismissible); no config file (Info, dismissible for
-   the app run: keep the dismissal in the view); config changed on disk
+   closed (Error, not dismissible); config changed on disk
    (`config_changed`, Warn, action **Reload**); read-only database (Warn);
    state warning (Warn, dismissible). (Schema changed and notices come in
    U6/U12.)
@@ -232,7 +240,7 @@ None here; U14 critiques the screenshots.
 a temp database, `FakePlatform`): `renders_nothing_open_with_recent`,
 `renders_open_database_header`, `config_line_per_status` (loaded, missing,
 fail-closed fixtures), `banners_in_fixed_order`,
-`no_config_banner_dismisses_for_the_run`, `config_problems_expand_with_f8`,
+`config_problems_expand_with_f8`,
 `open_and_recent_call_model` (`FakePlatform` logs the pick),
 `reload_shortcut_needs_database`.
 
