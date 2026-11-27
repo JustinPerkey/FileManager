@@ -2659,6 +2659,36 @@ fn delete_conflict_shows_current(cx: &mut TestAppContext) {
         "the sheet shows the current object"
     );
     assert!(read(cx, &model, |m| m.error().is_none()));
+    assert!(read(cx, &model, |m| m.conflict().is_none()), "clean draft");
+    // A dirty draft is kept, and the conflict panel is raised against current.
+    type_in(cx, &model, "name", "My Edit");
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    env.exec("UPDATE member SET name = 'Changed Again' WHERE id = 2");
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.delete_state().is_none()), "closes");
+    assert!(
+        matches!(
+            read(cx, &model, |m| m.notice().cloned()),
+            Some(Notice::DeleteConflict { .. })
+        ),
+        "the notice"
+    );
+    assert!(dirty(cx, &model), "the edits survive");
+    let panel = read(cx, &model, |m| m.conflict().cloned()).expect("the conflict panel");
+    assert!(
+        panel
+            .diff
+            .fields
+            .iter()
+            .any(|f| f.yours == "My Edit" && f.now == "Changed Again"),
+        "against current"
+    );
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        1
+    );
 }
 
 #[gpui::test]
@@ -2693,6 +2723,45 @@ fn delete_config_changed_reruns_preview(cx: &mut TestAppContext) {
         db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
         0
     );
+}
+
+#[gpui::test]
+fn delete_config_changed_rechecks_draft(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "331");
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    env.edit_config_book_pages_read_only();
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert!(
+        read(cx, &model, |m| m.draft().unwrap().input("pages").is_none()),
+        "the draft follows the new rules"
+    );
+}
+
+#[gpui::test]
+fn save_blocked_while_link_reread_in_flight(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "331");
+    assert_eq!(read(cx, &model, DbmanagerModel::save_blocked_reason), None);
+    act(cx, &model, |m, cx| {
+        m.begin_link_conflict(
+            fm_dbmanager::session::LinkRef {
+                relation: CONTRIB.to_owned(),
+                other: rowid(2),
+            },
+            cx,
+        );
+    });
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::save_blocked_reason),
+        Some(text::REASON_LINK_CHECK)
+    );
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, DbmanagerModel::save_blocked_reason), None);
 }
 
 #[gpui::test]

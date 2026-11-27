@@ -36,6 +36,8 @@ pub const DROP_LABEL: &str = "Drop one database file";
 pub const REASON_SAVING: &str = "Wait for the save to finish";
 /// Why Save is refused while the conflict panel is up.
 pub const REASON_CONFLICT: &str = "Resolve the conflict first.";
+/// Why Save is refused while a link conflict's re-read is in flight.
+pub const REASON_LINK_CHECK: &str = "Checking the link that changed\u{2026}";
 /// Why Save is refused while the delete confirmation is up.
 pub const REASON_DELETE: &str = "Finish or cancel the delete first.";
 

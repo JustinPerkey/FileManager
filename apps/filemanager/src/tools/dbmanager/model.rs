@@ -505,6 +505,8 @@ pub struct DbmanagerModel {
     /// Link conflicts waiting for an answer, by relation.
     link_conflicts: Vec<LinkConflict>,
     link_conflict_seq: u64,
+    /// A link conflict's one-option re-read is in flight.
+    link_reread: bool,
     delete: Option<DeleteState>,
     delete_target: Option<DeleteTarget>,
     delete_seq: u64,
@@ -547,6 +549,7 @@ impl DbmanagerModel {
             recheck_seq: 0,
             link_conflicts: Vec::new(),
             link_conflict_seq: 0,
+            link_reread: false,
             delete: None,
             delete_target: None,
             delete_seq: 0,
@@ -1594,6 +1597,8 @@ impl DbmanagerModel {
             Some(text::REASON_DELETE)
         } else if self.write_in_progress {
             Some(text::REASON_SAVING)
+        } else if self.link_reread {
+            Some(text::REASON_LINK_CHECK)
         } else {
             None
         }
@@ -2470,12 +2475,13 @@ impl DbmanagerModel {
     /// A save met a link another program changed: reads that one option and
     /// the relation's page again, then sets the user's change to it aside.
     /// Every other edit stays.
-    fn begin_link_conflict(&mut self, link: LinkRef, cx: &mut Context<Self>) {
+    pub(super) fn begin_link_conflict(&mut self, link: LinkRef, cx: &mut Context<Self>) {
         let Place::Object { table, key, .. } = self.place().clone() else {
             return;
         };
         self.link_conflict_seq += 1;
         let seq = self.link_conflict_seq;
+        self.link_reread = true;
         let query = M2mQuery {
             search: None,
             offset: 0,
@@ -2509,6 +2515,7 @@ impl DbmanagerModel {
         if seq != self.link_conflict_seq {
             return;
         }
+        self.link_reread = false;
         match result {
             Ok(Ok(page)) => {
                 let now = page.items.into_iter().find(|o| &o.key == other);
@@ -2819,6 +2826,8 @@ impl DbmanagerModel {
                 self.delete = Some(DeleteState::Checking {
                     label: dialog.label.clone(),
                 });
+                // The draft's inline issues follow the new rules at once.
+                self.recheck(Recheck::Reload, cx);
                 let (table, key) = (dialog.table, dialog.key);
                 self.request(
                     move |b| {
@@ -2848,7 +2857,24 @@ impl DbmanagerModel {
                     Some(current) if open => {
                         let table = dialog.table.clone();
                         self.object_seq = self.next_seq();
-                        self.apply_view(&table, *current, true, cx);
+                        if self.dirty() {
+                            // Nothing was deleted: the edits stay, and the
+                            // conflict panel is raised as on a save.
+                            if let Some(draft) = self.draft.as_ref() {
+                                let diff = draft.conflict_diff(&current);
+                                let label = match self.draft_label() {
+                                    l if l.is_empty() => current.label.clone(),
+                                    l => l,
+                                };
+                                self.conflict = Some(ConflictPanel {
+                                    label,
+                                    current: *current,
+                                    diff,
+                                });
+                            }
+                        } else {
+                            self.apply_view(&table, *current, true, cx);
+                        }
                         self.notice = Some(Notice::DeleteConflict {
                             label: dialog.label,
                         });
