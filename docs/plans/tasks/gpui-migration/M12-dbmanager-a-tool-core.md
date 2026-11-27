@@ -13,6 +13,39 @@ places, history, lists, objects, "referenced by" and many-to-many pages,
 with copy and fixtures. Writes come in parts B and C, config watching in
 part D.
 
+## Windows CI follow-up (2026-11-27)
+
+PR #44's Windows CI fails two tests in `crates/fm-dbmanager/src/tool/tests.rs`.
+**This run fixes only these tests,** and test code only. The M12c
+implementer works in the same crate, so touch nothing else.
+
+1. **`display_root_maps_paths`** (around line 626). Left is
+   `"/fixture\t.db"`, right is `"\fixture\t.db"`. The test builds its
+   expectation by replacing every `/` with `MAIN_SEPARATOR`, but the code
+   keeps the display root **as given**.
+   - **Decision: the display root is kept as given.** It is a fixture's fake
+     display path, written in the form the screenshots should show. Only
+     the part appended to it uses the platform separator.
+   - Fix the **test**: build the expectation as the root string unchanged,
+     followed by the appended components joined with `MAIN_SEPARATOR`. The
+     code is unchanged. It must pass on both Linux and Windows.
+2. **`failed_restore_warns_and_keeps_entry`** (around line 258).
+   `fs::remove_file(&fx.db)` fails on Windows with OS error 32 (the file is
+   in use), because the first `Core` still has the database open.
+   - Drop the first `Core` (and anything holding its `Session`) before
+     deleting the file, for example by scoping it in a block or calling
+     `drop(core)`.
+   - **Check the others:** grep `crates/fm-dbmanager/src/tool/tests.rs` and
+     `apps/filemanager/src/tools/dbmanager/tests.rs` for
+     `remove_file`, `rename`, `remove_dir` and `fs::write` over a database
+     or config file that a live `Core`, `Session` or model may still hold
+     open. Fix each the same way, and list them in the PR. (Rewriting a
+     config file while it is open for reading is fine on Windows; deleting
+     or renaming an open database is not.)
+
+Acceptance: both tests, and any others found, pass on the Windows CI job;
+the Linux job stays green; no non-test code changes.
+
 ## Review follow-up (2026-11-26)
 
 The review of 0ec70dc found one P2. **The next run does only this section.**
