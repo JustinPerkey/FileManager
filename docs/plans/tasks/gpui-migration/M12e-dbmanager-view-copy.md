@@ -33,10 +33,10 @@ open).
 
    The view imports them; remove the copies in `view/copy.rs`. Move their
    tests, if any, to `tools/dbmanager/tests.rs` under the same names.
-2. **Strings the U2 follow-up needs:** if dbmanager U2's follow-up records a
-   decision about the missing-config banner and line that needs a new
-   string, add it here, in `text.rs`, with a test. If no decision is
-   recorded yet, skip this item and say so in the PR.
+2. **The missing-config line (dbmanager U2's item 2, decided 2026-11-27:
+   the banner is dropped).** Change the value of `text::CONFIG_MISSING` to
+   "No config file: everything is editable unless the database prevents
+   it." No new constant is needed. Update any test that pins the old text.
 3. **`dismiss_state_warning(&mut self, cx)`:** hides the current
    `state_warning` text until a different one arrives, as the Tar
    Packager's does. Test: `state_warning_dismissal_sticks_until_it_changes`.
