@@ -64,14 +64,14 @@ fn backend_for(cx: &App) -> Box<dyn TarpackBackend> {
     }
 }
 
-pub(super) fn slot(_window: &mut Window, cx: &mut App) -> ToolSlot {
+pub(super) fn slot(window: &mut Window, cx: &mut App) -> ToolSlot {
     let backend = backend_for(cx);
     let model = cx.new(|cx| TarpackModel::new(backend, cx));
     ToolSlot {
         id: ToolId::Tarpack,
         label: "Tar Packager",
         view: cx
-            .new(|cx| view::TarpackView::new(model.clone(), cx))
+            .new(|cx| view::TarpackView::new(model.clone(), window, cx))
             .into(),
         hooks: Box::new(Hooks { model }),
     }

@@ -47,7 +47,7 @@ fn open(cx: &mut TestAppContext, backend: FixtureTarpack) -> (Host, &mut VisualT
     let boxed = backend.clone();
     let (_root, vcx) = cx.add_window_view(|window, cx| {
         let model = cx.new(|cx| TarpackModel::new(Box::new(boxed), cx));
-        let view = cx.new(|cx| TarpackView::new(model.clone(), cx));
+        let view = cx.new(|cx| TarpackView::new(model.clone(), window, cx));
         parts = Some((model, view.clone()));
         Root::new(view, window, cx)
     });
@@ -1037,4 +1037,802 @@ fn display_folder_shows_a_lossy_folder_as_is() {
         Some("C:\\o\u{FFFD}t")
     );
     assert_eq!(display_folder("a.tar"), None);
+}
+
+// ---- the build side (U11) ----
+
+/// Runs everything queued until `done` holds of the model.
+fn wait_until(
+    cx: &mut VisualTestContext,
+    host: &Host,
+    what: &str,
+    done: impl Fn(&TarpackModel) -> bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        cx.run_until_parked();
+        if host.model.read_with(cx, |m, _| done(m)) {
+            settle(cx);
+            return;
+        }
+        assert!(Instant::now() < deadline, "never: {what}");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// Waits for a started build to end in a result or the confirmation.
+fn built(cx: &mut VisualTestContext, host: &Host) {
+    wait_until(cx, host, "the build ends", |m| {
+        !m.building() && (m.result().is_some() || m.confirming_overwrite().is_some())
+    });
+}
+
+fn build_calls(host: &Host) -> usize {
+    host.backend
+        .calls()
+        .iter()
+        .filter(|c| matches!(c, Call::BuildRun { .. }))
+        .count()
+}
+
+fn is_focused(vcx: &mut VisualTestContext, handle: &gpui::FocusHandle) -> bool {
+    vcx.update(|window, _| handle.is_focused(window))
+}
+
+fn key_down(cx: &mut VisualTestContext, key: &str, is_held: bool) {
+    let keystroke = cx
+        .update(|_, cx| gpui::Keystroke::parse_with_os(key, cx.platform_info().os))
+        .expect("keystroke");
+    cx.simulate_event(gpui::KeyDownEvent {
+        keystroke,
+        is_held,
+        prefer_character_input: false,
+    });
+    cx.run_until_parked();
+}
+
+fn key_up(cx: &mut VisualTestContext, key: &str) {
+    let keystroke = cx
+        .update(|_, cx| gpui::Keystroke::parse_with_os(key, cx.platform_info().os))
+        .expect("keystroke");
+    cx.simulate_event(gpui::KeyUpEvent { keystroke });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn bar_shows_reason_or_note(cx: &mut TestAppContext) {
+    // Nothing assigned and no output: the reason, not the note.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Loaded);
+    assert!(has(vcx, "tarpack-build-bar"));
+    for name in ["tarpack-choose-output", "tarpack-format", "tarpack-build"] {
+        assert!(has(vcx, name), "{name}");
+    }
+    assert!(has(vcx, "tarpack-build-reason"));
+    assert!(!has(vcx, "tarpack-build-note"));
+    assert!(!has(vcx, "tarpack-show-errors"));
+    assert!(!has(vcx, "tarpack-progress"));
+    assert!(host.model.read_with(vcx, |m, _| m.build_reason().is_some()));
+    // The disabled button builds nothing.
+    click(vcx, "tarpack-build");
+    assert_eq!(build_calls(&host), 0);
+
+    // Everything ready: neither.
+    let (_host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    assert!(!has(vcx, "tarpack-build-reason"));
+    assert!(!has(vcx, "tarpack-build-note"));
+
+    // Errors: the note says what a build leaves out, and Show errors is there.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Errors);
+    assert!(has(vcx, "tarpack-build-note"));
+    assert!(!has(vcx, "tarpack-build-reason"));
+    assert!(host
+        .model
+        .read_with(vcx, |m, _| m.left_out_note().is_some()));
+    act(vcx, &host, |m, cx| m.set_errors_expanded(false, cx));
+    click(vcx, "tarpack-show-errors");
+    assert!(has(vcx, "tarpack-errors-report"), "Show errors opens it");
+
+    // No manifest: the bar is there, its output controls are not usable.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Empty);
+    assert!(has(vcx, "tarpack-build-bar"));
+    click(vcx, "tarpack-choose-output");
+    assert_eq!(host.platform.calls(), Vec::<PlatformCall>::new());
+}
+
+#[gpui::test]
+fn bar_stays_under_the_table_and_result(cx: &mut TestAppContext) {
+    let (_host, vcx) = open_fixture(cx, TarpackFixture::Result);
+    click(vcx, "tarpack-build");
+    let bar = bounds(vcx, "tarpack-build-bar");
+    // Edge to edge, at the bottom of the window.
+    assert_eq!(bar.left(), px(0.0));
+    assert_eq!(bar.right(), px(1100.0));
+    assert_eq!(bar.bottom(), px(800.0));
+    assert!(bar.top() >= bounds(vcx, "tarpack-table").bottom());
+}
+
+#[gpui::test]
+fn choose_output_calls_model(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    click(vcx, "tarpack-choose-output");
+    wait_for_calls(vcx, &host, 1);
+    assert!(matches!(
+        host.platform.calls()[0],
+        PlatformCall::PickSave(_)
+    ));
+}
+
+#[gpui::test]
+fn format_select_by_keyboard(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    let before = host
+        .model
+        .read_with(vcx, |m, _| m.session().expect("session").format);
+    // Focus is on Choose; the next tab stop is the format select.
+    let first = host
+        .view
+        .read_with(vcx, |v, _| v.after_result_focus.clone());
+    vcx.update(|window, cx| window.focus(&first, cx));
+    tab(vcx);
+    press(vcx, "enter");
+    press(vcx, "down");
+    press(vcx, "enter");
+    idle(vcx, &host);
+    let set: Vec<_> = host
+        .backend
+        .calls()
+        .into_iter()
+        .filter_map(|c| match c {
+            Call::SetFormat(f) => Some(f),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(set.len(), 1, "one format picked");
+    assert_ne!(set[0], before);
+    let after = host
+        .model
+        .read_with(vcx, |m, _| m.session().expect("session").format);
+    assert_eq!(after, set[0]);
+}
+
+#[gpui::test]
+fn build_click_and_ctrl_enter_build(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Result);
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    assert_eq!(build_calls(&host), 1);
+    assert!(has(vcx, "tarpack-build-result"));
+    click(vcx, "tarpack-result-dismiss");
+    assert!(!has(vcx, "tarpack-build-result"));
+    press(vcx, "ctrl-enter");
+    built(vcx, &host);
+    assert_eq!(build_calls(&host), 2, "Ctrl+Enter builds");
+    assert!(has(vcx, "tarpack-build-result"));
+}
+
+#[gpui::test]
+fn progress_renders_fraction(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Building);
+    click(vcx, "tarpack-build");
+    wait_until(vcx, &host, "progress", |m| m.progress().is_some());
+    assert!(has(vcx, "tarpack-progress"));
+    assert!(
+        !has(vcx, "tarpack-build-reason"),
+        "no reason while building"
+    );
+    let fraction = host.model.read_with(vcx, |m, _| {
+        crate::tools::tarpack::text::progress_fraction(m.progress())
+    });
+    assert!(fraction > 0.0 && fraction < 1.0, "midway: {fraction}");
+    let track = bounds(vcx, "tarpack-progress-track");
+    let fill = bounds(vcx, "tarpack-progress-fill");
+    let drawn = f32::from(fill.size.width) / f32::from(track.size.width);
+    assert!((drawn - fraction).abs() < 0.02, "{drawn} vs {fraction}");
+    // The settings are off while it runs.
+    let calls = host.platform.calls().len();
+    click(vcx, "tarpack-choose-output");
+    assert_eq!(host.platform.calls().len(), calls);
+    host.backend.release_build();
+    built(vcx, &host);
+    assert!(!has(vcx, "tarpack-progress"));
+    assert!(has(vcx, "tarpack-build-result"));
+}
+
+#[gpui::test]
+fn overwrite_dialog_replace_and_cancel(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Replace);
+    let create = host.view.read_with(vcx, |v, _| v.create_focus.clone());
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    assert!(has(vcx, "dialog-cancel"), "the confirmation is open");
+    assert!(has(vcx, "dialog-confirm"));
+    assert!(host
+        .model
+        .read_with(vcx, |m, _| m.confirming_overwrite().is_some()));
+    // The dialog starts on Cancel: Enter cancels, and focus lands on Create.
+    press(vcx, "enter");
+    assert!(!has(vcx, "dialog-cancel"));
+    assert!(host
+        .model
+        .read_with(vcx, |m, _| m.confirming_overwrite().is_none()));
+    assert_eq!(build_calls(&host), 1, "nothing was replaced");
+    assert!(is_focused(vcx, &create), "Create archive has focus again");
+
+    // Escape cancels too.
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    press(vcx, "escape");
+    assert!(!has(vcx, "dialog-cancel"));
+    assert_eq!(build_calls(&host), 2);
+
+    // Replace builds again, with overwrite.
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    click(vcx, "dialog-confirm");
+    built(vcx, &host);
+    assert!(!has(vcx, "dialog-confirm"));
+    assert_eq!(
+        host.backend
+            .calls()
+            .into_iter()
+            .filter(|c| matches!(c, Call::BuildRun { overwrite: true }))
+            .count(),
+        1
+    );
+    assert!(has(vcx, "tarpack-build-result"));
+}
+
+#[gpui::test]
+fn result_success_partial_failure_render(cx: &mut TestAppContext) {
+    // Success: path, SHA, Show in folder; clean, so no Copy report.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Result);
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    for name in [
+        "tarpack-build-result",
+        "tarpack-result-path",
+        "tarpack-result-sha",
+        "tarpack-copy-sha",
+        "tarpack-reveal",
+        "tarpack-result-dismiss",
+    ] {
+        assert!(has(vcx, name), "{name}");
+    }
+    assert!(!has(vcx, "tarpack-copy-report"));
+    assert!(!has(vcx, "tarpack-build-report"));
+    // It sits between the table and the bar.
+    let result = bounds(vcx, "tarpack-build-result");
+    assert!(result.top() >= bounds(vcx, "tarpack-table").bottom());
+    assert!(result.bottom() <= bounds(vcx, "tarpack-build-bar").top());
+    click(vcx, "tarpack-reveal");
+    wait_for_calls(vcx, &host, 1);
+    assert!(matches!(host.platform.calls()[0], PlatformCall::Reveal(_)));
+
+    // Partial: Copy report appears.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::ResultPartial);
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    assert!(has(vcx, "tarpack-copy-report"));
+
+    // Entries with errors: the report, and its warnings open on a click.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Errors);
+    resize(vcx, 1100.0, 1600.0);
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    assert!(has(vcx, "tarpack-build-report"));
+    assert!(has(vcx, "tarpack-copy-report"));
+    assert!(has(vcx, "tarpack-build-warnings-toggle"));
+    assert!(!host.view.read_with(vcx, |v, _| v.result_ui.warnings_open));
+    click(vcx, "tarpack-build-warnings-toggle");
+    assert!(host.view.read_with(vcx, |v, _| v.result_ui.warnings_open));
+    // The report scrolls inside itself, at most 40% of the window.
+    let report = bounds(vcx, "tarpack-build-report");
+    assert!(report.size.height <= px(1600.0 * 0.4 + 1.0));
+
+    // A failure: no archive, no Reveal; the message sits in Details.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    host.backend
+        .fail_build(TarpackError::new(TarpackErrorKind::Io, "the disk is full"));
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    assert!(has(vcx, "tarpack-build-result"));
+    assert!(!has(vcx, "tarpack-reveal"));
+    assert!(!has(vcx, "tarpack-copy-sha"));
+    assert!(!host.view.read_with(vcx, |v, _| v.result_ui.details_open));
+    click(vcx, "tarpack-build-details-toggle");
+    assert!(host.view.read_with(vcx, |v, _| v.result_ui.details_open));
+    click(vcx, "tarpack-result-dismiss");
+    assert!(!has(vcx, "tarpack-build-result"));
+    assert!(
+        !host.view.read_with(vcx, |v, _| v.result_ui.details_open),
+        "a new result starts closed"
+    );
+
+    // A panicked build: the unexpected result, Details too.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    host.backend.panic_in_build();
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    assert!(matches!(
+        host.model.read_with(vcx, |m, _| m.result().cloned()),
+        Some(crate::tools::tarpack::model::BuildOutcome::Unexpected { .. })
+    ));
+    assert!(has(vcx, "tarpack-build-details-toggle"));
+    assert!(!has(vcx, "tarpack-reveal"));
+}
+
+#[gpui::test]
+fn copy_buttons_copy_and_show_copied(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::ResultPartial);
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    let Some(crate::tools::tarpack::model::BuildOutcome::Ok(summary)) =
+        host.model.read_with(vcx, |m, _| m.result().cloned())
+    else {
+        panic!("a result");
+    };
+    let copied = |vcx: &mut VisualTestContext, host: &Host| {
+        host.view.read_with(vcx, |v, _| v.result_ui.copied)
+    };
+    assert_eq!(copied(vcx, &host), None);
+    click(vcx, "tarpack-copy-sha");
+    assert_eq!(
+        host.platform.calls(),
+        [PlatformCall::CopyText(summary.sha256_hex.clone())]
+    );
+    assert_eq!(copied(vcx, &host), Some(super::build_result::CopyKind::Sha));
+    click(vcx, "tarpack-copy-report");
+    assert_eq!(
+        host.platform.calls()[1],
+        PlatformCall::CopyText(crate::tools::tarpack::text::report_text(&summary))
+    );
+    assert_eq!(
+        copied(vcx, &host),
+        Some(super::build_result::CopyKind::Report),
+        "the note moves to the button just used"
+    );
+    // "Copied" goes after a moment.
+    vcx.executor().advance_clock(Duration::from_secs(3));
+    vcx.run_until_parked();
+    assert_eq!(copied(vcx, &host), None);
+}
+
+#[gpui::test]
+fn extraction_command_follows_dev_mode(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Result);
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    assert!(!has(vcx, "tarpack-copy-command"));
+    assert!(!has(vcx, "tarpack-result-command"));
+    vcx.update(|_, cx| DevMode::toggle(cx));
+    vcx.run_until_parked();
+    settle(vcx);
+    assert!(has(vcx, "tarpack-result-command"), "on in developer mode");
+    click(vcx, "tarpack-copy-command");
+    let command = host
+        .model
+        .read_with(vcx, |m, cx| m.extraction_command(cx).map(String::from))
+        .expect("a command");
+    assert_eq!(host.platform.calls(), [PlatformCall::CopyText(command)]);
+    vcx.update(|_, cx| DevMode::toggle(cx));
+    vcx.run_until_parked();
+    settle(vcx);
+    assert!(!has(vcx, "tarpack-result-command"));
+    assert!(!has(vcx, "tarpack-copy-command"));
+}
+
+#[gpui::test]
+fn shortcuts_respect_gating(cx: &mut TestAppContext) {
+    // No manifest: only Open acts.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Empty);
+    for key in ["f5", "ctrl-r", "ctrl-e", "ctrl-enter", "f8", "escape"] {
+        press(vcx, key);
+    }
+    assert!(!host.backend.calls().contains(&Call::Reload));
+    assert_eq!(build_calls(&host), 0);
+    assert_eq!(host.platform.calls(), Vec::<PlatformCall>::new());
+    press(vcx, "ctrl-o");
+    wait_for_calls(vcx, &host, 1);
+    assert!(matches!(host.platform.calls()[0], PlatformCall::Pick(_)));
+
+    // A manifest with errors: F5 and Ctrl+R reload, F8 opens the report,
+    // Ctrl+E waits for developer mode, Ctrl+Enter builds.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Errors);
+    let reloads = |host: &Host| {
+        host.backend
+            .calls()
+            .iter()
+            .filter(|c| **c == Call::Reload)
+            .count()
+    };
+    press(vcx, "f5");
+    idle(vcx, &host);
+    press(vcx, "ctrl-r");
+    idle(vcx, &host);
+    assert_eq!(reloads(&host), 2);
+    act(vcx, &host, |m, cx| m.set_errors_expanded(false, cx));
+    press(vcx, "f8");
+    assert!(has(vcx, "tarpack-errors-report"));
+    press(vcx, "ctrl-e");
+    assert!(host.platform.calls().is_empty(), "Edit is for developers");
+    vcx.update(|_, cx| DevMode::toggle(cx));
+    vcx.run_until_parked();
+    press(vcx, "ctrl-e");
+    wait_for_calls(vcx, &host, 1);
+    assert!(matches!(
+        host.platform.calls()[0],
+        PlatformCall::OpenWithSystem(_)
+    ));
+    vcx.update(|_, cx| DevMode::toggle(cx));
+    press(vcx, "ctrl-enter");
+    built(vcx, &host);
+    assert_eq!(build_calls(&host), 1);
+
+    // While a build runs, nothing acts.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Building);
+    press(vcx, "ctrl-enter");
+    wait_until(vcx, &host, "progress", |m| m.progress().is_some());
+    let calls = host.backend.calls().len();
+    let picks = host.platform.calls().len();
+    for key in ["f5", "ctrl-r", "ctrl-o", "f8", "ctrl-enter", "escape"] {
+        press(vcx, key);
+    }
+    assert_eq!(host.backend.calls().len(), calls);
+    assert_eq!(host.platform.calls().len(), picks);
+    host.backend.release_build();
+    built(vcx, &host);
+}
+
+#[gpui::test]
+fn held_key_acts_once(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Ready);
+    let reloads = |host: &Host| {
+        host.backend
+            .calls()
+            .iter()
+            .filter(|c| **c == Call::Reload)
+            .count()
+    };
+    key_down(vcx, "f5", false);
+    idle(vcx, &host);
+    for _ in 0..4 {
+        key_down(vcx, "f5", true);
+        idle(vcx, &host);
+    }
+    assert_eq!(reloads(&host), 1, "the repeats did nothing");
+    // Released, then pressed again: acts.
+    key_up(vcx, "f5");
+    key_down(vcx, "f5", false);
+    idle(vcx, &host);
+    assert_eq!(reloads(&host), 2);
+
+    // A held Escape dismisses one result, not the next.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Loaded);
+    host.backend.script_drop(drop_outcome());
+    act(vcx, &host, |m, cx| {
+        m.dropped(vec!["C:\\drops\\README.md".into()], cx);
+    });
+    idle(vcx, &host);
+    assert!(has(vcx, "tarpack-drop-result"));
+    key_down(vcx, "escape", false);
+    assert!(!has(vcx, "tarpack-drop-result"));
+    key_down(vcx, "escape", true);
+    assert!(!host.model.read_with(vcx, |m, cx| m
+        .shortcut(crate::tools::tarpack::model::Shortcut::Escape, cx)));
+}
+
+#[gpui::test]
+fn held_escape_does_not_dismiss_the_second_result(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Result);
+    host.backend.script_drop(drop_outcome());
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    act(vcx, &host, |m, cx| {
+        m.dropped(vec!["C:\\drops\\README.md".into()], cx);
+    });
+    idle(vcx, &host);
+    assert!(has(vcx, "tarpack-drop-result"));
+    assert!(has(vcx, "tarpack-build-result"));
+    key_down(vcx, "escape", false);
+    assert!(!has(vcx, "tarpack-drop-result"), "the drop result first");
+    assert!(has(vcx, "tarpack-build-result"));
+    key_down(vcx, "escape", true);
+    assert!(has(vcx, "tarpack-build-result"), "the repeat does nothing");
+    key_up(vcx, "escape");
+    key_down(vcx, "escape", false);
+    assert!(
+        !has(vcx, "tarpack-build-result"),
+        "a new press dismisses it"
+    );
+}
+
+#[gpui::test]
+fn escape_dismisses_result_with_table_focused(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Result);
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    focus_table(vcx, &host);
+    press(vcx, "down");
+    assert_eq!(selected_row(vcx, &host), Some(0));
+    // The table has focus and a selection: Escape still dismisses the result
+    // and leaves the selection alone.
+    press(vcx, "escape");
+    assert!(!has(vcx, "tarpack-build-result"));
+    assert_eq!(selected_row(vcx, &host), Some(0));
+    // With nothing to dismiss, Escape reaches the table and clears it.
+    press(vcx, "escape");
+    assert_eq!(selected_row(vcx, &host), None);
+}
+
+#[gpui::test]
+fn escape_ignored_while_help_open(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Result);
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    click(vcx, "tarpack-shortcuts");
+    assert!(has(vcx, "tarpack-shortcuts-popover"));
+    assert!(!host.model.read_with(vcx, |m, cx| m
+        .shortcut(crate::tools::tarpack::model::Shortcut::Escape, cx)));
+    press(vcx, "escape");
+    assert!(!has(vcx, "tarpack-shortcuts-popover"), "Escape closed it");
+    assert!(has(vcx, "tarpack-build-result"), "and only it");
+    press(vcx, "escape");
+    assert!(!has(vcx, "tarpack-build-result"), "the next one dismisses");
+}
+
+#[gpui::test]
+fn help_lists_rows_without_dev_chord(cx: &mut TestAppContext) {
+    let (_host, vcx) = open_fixture(cx, TarpackFixture::Loaded);
+    let listed = |vcx: &mut VisualTestContext| {
+        click(vcx, "tarpack-shortcuts");
+        let mut n = 0;
+        while has(vcx, format!("tarpack-shortcuts-action-{n}").leak()) {
+            n += 1;
+        }
+        press(vcx, "escape");
+        n
+    };
+    let plain = SHORTCUT_ROWS.iter().filter(|r| !r.dev_only).count();
+    assert_eq!(listed(vcx), plain, "Ctrl+E is not listed");
+    vcx.update(|_, cx| DevMode::toggle(cx));
+    vcx.run_until_parked();
+    assert_eq!(listed(vcx), SHORTCUT_ROWS.len(), "listed in developer mode");
+    for row in SHORTCUT_ROWS {
+        for chord in row.keys {
+            assert!(
+                !chord.contains(&"Alt") && !chord.contains(&"Shift"),
+                "the developer-mode chord is never listed"
+            );
+        }
+    }
+}
+
+#[gpui::test]
+fn after_result_focus_lands_on_build_bar_first_control(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Loaded);
+    host.backend.script_drop(drop_outcome());
+    act(vcx, &host, |m, cx| {
+        m.dropped(vec!["C:\\drops\\README.md".into()], cx);
+    });
+    idle(vcx, &host);
+    let mut guard = 0;
+    while !vcx.update(|window, cx| host.view.read(cx).result_focus.contains_focused(window, cx)) {
+        tab(vcx);
+        guard += 1;
+        assert!(guard < 12, "the result holds a tab stop");
+    }
+    click(vcx, "tarpack-drop-dismiss");
+    assert!(!has(vcx, "tarpack-drop-result"));
+    let first = host
+        .view
+        .read_with(vcx, |v, _| v.after_result_focus.clone());
+    assert!(is_focused(vcx, &first), "the bar's first control has focus");
+    // It is Choose: Enter asks for the output.
+    press(vcx, "enter");
+    wait_for_calls(vcx, &host, 1);
+    assert!(matches!(
+        host.platform.calls()[0],
+        PlatformCall::PickSave(_)
+    ));
+}
+
+#[gpui::test]
+fn reload_from_inside_build_result_focuses_reload(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Result);
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    let mut guard = 0;
+    while !vcx.update(|window, cx| {
+        host.view
+            .read(cx)
+            .build_result_focus
+            .contains_focused(window, cx)
+    }) {
+        tab(vcx);
+        guard += 1;
+        assert!(guard < 30, "the build result holds a tab stop");
+    }
+    act(vcx, &host, TarpackModel::reload);
+    idle(vcx, &host);
+    assert!(!has(vcx, "tarpack-build-result"));
+    let reload = host.view.read_with(vcx, |v, _| v.reload_focus.clone());
+    assert!(is_focused(vcx, &reload), "Reload has focus");
+}
+
+#[gpui::test]
+fn create_archive_hints_focus_the_button(cx: &mut TestAppContext) {
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Result);
+    let create = host.view.read_with(vcx, |v, _| v.create_focus.clone());
+    // A click on Create archive: focus is on it while it is disabled for the
+    // build, and is on it again when the result shows.
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    assert!(is_focused(vcx, &create));
+    // Dismiss, with focus on the Dismiss button: focus goes to Create.
+    let mut guard = 0;
+    while !vcx.update(|window, cx| {
+        host.view
+            .read(cx)
+            .build_result_focus
+            .contains_focused(window, cx)
+    }) {
+        tab(vcx);
+        guard += 1;
+        assert!(guard < 30, "the build result holds a tab stop");
+    }
+    assert!(!is_focused(vcx, &create));
+    act(vcx, &host, TarpackModel::dismiss_result);
+    assert!(is_focused(vcx, &create), "Create archive has focus again");
+    // Focus elsewhere stays there when the result is dismissed.
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    let reload = host.view.read_with(vcx, |v, _| v.reload_focus.clone());
+    vcx.update(|window, cx| window.focus(&reload, cx));
+    act(vcx, &host, TarpackModel::dismiss_result);
+    assert!(is_focused(vcx, &reload), "focus was not lost, so it stays");
+
+    // After the confirmation closes, Create archive takes focus whatever had it.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Replace);
+    let create = host.view.read_with(vcx, |v, _| v.create_focus.clone());
+    click(vcx, "tarpack-build");
+    built(vcx, &host);
+    click(vcx, "dialog-cancel");
+    assert!(is_focused(vcx, &create));
+}
+
+/// A view that draws one report.
+struct ReportHost {
+    summary: fm_tarpack::archive::BuildSummary,
+    focus: gpui::FocusHandle,
+}
+
+impl gpui::Render for ReportHost {
+    fn render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        use gpui::prelude::*;
+        gpui::div().size_full().children(super::report::report(
+            &self.summary,
+            false,
+            |_, _, _| {},
+            &self.focus,
+            window,
+            cx,
+        ))
+    }
+}
+
+fn summary_with(
+    left_out: Vec<fm_tarpack::manifest::EntryFailure>,
+    errors: Vec<fm_tarpack::manifest::Diagnostic>,
+    warnings: Vec<fm_tarpack::manifest::Diagnostic>,
+) -> fm_tarpack::archive::BuildSummary {
+    fm_tarpack::archive::BuildSummary {
+        path: "C:\\out\\gateway.tar.zst".to_string(),
+        format: fm_tarpack::format::ArchiveFormat::TarZst,
+        entries: 3,
+        files: 2,
+        dirs: 1,
+        bytes: 2048,
+        uncompressed_bytes: 4096,
+        sha256_hex: "ab".repeat(32),
+        extract_command: String::new(),
+        normalized_entries: Vec::new(),
+        built_ids: vec!["a".to_string()],
+        left_out,
+        not_loaded: Vec::new(),
+        manifest_errors: errors,
+        warnings,
+        error_count: 1,
+    }
+}
+
+fn show_report(
+    cx: &mut TestAppContext,
+    summary: fm_tarpack::archive::BuildSummary,
+) -> &mut VisualTestContext {
+    let (_root, vcx) = cx.add_window_view(|_, cx| ReportHost {
+        summary,
+        focus: cx.focus_handle(),
+    });
+    vcx.simulate_resize(size(px(900.0), px(600.0)));
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    vcx
+}
+
+#[gpui::test]
+fn report_sections_only_when_non_empty(cx: &mut TestAppContext) {
+    use fm_tarpack::manifest::{Diagnostic, EntryFailure, Severity};
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        crate::theme::apply(ThemeMode::Light, cx);
+    });
+    let diag = |line: u32, message: &str| Diagnostic {
+        severity: Severity::Error,
+        line,
+        col: 1,
+        entry_id: None,
+        message: message.to_string(),
+    };
+    let failure = |index: u32, id: Option<&str>| EntryFailure {
+        index,
+        id: id.map(str::to_string),
+        source: Some("a.bin".to_string()),
+        line: 4,
+        errors: vec![diag(5, "missing `dir`"), diag(6, "bad mode")],
+    };
+    // Nothing to report: nothing drawn.
+    let vcx = show_report(cx, summary_with(vec![], vec![], vec![]));
+    assert!(!has(vcx, "tarpack-build-report"));
+    // Left out (one with an id, one without) and manifest errors, no warnings.
+    let vcx = show_report(
+        cx,
+        summary_with(
+            vec![failure(1, Some("a")), failure(2, None)],
+            vec![diag(1, "unknown key")],
+            vec![],
+        ),
+    );
+    assert!(has(vcx, "tarpack-build-report"));
+    assert!(has(vcx, "tarpack-report-left-out"));
+    assert!(has(vcx, "tarpack-report-errors"));
+    assert!(!has(vcx, "tarpack-build-warnings-toggle"));
+    // Warnings only: the collapsed disclosure alone.
+    let vcx = show_report(
+        cx,
+        summary_with(vec![], vec![], vec![diag(3, "shared source")]),
+    );
+    assert!(has(vcx, "tarpack-build-report"));
+    assert!(has(vcx, "tarpack-build-warnings-toggle"));
+    assert!(!has(vcx, "tarpack-report-left-out"));
+    assert!(!has(vcx, "tarpack-report-errors"));
+}
+
+#[gpui::test]
+fn bar_tab_order_follows_the_buttons(cx: &mut TestAppContext) {
+    // Choose, Format, Show errors, Create archive.
+    let (host, vcx) = open_fixture(cx, TarpackFixture::Errors);
+    act(vcx, &host, |m, cx| m.set_errors_expanded(false, cx));
+    let create = host.view.read_with(vcx, |v, _| v.create_focus.clone());
+    let choose = host
+        .view
+        .read_with(vcx, |v, _| v.after_result_focus.clone());
+    vcx.update(|window, cx| window.focus(&choose, cx));
+    tab(vcx);
+    assert!(
+        !is_focused(vcx, &choose) && !is_focused(vcx, &create),
+        "the format select"
+    );
+    tab(vcx);
+    assert!(!is_focused(vcx, &create), "Show errors");
+    tab(vcx);
+    assert!(is_focused(vcx, &create), "Create archive");
+    // Show errors is between: Enter two stops back opens the report.
+    vcx.update(|window, cx| window.focus(&choose, cx));
+    tab(vcx);
+    tab(vcx);
+    press(vcx, "enter");
+    assert!(has(vcx, "tarpack-errors-report"), "that was Show errors");
 }

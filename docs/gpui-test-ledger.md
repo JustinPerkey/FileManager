@@ -203,9 +203,9 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| disabled reason: %s | U11 | model half: `tools::tarpack::tests::reason_and_left_out_note_cases` (the `build_reason` text, with `can_build`); the disabled button, its description and axe are the view's | open |
-| Show errors only with errors, and none when noEntries without errors | U11 | model half: `tools::tarpack::tests::shortcuts_gating_matches_today` (`Shortcut::ShowErrors` needs errors); whether the button is drawn is the view's | open |
-| ready with failed entries: enabled, note, Show errors before Create | U11 | model half: `tools::tarpack::tests::reason_and_left_out_note_cases`, `tools::tarpack::tests::shortcuts_gating_matches_today` (`left_out_note`, `can_build`); the order of the buttons is the view's | open |
+| disabled reason: %s | U11 | `tools::tarpack::view::tests::bar_shows_reason_or_note` (view half) | done |
+| Show errors only with errors, and none when noEntries without errors | U11 | `tools::tarpack::view::tests::bar_shows_reason_or_note` | done |
+| ready with failed entries: enabled, note, Show errors before Create | U11 | `tools::tarpack::view::tests::bar_shows_reason_or_note`, `tools::tarpack::view::tests::bar_tab_order_follows_the_buttons` | done |
 | plural left-out note | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
 | manifest errors only | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
 | one manifest error | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases` | done |
@@ -213,31 +213,31 @@ its heading's count.
 | a partial build is enabled and says how many files are not included | M7b | `tools::tarpack::tests::reason_and_left_out_note_cases`, `tools::tarpack::tests::build_refused_unless_can_build` | done |
 | Choose calls the save dialog with the format's filter, then onChooseOutput | M7b | `tools::tarpack::tests::choose_output_passes_format_filter`, `tools::tarpack::tests::choose_output_starts_in_output_folder_with_name`, `tools::tarpack::tests::output_name_changing_format_sets_notice` | done |
 | Choose falls back to the suggested name; cancel does nothing | M7b | `tools::tarpack::tests::choose_output_starts_in_output_folder_with_name`, `tools::tarpack::tests::choose_output_needs_a_manifest_and_a_name`, `tools::tarpack::tests::output_name_changing_format_sets_notice` (the cancel at its end) | done |
-| no manifest: picker shows tar (.tar) and everything is disabled | U11 | model half: `tools::tarpack::tests::choose_output_needs_a_manifest_and_a_name`, `tools::tarpack::tests::build_refused_unless_can_build`; the picker's display and the disabled controls are the view's | open |
-| the output path is a MiddlePath with the full path as title | U11 | view: renders `session().output_path`, the full path | open |
-| building (%s): controls disabled, axe clean | U11 | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui` (every control's method refuses while `building()`); disabled controls and axe are the view's | open |
+| no manifest: picker shows tar (.tar) and everything is disabled | U11 | `tools::tarpack::view::tests::bar_shows_reason_or_note` (the no-manifest case: bar drawn, Choose inert) | done |
+| the output path is a MiddlePath with the full path as title | U11 | `build_bar::output_path` gives `session().output_path` whole to `MiddlePath` (`widgets::tests::middle_path_tooltip_is_full_path`) | done |
+| building (%s): controls disabled, axe clean | U11 | `tools::tarpack::view::tests::progress_renders_fraction` (Choose inert while building; the progress track has a progress-bar role, label and value; GPUI has no axe) | done |
 | saveFileDialog, onChooseOutput, and onFormatChange rejections go to onError | M7b | `tools::tarpack::tests::output_dialog_failure_is_the_dialog_banner`, `tools::tarpack::tests::output_and_format_errors_show_the_banner` | done |
-| while building, Create archive's aria-describedby is omitted | U11 | view: draws the reason and the note only while `!building()` | open |
+| while building, Create archive's aria-describedby is omitted | U11 | `tools::tarpack::view::tests::progress_renders_fraction` (no reason or note drawn while building; GPUI has no aria-describedby) | done |
 
 ## `tools/tarpack/BuildReport.test.tsx` (3)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing when everything is empty | U11 | view (the headings are `text::report_*_heading`) | open |
-| each section is present only when non-empty; entry without id; every error | U11 | view; the copy is `text::failure_name`, `failure_errors_label` and `report_text` (`tools::tarpack::tests::report_text_matches_today`) | open |
-| warnings only | U11 | view; the copied form is `tools::tarpack::tests::report_text_matches_today` | open |
+| renders nothing when everything is empty | U11 | `tools::tarpack::view::tests::report_sections_only_when_non_empty` | done |
+| each section is present only when non-empty; entry without id; every error | U11 | `tools::tarpack::view::tests::report_sections_only_when_non_empty` | done |
+| warnings only | U11 | `tools::tarpack::view::tests::report_sections_only_when_non_empty` | done |
 
 ## `tools/tarpack/BuildResult.test.tsx` (8)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| shows every field and copies exact text | U11 | model half: `tools::tarpack::tests::copy_report_copies_report_text`, `tools::tarpack::tests::extraction_command_only_in_dev_mode`, `tools::tarpack::tests::report_text_matches_today` (the facts, sizes and the copied text); drawing the fields is the view's | open |
-| tar shows one size; no normalised list when empty | U11 | model half: `tools::tarpack::tests::report_text_matches_today` (`result_facts`, `file_size`); view draws it | open |
-| success with warnings only shows a collapsed Warnings disclosure | U11 | view | open |
-| files left out: heading, lede, report, Copy report | U11 | model half: `tools::tarpack::tests::report_text_matches_today`, `tools::tarpack::tests::copy_report_copies_report_text` (heading, ledes, copied report); view draws it | open |
+| shows every field and copies exact text | U11 | `tools::tarpack::view::tests::result_success_partial_failure_render`, `tools::tarpack::view::tests::copy_buttons_copy_and_show_copied`, `tools::tarpack::view::tests::extraction_command_follows_dev_mode` | done |
+| tar shows one size; no normalised list when empty | U11 | `tools::tarpack::view::tests::result_success_partial_failure_render` (the facts line is `text::result_facts`) | done |
+| success with warnings only shows a collapsed Warnings disclosure | U11 | `tools::tarpack::view::tests::report_sections_only_when_non_empty` | done |
+| files left out: heading, lede, report, Copy report | U11 | `tools::tarpack::view::tests::result_success_partial_failure_render` | done |
 | plural files and manifest-errors-only headings | M7b | `tools::tarpack::tests::report_text_matches_today` | done |
 | Show in folder calls onReveal | M7b | `tools::tarpack::tests::reveal_uses_held_path` (the button calling `reveal_output` is the view's own test) | done |
-| error result uses errorMessage and collapsed details | U11 | model half: `tools::tarpack::tests::build_error_is_result_with_message` (the sentence and the detail); the collapsed Details are the view's | open |
+| error result uses errorMessage and collapsed details | U11 | `tools::tarpack::view::tests::result_success_partial_failure_render` (failure and panicked build) | done |
 | a rejected clipboard write says Couldn't copy, never Copied | M7b | dropped: GPUI's clipboard write reports no failure (`Platform::copy_text` returns nothing); "Copied" is the view's transient note (`text::COPIED`) | dropped |
 
 ## `tools/tarpack/DiagnosticList.test.tsx` (2)
@@ -284,8 +284,8 @@ its heading's count.
 | Enter browses the focused row; Delete clears it only when assigned | U10 | `tools::tarpack::view::tests::enter_browses_focused_row`, `delete_clears_only_assigned_row` | done |
 | Enter on a row's own button is that button's click, not a second browse | U10 | `tools::tarpack::view::tests::enter_browses_focused_row` (one pick for Enter on the table; the row buttons are not Tab stops and are clicked) | done |
 | row actions carry shortcut hints and keep their names | U10 | `widgets::button::tests::accessible_name_defaults_to_the_label_and_tab_stop_to_on`; tooltips and names built in `entry_cells::actions_cell` (`browse_name`, `clear_name`) | done |
-| Escape with focus on the drop result's Dismiss moves focus to the tab-stop row | U10 | drop result focus and Escape are U11 (the shortcuts); the table has no part in it | open |
-| Escape with focus elsewhere dismisses the result and leaves focus where it was | U10 | U11 (the shortcuts) | open |
+| Escape with focus on the drop result's Dismiss moves focus to the tab-stop row | U10 | `tools::tarpack::view::tests::after_result_focus_lands_on_build_bar_first_control` (the Escape key runs the same `dismiss_drop_result`; `tools::tarpack::view::tests::held_key_acts_once` dismisses the drop result by Escape) | done |
+| Escape with focus elsewhere dismisses the result and leaves focus where it was | U10 | `tools::tarpack::view::tests::escape_dismisses_result_with_table_focused`, `tools::tarpack::view::tests::focus_stays_when_not_lost` | done |
 | only the tab-stop row's own buttons are tabbable | U10 | dropped: rows are not elements with their own focus; the buttons have `tab_stop(false)` (D13) | dropped |
 | disabled: no row or row button is tabbable, row keys do nothing, and the tab stop comes back | U10 | `tools::tarpack::view::tests::keys_inert_while_building` | done |
 | Clear leaves focus on the row: from its button by Delete and by click, and from the row itself | U10 | `tools::tarpack::view::tests::delete_clears_only_assigned_row` (by Delete and by the button, focus stays on the table) | done |
@@ -316,17 +316,17 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| renders nothing for an empty list | U11 | view | open |
-| names by id, by index, and shows source and line | U11 | view; the copy is `text::failure_name` and the `FAILURE_*` constants (M7a) | open |
-| lists every error of a multi-error entry | U11 | view; the label is `text::failure_errors_label` (M7a) | open |
+| renders nothing for an empty list | U11 | `tools::tarpack::view::tests::report_sections_only_when_non_empty` | done |
+| names by id, by index, and shows source and line | U11 | `tools::tarpack::view::tests::report_sections_only_when_non_empty` (entries with and without an id) | done |
+| lists every error of a multi-error entry | U11 | `tools::tarpack::view::tests::report_sections_only_when_non_empty` | done |
 
 ## `tools/tarpack/FormatPicker.test.tsx` (3)
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| options in the given order with session extensions; selected value | U11 | model half: `tools::tarpack::tests::format_labels_match_today` (`format_option_label`); the picker is the view's | open |
-| keyboard selection calls onChange with the format | U11 | view calls `set_format` (`tools::tarpack::tests::notice_cleared_by_later_change` drives it) | open |
-| disabled | U11 | view: disabled while `building()` or with no manifest | open |
+| options in the given order with session extensions; selected value | U11 | `tools::tarpack::view::tests::format_select_by_keyboard` | done |
+| keyboard selection calls onChange with the format | U11 | `tools::tarpack::view::tests::format_select_by_keyboard` | done |
+| disabled | U11 | `build_bar::format_group` disables the select with no manifest or while `building()` | done |
 
 ## `tools/tarpack/ManifestErrors.test.tsx` (9)
 
@@ -362,9 +362,9 @@ its heading's count.
 
 | Case | Owner | New test | Status |
 |---|---|---|---|
-| opens from the button by keyboard and lists every shortcut, including F8 | U9b |  | open |
-| Escape closes it and returns focus to the button, without reaching the view | U9b |  | open |
-| reports its open state, including false on unmount | U9b |  | open |
+| opens from the button by keyboard and lists every shortcut, including F8 | U9b | `tools::tarpack::view::tests::help_lists_rows_without_dev_chord`, `tools::tarpack::view::tests::shortcuts_keys_do_not_overflow_into_actions` | done |
+| Escape closes it and returns focus to the button, without reaching the view | U9b | `tools::tarpack::view::tests::escape_ignored_while_help_open` (Escape closes it and does not reach the view); `widgets::tests::shortcuts_popover_opens_under_button_and_escape_closes` | done |
+| reports its open state, including false on unmount | U9b | `widgets::tests::shortcuts_open_change_fires` | done |
 
 ## `tools/tarpack/TarpackView.a11y.test.tsx` (10)
 
@@ -418,7 +418,7 @@ its heading's count.
 | OutputExists then Replace calls build(true) | M7b | `tools::tarpack::tests::existing_output_asks_and_confirm_overwrites`, `tools::tarpack::tests::replace_asks_once_with_the_fixture` | done |
 | ManifestChangedOnDisk shows the banner with Reload, not a result | M7b | `tools::tarpack::tests::changed_on_disk_during_build_marks_changed` (the banner itself is `changed_on_disk`, M7a) | done |
 | SourceMissing names the file; without entryId says A file | M7b | `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::text_covers_every_error_kind` (the named file and the "A file" form) | done |
-| %s shows its message and details; axe clean | U11 | model half: `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::panicked_build_aborts_and_reports`; the rendering and axe are the view's | open |
+| %s shows its message and details; axe clean | U11 | `tools::tarpack::view::tests::result_success_partial_failure_render` | done |
 | progress: two phases, reset, Finishing, then the result | M7b | `tools::tarpack::tests::build_runs_off_thread_with_ordered_progress`, `tools::tarpack::tests::progress_names_the_last_file_of_the_phase`, `tools::tarpack::tests::progress_text_matches_today` | done |
 | a rejection mid-verify stops the progress and shows the error | M7b | `tools::tarpack::tests::build_error_is_result_with_message` | done |
 | OpenerFailed from Show in folder is a banner | M7b | `tools::tarpack::tests::reveal_failure_shows_opener_failed` | done |
@@ -428,15 +428,15 @@ its heading's count.
 | a failed %s build announces its errorMessage | M7b | `tools::tarpack::tests::build_error_is_result_with_message`, `tools::tarpack::tests::panicked_build_aborts_and_reports` | done |
 | %s announces no error message | M7b | `tools::tarpack::tests::existing_output_asks_and_confirm_overwrites` (`OutputExists` says nothing), `tools::tarpack::tests::changed_on_disk_during_build_marks_changed` (only the changed-on-disk sentence) | done |
 | onBuildProgress rejecting: the build still runs, no progressbar, unavailable text | M7b | dropped: GPUI's progress channel cannot fail before the job ends (the job owns the sender); the Tauri listen failure has no equivalent. `tools::tarpack::tests::progress_channel_closing_before_result_is_not_a_failure` shows a normal build whose channel closes first has no special state | dropped |
-| during a build, header and table controls are disabled; describedby has no dangling ids | U11 | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui`; disabled controls and the ids are the view's | open |
-| describedby ids all exist while building with errors | U11 | view | open |
+| during a build, header and table controls are disabled; describedby has no dangling ids | U11 | `tools::tarpack::view::tests::progress_renders_fraction`, `tools::tarpack::view::tests::shortcuts_respect_gating`, existing `keys_inert_while_building` | done |
+| describedby ids all exist while building with errors | U11 | dropped: GPUI has no aria-describedby; the reason and note are not drawn while building (`tools::tarpack::view::tests::progress_renders_fraction`) | dropped |
 | a saveFileDialog rejection from Choose shows the error banner | M7b | `tools::tarpack::tests::output_dialog_failure_is_the_dialog_banner` | done |
 | setOutput and setFormat rejections show the error banner | M7b | `tools::tarpack::tests::output_and_format_errors_show_the_banner` | done |
 | the replace dialog shows a lossy folder as is | M7b | `tools::tarpack::tests::display_paths_split_like_today` (`overwrite_body` over a path with U+FFFD) | done |
 | after a build, focus moves to Create archive only if it was lost | M7b | `tools::tarpack::tests::build_success_sets_result_and_announces`, `tools::tarpack::tests::cancel_overwrite_writes_nothing` (`FocusHint::CreateArchive`, `CreateArchiveAfterDialog`) | done |
-| after a build, focus moves to Create archive only if it was lost (view half) | U11 | view: moves focus on `FocusHint::CreateArchive` when focus was lost, and always on `CreateArchiveAfterDialog` | open |
-| focus that is elsewhere when a build settles stays there | U11 | view: acts on the hint only when focus was lost | open |
-| row keys do nothing during a build, and work again after it | U11 | model half: `tools::tarpack::tests::build_holds_without_blocking_the_ui` (`clear` and `browse` refuse while `building()`); the keys are the view's | open |
+| after a build, focus moves to Create archive only if it was lost (view half) | U11 | `tools::tarpack::view::tests::create_archive_hints_focus_the_button` | done |
+| focus that is elsewhere when a build settles stays there | U11 | `tools::tarpack::view::tests::create_archive_hints_focus_the_button` | done |
+| row keys do nothing during a build, and work again after it | U11 | `tools::tarpack::view::tests::keys_inert_while_building` | done |
 
 ## `tools/tarpack/TarpackView.errors.test.tsx` (11)
 
@@ -530,8 +530,8 @@ its heading's count.
 | Escape dismisses the build result, but never collapses the error report | M7b | `tools::tarpack::tests::escape_dismisses_drop_result_then_build_result` | done |
 | shortcuts are ignored while a build is running | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` | done |
 | shortcuts are ignored while the replace dialog is open | M7b | `tools::tarpack::tests::shortcuts_gating_matches_today` | done |
-| buttons carry their shortcut hints | U11 | view: the hints are `text::SHOW_ERRORS_HINT`, `CREATE_ARCHIVE_HINT`, `OPEN_HINT` | open |
-| tab order through the build bar: Choose…, Format, Show errors, Create archive | U11 | view | open |
+| buttons carry their shortcut hints | U11 | `build_bar` and `header` set `.shortcut(..)` on Open, Reload, Edit, Show errors and Create archive (tooltip text: `widgets::button::tests::shortcut_is_appended_to_the_tooltip`) | done |
+| tab order through the build bar: Choose…, Format, Show errors, Create archive | U11 | `tools::tarpack::view::tests::bar_tab_order_follows_the_buttons` | done |
 | %s never reloads the webview and never runs Reload manifest | M7b | dropped: there is no webview to reload; the model's gating is `tools::tarpack::tests::shortcuts_gating_matches_today` | dropped |
 | reload chords are prevented with no manifest too | M7b | dropped: there is no webview to reload; no reload without a manifest is `tools::tarpack::tests::shortcuts_gating_matches_today` | dropped |
 | reload chords are prevented during a build | M7b | dropped: there is no webview to reload; no reload during a build is `tools::tarpack::tests::shortcuts_gating_matches_today` | dropped |

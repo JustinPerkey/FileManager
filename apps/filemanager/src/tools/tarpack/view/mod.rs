@@ -2,7 +2,8 @@
 //! loading skeleton, the restore failure, the empty state, the manifest header
 //! with its Recent menu, the banners, the errors region and the drop result).
 //! The entry table, the build result and the build bar fill the three slots
-//! below it.
+//! below it (`entry_table`, `build_result` with `report`, `build_bar` with
+//! `progress`). `keys` binds the shortcuts.
 //!
 //! The root fills the tool area, pads itself (16 px by 24 px, plus the 15 px
 //! scrollbar gutter on the right, as today) and holds a body
@@ -13,69 +14,183 @@
 //! build bar stays in view.
 
 mod banners;
+mod build_bar;
+mod build_result;
 mod drop_result;
 mod empty;
 mod entry_cells;
 mod entry_table;
 mod errors;
 mod header;
+mod keys;
+mod progress;
+mod report;
 pub mod shortcuts;
 #[cfg(test)]
 mod tests;
 
+use std::time::Duration;
+
 use gpui::prelude::*;
 use gpui::{
     div, px, AnyElement, App, Context, Entity, FocusHandle, IntoElement, Render, Role,
-    ScrollHandle, Window,
+    ScrollHandle, Subscription, Window,
 };
 use gpui_component::v_flex;
 
+use self::build_bar::BarFocus;
+use self::build_result::{CopyKind, ResultFocus, ResultUi};
 use self::entry_table::EntryTable;
 use super::model::{DropState, FocusHint, TarpackModel};
 use super::text;
 use crate::app::dev_mode::DevMode;
 use crate::theme::palette;
 use crate::theme::tokens::{SCROLLBAR_GUTTER, SPACE_2, SPACE_3, SPACE_4, SPACE_5};
-use crate::widgets::skeleton_bar;
+use crate::widgets::{skeleton_bar, sync_confirm, ConfirmButton, ConfirmSpec, ConfirmVariant};
+
+/// How long a Copy button says "Copied".
+const COPIED_FOR: Duration = Duration::from_secs(2);
 
 pub struct TarpackView {
     model: Entity<TarpackModel>,
+    /// The view's root: the key context of the shortcuts needs focus inside
+    /// it, so it takes focus when nothing has it.
+    root_focus: FocusHandle,
     /// The errors report (focus hint `Report`).
     report_focus: FocusHandle,
     /// The Reload button (focus hint `Reload`).
     reload_focus: FocusHandle,
     /// The drop result: focus inside it is lost when it goes.
     result_focus: FocusHandle,
+    /// The build result's container: the same for the build result.
+    build_result_focus: FocusHandle,
+    /// The build result's report region (a tab stop, so it scrolls by keys).
+    build_report_focus: FocusHandle,
     /// The first tab stop after the drop result: the build bar's first
-    /// control. The bar (U11) tracks it; the view moves focus there when the
-    /// drop result goes.
+    /// control, which tracks it. The view moves focus there when the drop
+    /// result goes.
     after_result_focus: FocusHandle,
+    /// Create archive (focus hints `CreateArchive` and
+    /// `CreateArchiveAfterDialog`).
+    create_focus: FocusHandle,
     warnings_open: bool,
     paths_open: bool,
+    /// The build result's Details, its report's warnings and the last copy.
+    result_ui: ResultUi,
+    /// Bumps with every copy, so an older "Copied" timer does not clear a
+    /// newer one.
+    copied_generation: u64,
+    /// The overwrite confirmation last handed to the dialog.
+    confirming: Option<String>,
+    /// Whether the first frame has looked for focus yet.
+    focus_taken: bool,
+    /// Tells a held key from a press (see `keys`).
+    latch: keys::SharedLatch,
     /// The entry table, made on the first frame that has a window.
     entry_table: Option<Entity<EntryTable>>,
     /// The body's scroll position (the fallback scroll, and the empty state).
     body_scroll: ScrollHandle,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl TarpackView {
-    pub fn new(model: Entity<TarpackModel>, cx: &mut Context<Self>) -> Self {
-        cx.observe(&model, |_, _, cx| cx.notify()).detach();
+    pub fn new(model: Entity<TarpackModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        keys::ensure_bindings(cx);
+        let latch = keys::SharedLatch::default();
+        let released = latch.clone();
+        let subscriptions = vec![
+            cx.observe_in(&model, window, |this, _, window, cx| {
+                this.model_changed(window, cx);
+            }),
+            cx.observe_global::<DevMode>(|_, cx| cx.notify()),
+            // A key-up that went to another window (a dialog) never arrives.
+            cx.observe_window_activation(window, move |_, _, _| {
+                released.borrow_mut().release();
+            }),
+        ];
         Self {
             model,
+            root_focus: cx.focus_handle(),
             report_focus: cx.focus_handle(),
             reload_focus: cx.focus_handle(),
             result_focus: cx.focus_handle(),
+            build_result_focus: cx.focus_handle(),
+            build_report_focus: cx.focus_handle(),
             after_result_focus: cx.focus_handle(),
+            create_focus: cx.focus_handle(),
             warnings_open: false,
             paths_open: false,
+            result_ui: ResultUi::default(),
+            copied_generation: 0,
+            confirming: None,
+            focus_taken: false,
+            latch,
             entry_table: None,
             body_scroll: ScrollHandle::new(),
+            _subscriptions: subscriptions,
         }
     }
 
-    /// The focus handle of the first control after the drop result, for the
-    /// build bar to track.
+    /// The model changed: follow its overwrite confirmation, then redraw. The
+    /// dialog is opened and closed here, never inside `render`.
+    fn model_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let confirming = self
+            .model
+            .read(cx)
+            .confirming_overwrite()
+            .map(str::to_string);
+        if confirming != self.confirming {
+            let spec = confirming.as_deref().map(overwrite_spec);
+            let on_confirm = self.model.downgrade();
+            let on_cancel = self.model.downgrade();
+            sync_confirm(
+                window,
+                cx,
+                "tarpack-overwrite",
+                spec,
+                move |_: &mut Window, cx: &mut App| {
+                    on_confirm.update(cx, TarpackModel::confirm_overwrite).ok();
+                },
+                move |_: &mut Window, cx: &mut App| {
+                    on_cancel.update(cx, TarpackModel::cancel_overwrite).ok();
+                },
+            );
+            self.confirming = confirming;
+        }
+        cx.notify();
+    }
+
+    /// A copy button was used: it says "Copied" for a moment.
+    fn show_copied(&mut self, kind: CopyKind, cx: &mut Context<Self>) {
+        self.result_ui.copied = Some(kind);
+        self.copied_generation += 1;
+        let generation = self.copied_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(COPIED_FOR).await;
+            this.update(cx, |v, cx| {
+                if v.copied_generation == generation {
+                    v.result_ui.copied = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn set_build_details_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.result_ui.details_open = open;
+        cx.notify();
+    }
+
+    fn set_build_warnings_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.result_ui.warnings_open = open;
+        cx.notify();
+    }
+
+    /// The focus handle of the first control after the drop result: the build
+    /// bar's first control tracks it.
     #[must_use]
     pub fn after_result_focus(&self) -> &FocusHandle {
         &self.after_result_focus
@@ -87,11 +202,26 @@ impl TarpackView {
         let Some(hint) = self.model.update(cx, |m, _| m.take_focus_hint()) else {
             return;
         };
-        let in_result = self.result_focus.contains_focused(window, cx);
+        // Either result: a reload removes both, and a build result can hold
+        // focus too.
+        let in_result = self.result_focus.contains_focused(window, cx)
+            || self.build_result_focus.contains_focused(window, cx);
         match hint {
             FocusHint::Report => self.report_focus.focus(window, cx),
             FocusHint::Reload if in_result => self.reload_focus.focus(window, cx),
             FocusHint::AfterResult if in_result => self.after_result_focus.focus(window, cx),
+            // Focus went with the result, sat on the button while it was
+            // disabled for the build, or is on nothing (the view's root):
+            // only then does it move.
+            FocusHint::CreateArchive
+                if in_result
+                    || self.create_focus.is_focused(window)
+                    || self.root_focus.is_focused(window)
+                    || window.focused(cx).is_none() =>
+            {
+                self.create_focus.focus(window, cx);
+            }
+            FocusHint::CreateArchiveAfterDialog => self.create_focus.focus(window, cx),
             _ => {}
         }
     }
@@ -143,26 +273,48 @@ fn table_slot(table: Option<&Entity<EntryTable>>, shown: bool) -> Option<AnyElem
         .map(|t| t.clone().into_any_element())
 }
 
-/// The build result (U11).
-fn result_slot() -> Option<AnyElement> {
-    None
-}
-
-/// The build bar (U11).
-fn bar_slot() -> Option<AnyElement> {
-    None
+/// What the overwrite confirmation shows for the output it names.
+fn overwrite_spec(output: &str) -> ConfirmSpec {
+    ConfirmSpec {
+        title: text::overwrite_title(output).into(),
+        body: text::overwrite_body(output).into(),
+        extra: None,
+        cancel_label: text::OVERWRITE_CANCEL.into(),
+        confirm: Some(ConfirmButton {
+            label: text::OVERWRITE_CONFIRM.into(),
+            variant: ConfirmVariant::Primary,
+            icon: None,
+        }),
+        busy: false,
+        wide: false,
+    }
 }
 
 impl Render for TarpackView {
+    #[expect(clippy::too_many_lines, reason = "one builder chain")]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_focus_hint(window, cx);
         let p = *palette(cx);
         let dev = DevMode::is_on(cx);
         let entity = cx.entity();
+        if !self.focus_taken {
+            // Nothing is focused in a fresh window: the shortcuts need the
+            // view's key context on the focus path.
+            self.focus_taken = true;
+            if window.focused(cx).is_none() {
+                self.root_focus.focus(window, cx);
+            }
+        }
         let model = self.model.clone();
+        if self.entry_table.is_none() {
+            self.entry_table = Some(cx.new(|cx| EntryTable::new(model.clone(), window, cx)));
+        }
         let state = self.model.read(cx);
         if !matches!(state.drop_state(), Some(DropState::Result(_))) {
             self.paths_open = false;
+        }
+        if state.result().is_none() {
+            self.result_ui = ResultUi::default();
         }
 
         let loading = state.loading();
@@ -229,12 +381,38 @@ impl Render for TarpackView {
             }
         }
 
-        if self.entry_table.is_none() {
-            self.entry_table = Some(cx.new(|cx| EntryTable::new(model.clone(), window, cx)));
-        }
         let table = table_slot(self.entry_table.as_ref(), table_shown);
+        let result = build_result::build_result(
+            &entity,
+            &model,
+            state,
+            self.result_ui,
+            &ResultFocus {
+                result: &self.build_result_focus,
+                report: &self.build_report_focus,
+            },
+            window,
+            cx,
+        );
+        let bar = if loading {
+            None
+        } else {
+            build_bar::build_bar(
+                &model,
+                state,
+                &BarFocus {
+                    first: &self.after_result_focus,
+                    create: &self.create_focus,
+                },
+                cx,
+            )
+        };
 
-        v_flex()
+        let root = v_flex()
+            .id("tarpack-view")
+            .key_context(keys::CONTEXT)
+            .track_focus(&self.root_focus)
+            .tab_stop(false)
             .size_full()
             .pl(px(SPACE_5))
             // Today's scrollbar gutter, which GPUI's overlay scrollbars lack.
@@ -261,9 +439,10 @@ impl Render for TarpackView {
                             .gap(px(SPACE_3))
                             .child(top.flex_none())
                             .children(table)
-                            .children(result_slot()),
+                            .children(result),
                     ),
             )
-            .children(bar_slot())
+            .children(bar);
+        keys::attach(root, &model, &self.latch)
     }
 }
