@@ -56,8 +56,8 @@ list wording, "Reveal in Explorer", the shortcuts list. Developer mode:
 `crate::app::dev_mode::DevMode::is_on(cx)`, observe with
 `cx.observe_global::<DevMode>`.
 
-**Focus hints**: `take_focus_hint()` (consumable; built in M7a/M7b). After a build the result's heading takes focus as
-today (hint from the model).
+**Focus hints**: `take_focus_hint()` (consumable; built in M7a/M7b). After a build, focus goes to **Create archive**, as
+today, from the model's `FocusHint::CreateArchive` (as built, recorded 2026-11-28; the first draft said the result heading).
 
 ### Widgets and tokens
 
@@ -246,3 +246,18 @@ that the hand check is due.
 ## Out of scope
 
 Scenarios (U12); model behaviour (M7b).
+
+## Recorded after the review (2026-11-28)
+
+U11 landed as c451d98 and is approved. As built:
+
+- The reveal button reads **"Show in folder"** (`text::SHOW_IN_FOLDER`, as
+  today). Where this plan says "Reveal in Explorer", read "Show in folder".
+- Focus after a build goes to Create archive (`FocusHint::CreateArchive`),
+  as today.
+- Edits outside the file list, all accepted:
+  - `TarpackView::new` takes `window`;
+  - the `errors.rs` helpers are `pub(super)`;
+  - `apps/filemanager/src/tools/tarpack/mod.rs` is edited.
+- The Tar Packager's shortcut bindings, its held-key latch and the
+  table's Escape override are moved to the window-wide route by U4b.

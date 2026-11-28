@@ -83,6 +83,21 @@ missing capability), `docs/manual/`, `docs/plans/`.
 
 ## Skill
 
+**Measurements and one styling choice (from the U11 review, 2026-11-28).**
+
+- During the critique, measure the build bar and the build result against
+  today's `tarpack-buildbar.png`, `tarpack-result.png`,
+  `tarpack-result-partial.png`, `tarpack-replace.png` and
+  `tarpack-dev-result.png`, within 2 px.
+  - This includes `FORMAT_WIDTH` (168 px, an estimate) and U11's other
+    estimated widths.
+  - Make text-width-based sizes **REM multiples** from `theme::tokens`,
+    and fix any that are off.
+- **The ui-designer decides** whether the overwrite dialog's **Replace**
+  uses the Primary or the Danger style. Primary matches today. The
+  confirm-before-overwrite rule is met either way. Record the choice in the
+  PR.
+
 `/impeccable critique` on the nineteen PNGs (light, and the `dark-` set from a `--dark --prefix dark-` run, so it does not overwrite the light PNGs) against
 today's images, with special attention to the table (column positions, the
 two-line rows, the sideways-scroll decision does not show at 1366 px), the

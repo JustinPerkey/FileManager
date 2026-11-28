@@ -72,6 +72,30 @@ stop and report it with the key.
   - `shortcut_does_nothing_behind_a_dialog`;
   - `sidebar_arrows_still_move`.
 
+### Conflicts with U11's bindings (from the U11 review, 2026-11-28)
+
+U11 landed before this task, so this task moves its pieces too:
+
+- **(a) Bindings.** The Tar Packager's actions are bound on its view root.
+  Move them to the chrome-level key context and route them to the current
+  tool. The model's gating (`shortcut(..)` / `run_shortcut(..)`) stays
+  exactly as it is.
+- **(b) The held-key latch.** Its release listeners (`on_key_up`,
+  `on_modifiers_changed`) sit on the view root. With focus in the sidebar
+  they never fire, so a second press within 1.1 s is dropped.
+  - Move the release detection to a **window-level, capture-phase** key
+    listener, or own the latch at the chrome.
+  - That also fixes the reviewer's P3: a press is no longer dropped when
+    focus leaves the view mid-press.
+  - Do the same for the Database Manager's latch (dbmanager U2).
+  - Tests: `second_press_after_release_works_from_sidebar` and
+    `focus_leaving_mid_press_does_not_drop_next_press`.
+- **(c) Escape.** Keep the `Tarpack > DataTable` Escape override: Escape
+  with the table focused dismisses the result. A chrome-level Escape
+  binding must not beat that deeper binding, and must not take Escape from
+  dialogs or popovers, which keep their own Escape. Test:
+  `escape_in_popover_closes_popover_not_result`.
+
 ### Rules that bind this task
 
 - Views call only their model. Every interactive element stays keyboard
