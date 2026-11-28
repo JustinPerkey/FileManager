@@ -108,5 +108,21 @@ Loading / empty / error / success.
 ## Out of scope
 ```
 
+## Committing in a shared checkout
+
+Several agents may work in the same checkout at once. Every agent,
+**including the planner**, commits only its own paths:
+
+- `git commit -- <path> [<path>…]` (or `git commit --only <path>…`)
+  commits exactly those paths, even if another agent has staged something
+  else;
+- never `git commit -a`, `git add -A`, `git add .`, or a bare `git commit`
+  over a shared index;
+- before committing, check with `git status --short` that only your paths
+  are listed.
+
+(Rule added 2026-11-28, after a plans commit picked up another agent's
+staged deletion.)
+
 Keep both kinds of plan after the work merges. They are the record of why the
 architecture and the interface look the way they do.

@@ -45,6 +45,10 @@ of approval.
      count reloads instead.
    - Show the revert run in the PR.
 
+4. **If this view wires the Escape key** (to dismiss the notice), bind it to
+   the model's `escape()` (M12e's follow-up), not to `dismiss_notice`
+   directly. The Dismiss button keeps calling `dismiss_notice`.
+
 **Recorded (accepted, as built):**
 
 - The config line shows in the empty state when nothing is open.

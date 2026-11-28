@@ -78,6 +78,10 @@ Debug selectors: `db-edit-config`.
   the backend task `M12e-dbmanager-view-copy.md`. Call it from
   `ShortcutsHelp::on_open_change`, so Escape does nothing in the view while
   the help is open.
+- **Escape** calls the model's `escape()` (M12e's follow-up), which does
+  nothing while the help is open. Never bind the key to `dismiss_notice`
+  or `cancel_leave` directly: those are the buttons' handlers and always
+  work.
 - Shortcuts work wherever focus is in the window: see
   `U4b-tool-shortcuts-window-wide.md`, which must land first. Bind this
   tool's shortcuts the way that task describes, not on the tool's own root.

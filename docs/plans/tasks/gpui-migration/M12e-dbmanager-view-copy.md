@@ -1,7 +1,35 @@
 # M12e — Database Manager: view copy into `text.rs`; `dismiss_state_warning` and `set_shortcuts_open`
 
-Status: approved (2026-11-27; from the dbmanager U2 review)
+Status: approved (2026-11-27; from the dbmanager U2 review). M12e landed as f9549e9 and is approved on condition of the P2 in "Review follow-up"; the next run does only that section.
 Project: gpui-migration   Depends on: M12d (landed), dbmanager U2 (landed)
+
+## Review follow-up (2026-11-28)
+
+**The next run does only this section.**
+
+### P2: guard the Escape key, not the buttons
+
+- M12e put `!self.shortcuts_open` guards inside `dismiss_notice` and
+  `cancel_leave`. That disables the notice's Dismiss button and the leave
+  dialog's **Keep editing** while the shortcuts help is open. If
+  `shortcuts_open` ever stuck at `true`, the only answer left to the leave
+  dialog would be Discard, and the user's draft would be lost.
+- Follow the Tar Packager's pattern (`tools/tarpack/model.rs`, around lines
+  1717–1760), where only the **shortcut path** is guarded:
+  - remove both guards: `dismiss_notice` and `cancel_leave` always work;
+  - add one Escape entry point, `pub fn escape(&mut self, cx)` (or a
+    `shortcut`/`run_shortcut` pair, as in the Tar Packager). It does
+    nothing while `shortcuts_open`. Otherwise it cancels a pending leave
+    first, else dismisses the notice;
+  - point `escape_ignored_while_shortcuts_open` at `escape()`;
+  - add `buttons_work_while_shortcuts_open`: with the help open,
+    `cancel_leave` and `dismiss_notice` still act.
+- The views bind the Escape **key** to `escape()` (dbmanager U12, and U2's
+  follow-up if it wires Escape), never to `dismiss_notice` or
+  `cancel_leave` directly.
+
+Acceptance: the two tests pass. fmt (linux job), clippy pedantic (with and
+without `--features shoot`), and `cargo test --workspace` pass.
 
 ## Goal
 
