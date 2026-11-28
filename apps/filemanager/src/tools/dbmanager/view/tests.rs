@@ -334,20 +334,30 @@ fn open_and_recent_call_model(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn held_key_does_not_repeat(cx: &mut TestAppContext) {
+    // F5 (Reload) is held by no dialog gate, so only the latch stops repeats.
     let (host, vcx) = started(cx, DbmanagerFixture::Loaded);
     focus_root(vcx, &host);
-    key_down_only(vcx, "ctrl-o");
-    key_down_only(vcx, "ctrl-o");
-    key_down_only(vcx, "ctrl-o");
-    wait_for_picks(vcx, &host, 1);
-    assert_eq!(picks(&host), 1);
-    // The key comes up; the next press counts.
+    let generation = |vcx: &mut VisualTestContext| {
+        host.model
+            .read_with(vcx, |m, _| m.announcement_generation())
+    };
+    let before = generation(vcx);
+    key_down_only(vcx, "f5");
+    idle(vcx, &host);
+    let first = generation(vcx);
+    assert_eq!(first, before + 1, "the first press reloads");
+    key_down_only(vcx, "f5");
+    key_down_only(vcx, "f5");
+    idle(vcx, &host);
+    assert_eq!(generation(vcx), first, "a held key does not repeat");
+    // Releasing the key is the explicit release; the next press counts.
     let keystroke = vcx
-        .update(|_, cx| gpui::Keystroke::parse_with_os("ctrl-o", cx.platform_info().os))
+        .update(|_, cx| gpui::Keystroke::parse_with_os("f5", cx.platform_info().os))
         .expect("keystroke");
     vcx.simulate_event(gpui::KeyUpEvent { keystroke });
-    press(vcx, "ctrl-o");
-    wait_for_picks(vcx, &host, 2);
+    key_down_only(vcx, "f5");
+    idle(vcx, &host);
+    assert_eq!(generation(vcx), first + 1, "after release it reloads again");
 }
 
 #[gpui::test]
