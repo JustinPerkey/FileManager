@@ -58,7 +58,7 @@ fn diagnostic_row(d: &Diagnostic, cx: &App) -> impl IntoElement {
 }
 
 /// A list of diagnostics, labelled for assistive technology.
-fn diagnostic_list(
+pub(super) fn diagnostic_list(
     diagnostics: &[Diagnostic],
     label: impl Into<gpui::SharedString>,
     cx: &App,
@@ -72,7 +72,7 @@ fn diagnostic_list(
 }
 
 /// A group heading: 14 px, 600.
-fn group_heading(label: &'static str) -> gpui::Div {
+pub(super) fn group_heading(label: &'static str) -> gpui::Div {
     div()
         .text_size(px(FONT_SIZE_MD * REM))
         .font_weight(gpui::FontWeight::SEMIBOLD)
@@ -80,7 +80,7 @@ fn group_heading(label: &'static str) -> gpui::Div {
 }
 
 /// One `[[file]]` table with errors: its name, where it is, its diagnostics.
-fn failure(f: &EntryFailure, cx: &App) -> impl IntoElement {
+pub(super) fn failure(f: &EntryFailure, cx: &App) -> impl IntoElement {
     let p = palette(cx);
     let name: AnyElement = match &f.id {
         Some(id) => mono(id.clone())

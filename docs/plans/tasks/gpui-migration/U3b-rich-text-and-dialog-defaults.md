@@ -1,6 +1,6 @@
 # U3b — Rich text with mono paths in banners and confirmations; a shared Cancel label
 
-Status: approved as a plan (2026-11-23). **Runs only if the ui-designer chooses rich text** at U6's or U8's critique. The shared Cancel default runs either way, with U8 or before it.
+Status: approved as a plan (2026-11-23). **Items 1–3 run only if the ui-designer chooses rich text** at U6's or U8's critique. Items 4 and 5 (the shared Cancel default, and `Disclosure::track_focus`) run either way, with U8 or before it.
 Project: gpui-migration   Depends on: U3 (landed), U5 and U7 (landed)
 
 ## Goal
@@ -60,6 +60,13 @@ text value carries runs: the copy decides which part is a path.
 4. **Shared Cancel default:** `ConfirmSpec::cancel_label` defaults to the
    app copy `crate::app::text::CANCEL` ("Cancel"), which is added there if
    missing. Remove Schedule's private `CANCEL`.
+
+5. **`Disclosure` tracks focus (from the dbmanager U2 review, 2026-11-27).**
+   Give `widgets::disclosure::Disclosure` a `track_focus(&FocusHandle)`
+   builder, so a caller can focus the toggle and keep keyboard focus on it.
+   Switch the Database Manager's hand-built problems toggle
+   (`tools/dbmanager/view/`) to `Disclosure` with it.
+   Test: `disclosure_track_focus_keeps_focus_on_toggle`.
 
 ### Rules that bind this task
 

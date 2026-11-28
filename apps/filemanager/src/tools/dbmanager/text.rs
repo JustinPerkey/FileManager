@@ -2,8 +2,10 @@
 //! error sentences are plain; a later UI task may adjust wording, not
 //! meaning. The backend's own `message` is shown beside them as detail.
 
-use fm_dbmanager::config::ConfigStatus;
+use std::fmt::Write as _;
+
 use fm_dbmanager::config::TableMode;
+use fm_dbmanager::config::{ConfigDiagnostic, ConfigStatus};
 use fm_dbmanager::model::TableView;
 use fm_dbmanager::tool::{DbmanagerError, DbmanagerErrorKind, DbmanagerSnapshot};
 
@@ -34,6 +36,10 @@ pub const DROP_LABEL: &str = "Drop one database file";
 pub const REASON_SAVING: &str = "Wait for the save to finish";
 /// Why Save is refused while the conflict panel is up.
 pub const REASON_CONFLICT: &str = "Resolve the conflict first.";
+/// Why Save is refused while a link conflict's re-read is in flight.
+pub const REASON_LINK_CHECK: &str = "Checking the link that changed\u{2026}";
+/// Why Save is refused while the delete confirmation is up.
+pub const REASON_DELETE: &str = "Finish or cancel the delete first.";
 
 // ---- the file dialog ----
 
@@ -43,7 +49,8 @@ pub const FILTER_ALL: &str = "All files";
 // ---- the config's status ----
 
 /// `missing`: the app-wide config does not exist.
-pub const CONFIG_MISSING: &str = "No config is in use: everything is editable.";
+pub const CONFIG_MISSING: &str =
+    "No config file: everything is editable unless the database prevents it.";
 /// The config differs from what was loaded and the app could not say more.
 pub const CONFIG_CHANGED: &str = "The config changed on disk.";
 
@@ -298,6 +305,12 @@ pub fn config_reloaded(dropped: &[String]) -> String {
     }
 }
 
+/// Edit config created the starter file.
+#[must_use]
+pub fn starter_created(display: &str) -> String {
+    format!("Created a starter config at {display}.")
+}
+
 /// The notice after a save was refused because the config changed.
 #[must_use]
 pub fn config_changed_while_editing(dropped: &[String]) -> String {
@@ -317,4 +330,175 @@ pub fn config_reloaded_gone(label: &str) -> String {
     format!(
         "The config was reloaded. \u{201c}{label}\u{201d} is no longer available, so your changes to it were discarded."
     )
+}
+
+// ---- many-to-many links ----
+
+pub const LINK_WILL_BE_ADDED: &str = "Will be added";
+pub const LINK_WILL_BE_REMOVED: &str = "Will be removed";
+pub const LINK_EDITED: &str = "Edited";
+pub const LINK_NOT_SAVED_YET: &str = "Not saved yet";
+pub const LINK_UNDO: &str = "Undo";
+pub const LINK_REAPPLY: &str = "Re-apply my change";
+pub const LINK_DISCARD: &str = "Discard it";
+
+/// The counts line: "3 linked", then each non-zero staged count after a
+/// middle dot ("3 linked · 2 to add · 1 to remove").
+#[must_use]
+pub fn link_counts(linked: u64, to_add: usize, to_remove: usize) -> String {
+    let mut line = format!("{linked} linked");
+    if to_add > 0 {
+        let _ = write!(line, " \u{b7} {to_add} to add");
+    }
+    if to_remove > 0 {
+        let _ = write!(line, " \u{b7} {to_remove} to remove");
+    }
+    line
+}
+
+/// Shown before Save when unticking a link that has link fields.
+#[must_use]
+pub fn removal_with_fields(parts: &[(String, String)]) -> String {
+    let list: Vec<String> = parts.iter().map(|(n, v)| format!("{n} {v}")).collect();
+    format!("Will be removed with its fields: {}", list.join(", "))
+}
+
+/// The section notice after a save met a changed link.
+#[must_use]
+pub fn link_conflict(label: &str) -> String {
+    format!(
+        "{label}\u{2019}s link was changed by another program. Nothing was saved. Your change to it was set aside."
+    )
+}
+
+pub const LINK_ALREADY_LINKED: &str = "That link already exists, so there was nothing to add.";
+pub const LINK_ALREADY_GONE: &str = "That link is already gone, so there was nothing to remove.";
+pub const LINK_ALREADY_APPLIED: &str = "That link already has your values.";
+
+// ---- delete ----
+
+pub const DELETE: &str = "Delete";
+pub const DELETE_CHECKING: &str = "Checking\u{2026}";
+pub const DELETE_DELETING: &str = "Deleting\u{2026}";
+pub const DELETE_CLOSE: &str = "Close";
+pub const DELETE_DISCARDS_DRAFT: &str = "Your unsaved changes to it are discarded.";
+pub const DELETE_BLOCKED_GENERIC: &str = "This object cannot be deleted.";
+pub const DELETE_IMPACT_CHANGED: &str = "What this delete affects changed. Review it again.";
+pub const DELETE_CONFIG_RELOADED: &str =
+    "The config changed and was reloaded. Review the delete again.";
+pub const DELETE_HAS_TRIGGERS: &str =
+    "This database has triggers on the affected tables. They may change more than is listed here.";
+pub const DELETE_TRUNCATED: &str = "The list is cut short: more rows are affected than are listed.";
+
+#[must_use]
+pub fn delete_title(label: &str) -> String {
+    format!("Delete \u{201c}{label}\u{201d}?")
+}
+
+#[must_use]
+pub fn delete_blocked_title(label: &str) -> String {
+    format!("\u{201c}{label}\u{201d} cannot be deleted")
+}
+
+/// "Deleted “label” and N related rows." (singular for one, "at least" when
+/// the impact was cut short), then the backup line when this delete took the
+/// session's backup.
+#[must_use]
+pub fn deleted_notice(label: &str, related: u64, at_least: bool, backup: Option<&str>) -> String {
+    let mut s = format!("Deleted \u{201c}{label}\u{201d}");
+    if related > 0 {
+        let least = if at_least { "at least " } else { "" };
+        let rows = if related == 1 { "row" } else { "rows" };
+        let _ = write!(s, " and {least}{related} related {rows}");
+    }
+    s.push('.');
+    if let Some(path) = backup {
+        s.push(' ');
+        s.push_str(&backup_notice(path));
+    }
+    s
+}
+
+/// The sheet's notice after a delete met a changed object.
+#[must_use]
+pub fn delete_conflict(label: &str) -> String {
+    format!(
+        "\u{201c}{label}\u{201d} was changed by another program. Nothing was deleted. Review it and try again."
+    )
+}
+
+/// One impact group's line, for example "3 in Loans through Book (deleted
+/// too)".
+#[must_use]
+pub fn impact_line(g: &fm_dbmanager::session::ImpactGroup) -> String {
+    use fm_dbmanager::session::OnDeleteAction as A;
+    let least = if g.truncated { "at least " } else { "" };
+    let (count, table) = (g.count, &g.table_display_name);
+    let what = match (g.links, g.hidden) {
+        (true, _) => format!("{least}{count} links in {table}"),
+        (false, true) => format!("{least}{count} rows in a hidden table ({table})"),
+        (false, false) => format!("{least}{count} in {table}"),
+    };
+    let how = match g.action {
+        A::Cascade => "deleted too",
+        A::SetNull => "will be cleared",
+        A::SetDefault => "will be reset to the default",
+        A::Restrict | A::NoAction => "prevents the delete",
+    };
+    let data = if g.link_data {
+        "; their values are lost"
+    } else {
+        ""
+    };
+    format!("{what} through {} ({how}{data})", g.via)
+}
+
+// ---- the view's labels, config line and problems ----
+
+pub const RECENT: &str = "Recent";
+pub const READ_ONLY: &str = "Read-only";
+pub const CONFIG_LABEL: &str = "Config:";
+/// The config line when the location is unknown.
+pub const CONFIG_NO_LOCATION: &str = "the location could not be determined";
+pub const SEVERITY_ERROR: &str = "Error";
+pub const SEVERITY_WARNING: &str = "Warning";
+
+/// "Backup: <file name>".
+#[must_use]
+pub fn backup_line(file_name: &str) -> String {
+    format!("Backup: {file_name}")
+}
+
+fn count(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+/// "Config: 2 errors, 1 warning. Entries with errors are read-only."
+#[must_use]
+pub fn problems_summary(errors: usize, warnings: usize) -> String {
+    let mut parts = Vec::new();
+    if errors > 0 {
+        parts.push(count(errors, "error", "errors"));
+    }
+    if warnings > 0 {
+        parts.push(count(warnings, "warning", "warnings"));
+    }
+    let mut line = format!("Config: {}.", parts.join(", "));
+    if errors > 0 {
+        line.push_str(" Entries with errors are read-only.");
+    }
+    line
+}
+
+/// Where a diagnostic is: "Line 12, column 3", or "Table book, field isbn".
+/// Empty when it has no position.
+#[must_use]
+pub fn position(d: &ConfigDiagnostic) -> String {
+    match (d.line, d.col, d.table.as_deref(), d.column.as_deref()) {
+        (Some(line), Some(col), _, _) => format!("Line {line}, column {col}"),
+        (Some(line), None, _, _) => format!("Line {line}"),
+        (None, _, Some(table), Some(field)) => format!("Table {table}, field {field}"),
+        (None, _, Some(table), None) => format!("Table {table}"),
+        _ => String::new(),
+    }
 }

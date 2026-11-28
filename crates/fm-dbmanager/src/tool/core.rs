@@ -9,10 +9,13 @@ use super::types::{
 };
 use crate::config::{ConfigDiagnostic, DiagnosticSeverity, LoadedConfig};
 use crate::session::{
-    ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView, SaveRequest, SaveResult,
-    Session, SessionError,
+    DeleteImpact, DeleteResult, ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView,
+    SaveRequest, SaveResult, Session, SessionError,
 };
 use crate::state::RememberedState;
+
+/// The commented, inert starter config Edit config creates.
+const STARTER_CONFIG: &str = include_str!("../../../../examples/dbmanager/starter.toml");
 
 /// The Database Manager's state: the one config, the recent databases and
 /// the open database.
@@ -353,6 +356,51 @@ impl Core {
         self.config = Some(fresh);
     }
 
+    /// Where Edit config opens the config, and whether this call created it.
+    /// When the file is missing its directory is created and the commented
+    /// starter is written to a temp file in the same folder, then moved into
+    /// place without replacing anything (so a failed write leaves no partial
+    /// config); an existing file is never touched (losing a race to create it is fine: `created` is `false`).
+    ///
+    /// # Errors
+    /// `Io` when the location is unknown or the file cannot be created; a
+    /// permission failure says that the folder is not writable by this
+    /// account.
+    pub fn edit_config_target(&self) -> Result<(PathBuf, bool), DbmanagerError> {
+        use std::io::{ErrorKind, Write as _};
+
+        let io = |message: String| DbmanagerError::new(K::Io, message);
+        let path = self
+            .config_path
+            .clone()
+            .ok_or_else(|| io("The config location could not be determined.".to_owned()))?;
+        if path.is_file() {
+            return Ok((path, false));
+        }
+        let denied = |what: &str, e: &std::io::Error| {
+            if e.kind() == ErrorKind::PermissionDenied {
+                io(format!(
+                    "This account may not create {what}. Ask the account that owns the folder to create the config file."
+                ))
+            } else {
+                io(format!("Could not create {what}: {e}."))
+            }
+        };
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| denied(&format!("the folder {}", dir.display()), &e))?;
+        }
+        let what = format!("the config {}", path.display());
+        match write_starter(&path, |file| {
+            file.write_all(STARTER_CONFIG.as_bytes())?;
+            file.flush()
+        }) {
+            Ok(()) => Ok((path, true)),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok((path, false)),
+            Err(e) => Err(denied(&what, &e)),
+        }
+    }
+
     /// Drops the session and forgets the database. The config stays loaded.
     pub fn close(&mut self) {
         self.start();
@@ -429,6 +477,56 @@ impl Core {
         }
     }
 
+    /// What deleting the object would do to every table that references it,
+    /// hidden tables counted. Reads only.
+    ///
+    /// # Errors
+    /// `NoDatabase`, or the session's error (`UnknownTable`, `UnknownObject`,
+    /// `SchemaChanged`, ...).
+    pub fn delete_preview(
+        &self,
+        table: &str,
+        key: &ObjectKey,
+    ) -> Result<DeleteImpact, DbmanagerError> {
+        self.open_session()?
+            .delete_preview(table, key)
+            .map_err(DbmanagerError::from)
+    }
+
+    /// Deletes one object in one transaction, after the session's one backup,
+    /// when `version` and `token` are still what the caller previewed and
+    /// `config_hash` is the config it was shown under. When the config changed
+    /// on disk it is reloaded **before** the error is returned, and nothing is
+    /// deleted; the caller previews again. Never retried here.
+    ///
+    /// # Errors
+    /// `NoDatabase`, or the session's error (`ConfigChangedOnDisk`,
+    /// `Conflict`, `ImpactChanged`, `DeleteBlocked`, `NotEditable`, `Busy`,
+    /// ...).
+    pub fn delete(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+        version: &str,
+        token: &str,
+        config_hash: &str,
+    ) -> Result<DeleteResult, DbmanagerError> {
+        self.start();
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| DbmanagerError::new(K::NoDatabase, "no database is open"))?;
+        match session.delete(table, key, version, token, config_hash) {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                if matches!(e, SessionError::ConfigChangedOnDisk) {
+                    self.reload_config();
+                }
+                Err(DbmanagerError::from(e))
+            }
+        }
+    }
+
     /// Tests: how many sessions this thread has opened.
     #[cfg(test)]
     pub(super) fn session_opens() -> usize {
@@ -447,5 +545,47 @@ impl Core {
     #[cfg(test)]
     pub(super) fn backup_announced_for_tests(&self) -> bool {
         self.session.as_ref().is_some_and(Session::backup_announced)
+    }
+}
+
+/// Writes a file at `path` through `fill` and moves it into place only if
+/// nothing is there: the file appears whole or not at all. `AlreadyExists`
+/// when `path` is taken (the temp file is removed).
+fn write_starter(
+    path: &Path,
+    fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(dir)?;
+    fill(temp.as_file_mut())?;
+    temp.persist_noclobber(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod starter_tests {
+    use super::write_starter;
+
+    #[test]
+    fn starter_write_failure_leaves_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dbmanager.toml");
+        let err = write_starter(&path, |_| Err(std::io::Error::other("disk full"))).unwrap_err();
+        assert_eq!(err.to_string(), "disk full");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn starter_never_replaces_and_cleans_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dbmanager.toml");
+        std::fs::write(&path, "mine").unwrap();
+        let err = write_starter(&path, |_| Ok(())).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "mine");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }

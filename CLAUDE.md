@@ -14,7 +14,9 @@ Schedule Creator (`schedule`, UI and plumbing only: its parse and merge hooks
 are stubs). The Database Manager (`dbmanager`) is in progress: crate
 (`fm-dbmanager`) and, in the GPUI app, its tool core and model (reads, and
 edits: drafts, validation while typing, save, create, conflicts, the leave and
-close guards; views to come; links and delete are next). Its one app-wide config is
+close guards, many-to-many link staging, delete, the config watcher with
+automatic reload, and developer mode's Edit config; the model is complete,
+views to come). Its one app-wide config is
 `%ProgramData%\FileManager\dbmanager.toml` (`/etc/filemanager/dbmanager.toml`
 elsewhere); the app only reads it, and a config that cannot be used fails
 closed (everything read-only).

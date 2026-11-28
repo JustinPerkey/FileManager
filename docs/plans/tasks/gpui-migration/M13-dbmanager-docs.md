@@ -99,10 +99,24 @@ Facts to document (all implemented; read the code to confirm wording):
   runs (it reloads), close with unsaved edits (it asks). Record the build
   number and results in the PR.
 
+**One small code item, the only exception to "docs only" (from the M12d
+review, 2026-11-27; affects Linux and macOS only).**
+`Core::write_starter` (`crates/fm-dbmanager/src/tool/`) creates the starter
+config through `tempfile::NamedTempFile`, which uses mode 0600 on Unix, so a
+starter in `/etc/filemanager` would be readable only by the account that
+created it.
+
+- Under `cfg(unix)`, create it with mode 0644: either
+  `tempfile::Builder::new().permissions(std::fs::Permissions::from_mode(0o644)).tempfile_in(dir)`,
+  or `set_permissions` before `persist_noclobber`.
+- Windows is unchanged.
+- Test (`#[cfg(unix)]`): `starter_is_world_readable` checks that the
+  created file's mode `& 0o777` is `0o644` (temp dir).
+
 ### Rules that bind this task
 
-- Documentation and screenshots only. Do not change Rust code, views or
-  scenarios; a bug found while documenting is reported, not fixed here.
+- Documentation and screenshots only, apart from the one code item above.
+  Do not change other Rust code, views or scenarios; a bug found while documenting is reported, not fixed here.
 - Screenshots use fixture backends only; never real user files.
 - The release exe never contains the harness.
 - Do not touch `docs/plans/`.

@@ -114,6 +114,10 @@ pedantic, no secrets, `.claude`/`.codex` role sync, review of every change.
     (keyboard and labels; paths as reworded; the fm-* dependency rule; no
     blocking I/O on the UI thread) and its "Before the stack exists"
     paragraph stays as is.
+- All five roles, in both runtimes: in a shared checkout, commit only your
+  own paths with `git commit -- <path>…`; never `git commit -a`,
+  `git add -A` or `git add .`. (`docs/plans/README.md` states it since
+  2026-11-28.)
 - `.claude/settings.json`: unchanged (`impeccable` stays enabled; the
   hook is wired in the agent files by M11).
 

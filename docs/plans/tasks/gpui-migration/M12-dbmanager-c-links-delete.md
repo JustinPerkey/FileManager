@@ -1,7 +1,56 @@
 # M12c — Database Manager, part C: many-to-many staging with link fields, link conflicts, delete
 
-Status: approved (2026-11-21)
+Status: approved (2026-11-21). M12c landed as 96cce30 and is approved apart from one P2; the next run does only the section "Review follow-up" below.
 Project: gpui-migration   Depends on: M12b (landed)
+
+## Review follow-up (2026-11-27)
+
+**The next run does only this section.** Read
+`apps/filemanager/src/tools/dbmanager/model.rs` and its tests first.
+
+### P2: a delete conflict must not discard the draft (decided: keep the draft)
+
+- In `delete_failed`'s `Conflict` branch, when the deleted object is the
+  open one, `apply_view(current, true)` sets `draft = None`. The user's
+  unsaved edits are lost although nothing was deleted, which breaks the rule
+  that destructive actions are never silent.
+- **Fix:** if the draft is dirty, **keep it**, and raise M12b's conflict
+  panel against `current`, exactly as a conflict on save does (Re-apply my
+  changes / Discard my changes). If the draft is clean, show `current` as
+  now. The delete confirmation closes in both cases, with the notice
+  "“<label>” was changed by another program. Nothing was deleted. Review it
+  and try again."
+- **Test:** extend `delete_conflict_shows_current`. With a dirty draft,
+  assert that the edits survive and the conflict panel shows, against
+  `current`.
+- **Revert check:** with the old `apply_view(current, true)` path, the test
+  fails. Show this in the PR.
+
+### P3s, in the same run
+
+- **(a)** `save_blocked_reason` gains a reason while a link conflict's
+  one-option re-read is in flight, so a save cannot be sent meanwhile.
+  Copy in `text.rs`, e.g. "Checking the link that changed…". Test:
+  `save_blocked_while_link_reread_in_flight`.
+- **(b)** After a delete returns `ConfigChangedOnDisk`, also run
+  `recheck(Recheck::Reload)`, so the draft's inline issues follow the new
+  rules at once. Test: `delete_config_changed_rechecks_draft`.
+- **(c)** Recorded: Re-apply has three "did nothing" notices, each with its
+  copy in `text.rs`:
+  - `LinkAlreadyLinked`: re-applying an add, the link already exists and
+    has no fields to update;
+  - `LinkAlreadyGone`: re-applying a remove, the link is already gone;
+  - `LinkAlreadyApplied`: the link already holds the user's values.
+
+### Recorded (accepted)
+
+- A delete `Conflict` on a list item that is not the open object shows the
+  error banner and re-reads the list.
+
+### Acceptance
+
+- The named tests pass. fmt (linux job), clippy pedantic (with and without
+  `--features shoot`), and `cargo test --workspace` pass.
 
 ## First: finish M12b's P3 (from the M12b review, 2026-11-27)
 

@@ -30,6 +30,16 @@ icons!(
     "copy",
     "x",
     "keyboard",
+    "arrow-left",
+    "arrow-right",
+    "lock",
+    "plus",
+    "trash",
+    "search",
+    "chevron-left",
+    "chevron-right",
+    "undo",
+    "check",
 );
 
 /// Path of an icon asset by its `icons.tsx` name.

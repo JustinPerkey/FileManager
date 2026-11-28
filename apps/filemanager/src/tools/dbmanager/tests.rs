@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use fm_dbmanager::config::TableMode;
+use fm_dbmanager::config::{ConfigDiagnostic, DiagnosticSeverity, TableMode};
 use fm_dbmanager::session::ObjectKey;
 use fm_dbmanager::tool::{DbmanagerError, DbmanagerErrorKind, DbmanagerSnapshot};
 use gpui::{AppContext as _, Context, Entity, TestAppContext};
@@ -828,6 +828,12 @@ impl DbmanagerBackend for Flaky {
     fn reload(&mut self) -> Result<DbmanagerSnapshot, DbmanagerError> {
         self.inner.reload()
     }
+    fn reload_config(&mut self) -> DbmanagerSnapshot {
+        self.inner.reload_config()
+    }
+    fn edit_config_target(&mut self) -> Result<(PathBuf, bool), DbmanagerError> {
+        self.inner.edit_config_target()
+    }
     fn close(&mut self) -> DbmanagerSnapshot {
         self.inner.close()
     }
@@ -860,6 +866,23 @@ impl DbmanagerBackend for Flaky {
         request: fm_dbmanager::session::SaveRequest,
     ) -> Result<fm_dbmanager::session::SaveResult, DbmanagerError> {
         self.inner.save(request)
+    }
+    fn delete_preview(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+    ) -> Result<fm_dbmanager::session::DeleteImpact, DbmanagerError> {
+        self.inner.delete_preview(table, key)
+    }
+    fn delete(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+        version: &str,
+        token: &str,
+        config_hash: &str,
+    ) -> Result<fm_dbmanager::session::DeleteResult, DbmanagerError> {
+        self.inner.delete(table, key, version, token, config_hash)
     }
 }
 
@@ -1029,6 +1052,10 @@ struct Recording {
     inner: FixtureDbmanager,
     saves: Arc<Mutex<Vec<SaveRequest>>>,
     busy_once: bool,
+    /// Every delete call as (version, token, config hash).
+    deletes: super::tests::DeleteLog,
+    /// Answers the next delete with this error instead of running it.
+    delete_error_once: Option<DbmanagerError>,
 }
 
 impl Recording {
@@ -1039,6 +1066,8 @@ impl Recording {
                 inner: env.backend(),
                 saves: saves.clone(),
                 busy_once: false,
+                deletes: Arc::new(Mutex::new(Vec::new())),
+                delete_error_once: None,
             },
             saves,
         )
@@ -1060,6 +1089,12 @@ impl DbmanagerBackend for Recording {
     }
     fn reload(&mut self) -> Result<DbmanagerSnapshot, DbmanagerError> {
         self.inner.reload()
+    }
+    fn reload_config(&mut self) -> DbmanagerSnapshot {
+        self.inner.reload_config()
+    }
+    fn edit_config_target(&mut self) -> Result<(PathBuf, bool), DbmanagerError> {
+        self.inner.edit_config_target()
     }
     fn close(&mut self) -> DbmanagerSnapshot {
         self.inner.close()
@@ -1093,6 +1128,31 @@ impl DbmanagerBackend for Recording {
             return Err(DbmanagerError::new(DbmanagerErrorKind::Busy, "locked"));
         }
         self.inner.save(request)
+    }
+    fn delete_preview(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+    ) -> Result<fm_dbmanager::session::DeleteImpact, DbmanagerError> {
+        self.inner.delete_preview(table, key)
+    }
+    fn delete(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+        version: &str,
+        token: &str,
+        config_hash: &str,
+    ) -> Result<fm_dbmanager::session::DeleteResult, DbmanagerError> {
+        self.deletes.lock().unwrap().push((
+            version.to_owned(),
+            token.to_owned(),
+            config_hash.to_owned(),
+        ));
+        if let Some(e) = self.delete_error_once.take() {
+            return Err(e);
+        }
+        self.inner.delete(table, key, version, token, config_hash)
     }
 }
 
@@ -1364,14 +1424,15 @@ fn first_save_shows_backup_notice(cx: &mut TestAppContext) {
             .count(),
         1
     );
-    act(cx, &model, DbmanagerModel::dismiss_notice);
-    assert!(read(cx, &model, |m| m.notice().is_none()));
+    // A second successful save clears the notice without a dismiss.
     type_in(cx, &model, "pages", "331");
     save_and_idle(cx, &model);
     assert!(
         read(cx, &model, |m| m.notice().is_none()),
-        "only the first save has one"
+        "only the first save has one, and the next save clears it"
     );
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
 }
 
 #[gpui::test]
@@ -2114,4 +2175,1123 @@ fn racing_open_still_raises_list_heading_hint(cx: &mut TestAppContext) {
     idle(cx, &model);
     assert_eq!(hint(cx, &model), Some(FocusHint::ListHeading));
     assert!(snapshot(cx, &model).open);
+}
+
+// ---- many-to-many staging ----
+
+use super::draft::{LinkStage, RebaseOutcome};
+use super::model::{DeleteState, StagedRow};
+
+const GENRES: &str = "m2m:book_genre";
+const CONTRIB: &str = "m2m:contribution";
+
+fn gk(code: &str) -> ObjectKey {
+    ObjectKey::Primary {
+        values: vec![DbValue::Text(code.into())],
+    }
+}
+
+fn db_count(env: &FixtureEnv, sql: &str) -> i64 {
+    rusqlite::Connection::open(&env.db)
+        .unwrap()
+        .query_row(sql, [], |r| r.get(0))
+        .unwrap()
+}
+
+fn toggle(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>, rel: &str, key: &ObjectKey) {
+    act(cx, model, |m, cx| m.toggle_link(rel, key, cx));
+}
+
+fn edit_link(
+    cx: &mut TestAppContext,
+    model: &Entity<DbmanagerModel>,
+    rel: &str,
+    key: &ObjectKey,
+    field: &str,
+    text: &str,
+) {
+    act(cx, model, |m, cx| {
+        m.edit_link_field(rel, key, field, EditorInput::Text(text.to_owned()), cx);
+    });
+}
+
+fn rows(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>, rel: &str) -> Vec<StagedRow> {
+    read(cx, model, |m| m.staged_rows(rel))
+}
+
+#[gpui::test]
+fn counts_line_reflects_staging(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 2);
+    let line = |cx: &mut TestAppContext| read(cx, &model, |m| m.link_counts(GENRES).line());
+    assert_eq!(line(cx), "2 linked");
+    assert!(!dirty(cx, &model));
+    toggle(cx, &model, GENRES, &gk("poetry"));
+    toggle(cx, &model, GENRES, &gk("sci-fi"));
+    toggle(cx, &model, GENRES, &gk("fiction"));
+    assert_eq!(line(cx), "2 linked \u{b7} 2 to add \u{b7} 1 to remove");
+    assert!(dirty(cx, &model), "staged links make the draft dirty");
+    assert_eq!(read(cx, &model, DbmanagerModel::dirty_count), 3);
+    assert!(read(cx, &model, |m| m.unsaved_description().is_some()));
+    act(cx, &model, |m, cx| m.undo_link(GENRES, &gk("poetry"), cx));
+    toggle(cx, &model, GENRES, &gk("fiction"));
+    assert_eq!(line(cx), "2 linked \u{b7} 1 to add");
+    assert_eq!(read(cx, &model, DbmanagerModel::dirty_count), 1);
+}
+
+#[gpui::test]
+fn staged_rows_off_page_shown_once(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    toggle(cx, &model, GENRES, &gk("history"));
+    act(cx, &model, |m, cx| {
+        m.set_m2m_query(GENRES, "Poetry", false, 0, cx);
+    });
+    idle(cx, &model);
+    toggle(cx, &model, GENRES, &gk("poetry"));
+    let staged = rows(cx, &model, GENRES);
+    assert_eq!(staged.len(), 2, "each staged row once: {staged:?}");
+    let history = staged.iter().find(|r| r.other == gk("history")).unwrap();
+    let poetry = staged.iter().find(|r| r.other == gk("poetry")).unwrap();
+    assert!(history.off_page() && !history.on_page);
+    assert!(poetry.on_page);
+    assert_eq!(history.stage, LinkStage::Add);
+    assert_eq!(history.label, "History");
+    // The off-page row can be undone from its group.
+    act(cx, &model, |m, cx| m.undo_link(GENRES, &gk("history"), cx));
+    assert_eq!(rows(cx, &model, GENRES).len(), 1);
+}
+
+#[gpui::test]
+fn removal_with_fields_is_announced_before_save(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 2);
+    toggle(cx, &model, CONTRIB, &rowid(3));
+    let staged = rows(cx, &model, CONTRIB);
+    assert_eq!(staged.len(), 1);
+    assert_eq!(staged[0].stage, LinkStage::Remove);
+    let note = staged[0].removal_note.clone().expect("a removal note");
+    assert!(
+        note.starts_with("Will be removed with its fields: "),
+        "{note}"
+    );
+    assert!(note.contains("Translator") && note.contains('1'), "{note}");
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM contribution WHERE book_id = 2"),
+        1,
+        "nothing is written before Save"
+    );
+    // A link with no fields has no note.
+    toggle(cx, &model, GENRES, &gk("fiction"));
+    assert!(rows(cx, &model, GENRES)[0].removal_note.is_none());
+    // Ticking again undoes it.
+    toggle(cx, &model, CONTRIB, &rowid(3));
+    assert_eq!(rows(cx, &model, CONTRIB).len(), 0);
+}
+
+#[gpui::test]
+fn save_sends_links_with_fields_in_one_request(cx: &mut TestAppContext) {
+    let env = loaded();
+    let (backend, saves) = Recording::new(&env);
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "333");
+    toggle(cx, &model, GENRES, &gk("poetry"));
+    toggle(cx, &model, GENRES, &gk("fiction"));
+    toggle(cx, &model, CONTRIB, &rowid(3));
+    edit_link(cx, &model, CONTRIB, &rowid(3), "position", "2");
+    edit_link(cx, &model, CONTRIB, &rowid(2), "position", "4");
+    save_and_idle(cx, &model);
+    let sent = saves.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1, "one request");
+    let request = &sent[0];
+    assert_eq!(request.changes.len(), 1);
+    let genres = request.links.iter().find(|l| l.relation == GENRES).unwrap();
+    assert_eq!(genres.add[0].other, gk("poetry"));
+    assert_eq!(genres.remove[0].other, gk("fiction"));
+    assert!(genres.remove[0].version.is_some(), "carries the version");
+    let contrib = request
+        .links
+        .iter()
+        .find(|l| l.relation == CONTRIB)
+        .unwrap();
+    assert_eq!(contrib.add[0].other, rowid(3));
+    assert_eq!(contrib.add[0].fields.len(), 1, "only the edited field");
+    assert_eq!(contrib.update[0].other, rowid(2));
+    assert_ne!(contrib.update[0].version, "");
+    assert!(read(cx, &model, |m| m.error().is_none()));
+    assert!(!dirty(cx, &model), "staging is cleared by the save");
+    assert_eq!(rows(cx, &model, GENRES).len(), 0);
+    assert_eq!(
+        db_count(
+            &env,
+            "SELECT COUNT(*) FROM book_genre WHERE book_id = 1 AND genre_code = 'poetry'"
+        ),
+        1
+    );
+    assert_eq!(
+        db_count(
+            &env,
+            "SELECT COUNT(*) FROM book_genre WHERE book_id = 1 AND genre_code = 'fiction'"
+        ),
+        0
+    );
+    assert_eq!(
+        db_count(
+            &env,
+            "SELECT position FROM contribution WHERE book_id = 1 AND author_id = 3"
+        ),
+        2
+    );
+    assert_eq!(
+        db_count(
+            &env,
+            "SELECT position FROM contribution WHERE book_id = 1 AND author_id = 2"
+        ),
+        4
+    );
+    assert_eq!(read(cx, &model, |m| m.link_counts(GENRES).linked), 1);
+}
+
+#[gpui::test]
+fn link_errors_attach_to_rows(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    toggle(cx, &model, GENRES, &gk("poetry"));
+    // The genre goes away behind the model's back.
+    env.exec("DELETE FROM book_genre WHERE genre_code = 'poetry'; DELETE FROM genre WHERE code = 'poetry'");
+    save_and_idle(cx, &model);
+    assert_eq!(hint(cx, &model), Some(FocusHint::ErrorSummary));
+    assert!(read(cx, &model, |m| m.error().is_none()), "no banner");
+    let issues = read(cx, &model, |m| {
+        m.staged_link(GENRES, &gk("poetry"))
+            .map(|l| l.link_issues().len())
+    });
+    assert_eq!(issues, Some(1), "the row carries the link-level issue");
+    let summary = read(cx, &model, |m| m.draft().unwrap().links().summary());
+    assert_eq!(summary.len(), 1);
+    assert_eq!(summary[0].other, gk("poetry"));
+    assert!(dirty(cx, &model), "the change is kept");
+}
+
+#[gpui::test]
+fn save_with_link_conflict_is_handled_not_bannered(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    edit_link(cx, &model, CONTRIB, &rowid(2), "position", "3");
+    env.exec("UPDATE contribution SET role = 'translator' WHERE book_id = 1 AND author_id = 2");
+    save_and_idle(cx, &model);
+    assert!(read(cx, &model, |m| m.error().is_none()), "no banner");
+    assert!(read(cx, &model, |m| m.conflict().is_none()));
+    let conflict = read(cx, &model, |m| m.link_conflict(CONTRIB).cloned()).expect("handled");
+    assert_eq!(conflict.other, rowid(2));
+    assert!(conflict.notice().ends_with(
+        "link was changed by another program. Nothing was saved. Your change to it was set aside."
+    ));
+}
+
+#[gpui::test]
+fn link_conflict_keeps_other_edits_and_offers_reapply(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "331");
+    toggle(cx, &model, GENRES, &gk("poetry"));
+    edit_link(cx, &model, CONTRIB, &rowid(2), "position", "3");
+    env.exec("UPDATE contribution SET role = 'translator' WHERE book_id = 1 AND author_id = 2");
+    save_and_idle(cx, &model);
+    assert_eq!(
+        db_count(&env, "SELECT pages FROM book WHERE id = 1"),
+        320,
+        "nothing was saved"
+    );
+    let conflict = read(cx, &model, |m| m.link_conflict(CONTRIB).cloned()).unwrap();
+    assert_eq!(conflict.rebased.outcome, RebaseOutcome::Staged);
+    assert!(read(cx, &model, |m| m
+        .staged_link(CONTRIB, &rowid(2))
+        .is_none()));
+    assert!(read(cx, &model, |m| m.link_conflict(GENRES).is_none()));
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::dirty_count),
+        2,
+        "the pages edit and the genre add stay"
+    );
+    // Re-apply: an update against the fresh version, then it saves.
+    act(cx, &model, |m, cx| m.reapply_link(CONTRIB, cx));
+    assert!(read(cx, &model, |m| m.link_conflict(CONTRIB).is_none()));
+    let staged = read(cx, &model, |m| {
+        m.staged_link(CONTRIB, &rowid(2))
+            .map(super::draft::StagedLink::stage)
+    });
+    assert_eq!(staged, Some(LinkStage::Update));
+    save_and_idle(cx, &model);
+    assert!(read(cx, &model, |m| m.error().is_none()));
+    assert_eq!(
+        db_count(
+            &env,
+            "SELECT position FROM contribution WHERE book_id = 1 AND author_id = 2"
+        ),
+        3
+    );
+    assert_eq!(db_count(&env, "SELECT pages FROM book WHERE id = 1"), 331);
+    assert_eq!(
+        db_count(
+            &env,
+            "SELECT COUNT(*) FROM contribution WHERE book_id = 1 AND role = 'translator'"
+        ),
+        1,
+        "the other program's role stands"
+    );
+    // Discard it: the change is dropped and the rest saves.
+    edit_link(cx, &model, CONTRIB, &rowid(2), "position", "9");
+    env.exec("UPDATE contribution SET role = 'illustrator' WHERE book_id = 1 AND author_id = 2");
+    save_and_idle(cx, &model);
+    assert!(read(cx, &model, |m| m.link_conflict(CONTRIB).is_some()));
+    act(cx, &model, |m, cx| m.discard_link(CONTRIB, cx));
+    assert!(read(cx, &model, |m| m.link_conflict(CONTRIB).is_none()));
+    assert!(!dirty(cx, &model));
+    // An add that finds the link already there, with no values: a notice.
+    toggle(cx, &model, CONTRIB, &rowid(3));
+    env.exec("INSERT INTO contribution (book_id, author_id, role) VALUES (1, 3, 'editor')");
+    save_and_idle(cx, &model);
+    assert!(read(cx, &model, |m| m.link_conflict(CONTRIB).is_some()));
+    act(cx, &model, |m, cx| m.reapply_link(CONTRIB, cx));
+    assert_eq!(
+        read(cx, &model, |m| m.notice().map(Notice::copy)),
+        Some(text::LINK_ALREADY_LINKED.to_owned())
+    );
+    assert!(!dirty(cx, &model), "nothing left to stage");
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+}
+
+#[gpui::test]
+fn create_forms_stage_adds_too(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    choose(cx, &model, "book");
+    fill_new_book(cx, &model, "9780000000130");
+    let page = read(cx, &model, |m| m.m2m(GENRES).and_then(|s| s.page.clone()));
+    assert_eq!(page.expect("a page for the new object").linked_total, 0);
+    toggle(cx, &model, GENRES, &gk("poetry"));
+    assert_eq!(
+        read(cx, &model, |m| m.link_counts(GENRES).line()),
+        "0 linked \u{b7} 1 to add"
+    );
+    save_and_idle(cx, &model);
+    assert!(read(cx, &model, |m| m.error().is_none()));
+    assert!(matches!(place(cx, &model), Place::Object { .. }));
+    assert_eq!(
+        db_count(
+            &env,
+            "SELECT COUNT(*) FROM book_genre WHERE genre_code = 'poetry' AND book_id = (SELECT id FROM book WHERE isbn = '9780000000130')"
+        ),
+        1
+    );
+    assert_eq!(read(cx, &model, |m| m.link_counts(GENRES).linked), 1);
+}
+
+// ---- delete ----
+
+fn delete_dialog(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>) -> DeleteState {
+    read(cx, model, |m| m.delete_state().cloned()).expect("a delete state")
+}
+
+type DeleteLog = Arc<Mutex<Vec<(String, String, String)>>>;
+
+fn member_recording(cx: &mut TestAppContext) -> (FixtureEnv, Entity<DbmanagerModel>, DeleteLog) {
+    let env = loaded();
+    let (backend, _) = Recording::new(&env);
+    let deletes = backend.deletes.clone();
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    (env, model, deletes)
+}
+
+#[gpui::test]
+fn delete_previews_then_confirms(cx: &mut TestAppContext) {
+    let (env, model, deletes) = member_recording(cx);
+    open_object(cx, &model, "member", 2);
+    act(cx, &model, DbmanagerModel::request_delete);
+    assert!(matches!(
+        read(cx, &model, |m| m.delete_state().cloned()),
+        Some(DeleteState::Checking { .. })
+    ));
+    idle(cx, &model);
+    let DeleteState::Confirm(dialog) = delete_dialog(cx, &model) else {
+        panic!("expected the confirmation");
+    };
+    assert_eq!(dialog.label, "Jonas Weber");
+    assert!(!dialog.discards_draft);
+    assert!(dialog.impact.groups.iter().any(|g| g.table == "loan"));
+    assert!(deletes.lock().unwrap().is_empty(), "nothing before Confirm");
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        1
+    );
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    let calls = deletes.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, dialog.impact.version);
+    assert_eq!(calls[0].1, dialog.impact.token);
+    assert_eq!(calls[0].2, snapshot(cx, &model).config.hash);
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        0
+    );
+    assert!(read(cx, &model, |m| m.delete_state().is_none()));
+}
+
+#[gpui::test]
+fn blocked_delete_offers_only_close(cx: &mut TestAppContext) {
+    let env = FixtureEnv::new(DbmanagerFixture::DeleteBlocked);
+    let (backend, _) = Recording::new(&env);
+    let deletes = backend.deletes.clone();
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_object(cx, &model, "publisher", 1);
+    assert!(read(cx, &model, |m| m.can_delete("publisher")));
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    let DeleteState::Blocked(dialog) = delete_dialog(cx, &model) else {
+        panic!("expected the blocked state");
+    };
+    assert_ne!(dialog.blocking_groups().len(), 0);
+    assert_eq!(dialog.blocking_groups()[0].table, "book");
+    assert!(!dialog.generic_block());
+    // Confirm does nothing when blocked; Close ends it.
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert!(deletes.lock().unwrap().is_empty());
+    assert!(matches!(
+        read(cx, &model, |m| m.delete_state().cloned()),
+        Some(DeleteState::Blocked(_))
+    ));
+    act(cx, &model, DbmanagerModel::cancel_delete);
+    assert!(read(cx, &model, |m| m.delete_state().is_none()));
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM publisher WHERE id = 1"),
+        1
+    );
+}
+
+#[gpui::test]
+fn unpredicted_block_shows_the_generic_line(cx: &mut TestAppContext) {
+    let env = loaded();
+    let (mut backend, _) = Recording::new(&env);
+    backend.delete_error_once = Some(DbmanagerError::new(
+        DbmanagerErrorKind::DeleteBlocked,
+        "refused",
+    ));
+    let (model, _) = start_boxed(cx, Box::new(backend));
+    idle(cx, &model);
+    open_object(cx, &model, "member", 2);
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    let DeleteState::Blocked(dialog) = delete_dialog(cx, &model) else {
+        panic!("expected the blocked state");
+    };
+    assert!(dialog.generic_block());
+    assert_eq!(
+        text::DELETE_BLOCKED_GENERIC,
+        "This object cannot be deleted."
+    );
+}
+
+#[gpui::test]
+fn impact_changed_keeps_dialog_with_new_token(cx: &mut TestAppContext) {
+    let (env, model, deletes) = member_recording(cx);
+    open_object(cx, &model, "member", 2);
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    let DeleteState::Confirm(first) = delete_dialog(cx, &model) else {
+        panic!("expected the confirmation");
+    };
+    let _ = hint(cx, &model);
+    env.exec(
+        "INSERT INTO loan (id, book_id, member_id, loan_period, returned) VALUES (9, 1, 2, 100, 0)",
+    );
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    let DeleteState::Confirm(second) = delete_dialog(cx, &model) else {
+        panic!("stays open");
+    };
+    assert_eq!(
+        second.notice,
+        Some(super::model::DeleteDialogNotice::ImpactChanged)
+    );
+    assert_eq!(
+        second.notice.unwrap().copy(),
+        "What this delete affects changed. Review it again."
+    );
+    assert_ne!(second.impact.token, first.impact.token);
+    assert_eq!(hint(cx, &model), Some(FocusHint::DeleteNotice));
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        1
+    );
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    let calls = deletes.lock().unwrap().clone();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[1].1, second.impact.token, "the new token");
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        0
+    );
+}
+
+#[gpui::test]
+fn delete_conflict_shows_current(cx: &mut TestAppContext) {
+    let (env, model, _) = member_recording(cx);
+    open_object(cx, &model, "member", 2);
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    env.exec("UPDATE member SET name = 'Changed Name' WHERE id = 2");
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.delete_state().is_none()), "closes");
+    assert!(matches!(place(cx, &model), Place::Object { .. }));
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        1
+    );
+    assert_eq!(
+        read(cx, &model, |m| m.notice().map(Notice::copy)),
+        Some(
+            "\u{201c}Jonas Weber\u{201d} was changed by another program. Nothing was deleted. Review it and try again."
+                .to_owned()
+        )
+    );
+    assert_eq!(
+        stored(cx, &model, "name"),
+        DbValue::Text("Changed Name".into()),
+        "the sheet shows the current object"
+    );
+    assert!(read(cx, &model, |m| m.error().is_none()));
+    assert!(read(cx, &model, |m| m.conflict().is_none()), "clean draft");
+    // A dirty draft is kept, and the conflict panel is raised against current.
+    type_in(cx, &model, "name", "My Edit");
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    env.exec("UPDATE member SET name = 'Changed Again' WHERE id = 2");
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.delete_state().is_none()), "closes");
+    assert!(
+        matches!(
+            read(cx, &model, |m| m.notice().cloned()),
+            Some(Notice::DeleteConflict { .. })
+        ),
+        "the notice"
+    );
+    assert!(dirty(cx, &model), "the edits survive");
+    let panel = read(cx, &model, |m| m.conflict().cloned()).expect("the conflict panel");
+    assert!(
+        panel
+            .diff
+            .fields
+            .iter()
+            .any(|f| f.yours == "My Edit" && f.now == "Changed Again"),
+        "against current"
+    );
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        1
+    );
+}
+
+#[gpui::test]
+fn delete_config_changed_reruns_preview(cx: &mut TestAppContext) {
+    let (env, model, deletes) = member_recording(cx);
+    open_object(cx, &model, "member", 2);
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    let old_hash = snapshot(cx, &model).config.hash;
+    env.edit_config_book_pages_read_only();
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert_eq!(deletes.lock().unwrap().len(), 1, "never retried");
+    let DeleteState::Confirm(dialog) = delete_dialog(cx, &model) else {
+        panic!("stays open on the new preview");
+    };
+    assert_eq!(
+        dialog.notice.map(super::model::DeleteDialogNotice::copy),
+        Some("The config changed and was reloaded. Review the delete again.")
+    );
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        1
+    );
+    assert_ne!(snapshot(cx, &model).config.hash, old_hash);
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    let calls = deletes.lock().unwrap().clone();
+    assert_eq!(calls.len(), 2);
+    assert_ne!(calls[1].2, old_hash, "the new hash");
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        0
+    );
+}
+
+#[gpui::test]
+fn delete_config_changed_rechecks_draft(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "331");
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    env.edit_config_book_pages_read_only();
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert!(
+        read(cx, &model, |m| m.draft().unwrap().input("pages").is_none()),
+        "the draft follows the new rules"
+    );
+}
+
+#[gpui::test]
+fn save_blocked_while_link_reread_in_flight(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "331");
+    assert_eq!(read(cx, &model, DbmanagerModel::save_blocked_reason), None);
+    act(cx, &model, |m, cx| {
+        m.begin_link_conflict(
+            fm_dbmanager::session::LinkRef {
+                relation: CONTRIB.to_owned(),
+                other: rowid(2),
+            },
+            cx,
+        );
+    });
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::save_blocked_reason),
+        Some(text::REASON_LINK_CHECK)
+    );
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, DbmanagerModel::save_blocked_reason), None);
+}
+
+#[gpui::test]
+fn delete_success_replaces_place_and_notices(cx: &mut TestAppContext) {
+    let (env, model, _) = member_recording(cx);
+    open_object(cx, &model, "member", 2);
+    let history = read(cx, &model, |m| m.history().len());
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert_eq!(place(cx, &model), table("member"), "replaced by the table");
+    assert_eq!(read(cx, &model, |m| m.history().len()), history);
+    assert!(read(cx, &model, |m| m.object().is_none()));
+    let Some(Notice::Deleted {
+        label,
+        related,
+        backup,
+        ..
+    }) = read(cx, &model, |m| m.notice().cloned())
+    else {
+        panic!("expected the deleted notice");
+    };
+    assert_eq!(label, "Jonas Weber");
+    assert_eq!(related, 1, "one loan was cleared");
+    assert!(backup.is_some_and(|p| p.contains(".bak")), "first write");
+    let copy = read(cx, &model, |m| m.notice().map(Notice::copy)).unwrap();
+    assert!(
+        copy.starts_with("Deleted \u{201c}Jonas Weber\u{201d} and 1 related row."),
+        "{copy}"
+    );
+    let page = read(cx, &model, |m| {
+        m.list_state("member").and_then(|l| l.page.clone())
+    })
+    .unwrap();
+    assert!(page.items.iter().all(|i| i.key != rowid(2)), "list re-read");
+    assert!(snapshot(cx, &model).backup_path.is_some());
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 2"),
+        0
+    );
+}
+
+#[gpui::test]
+fn delete_with_dirty_draft_warns(cx: &mut TestAppContext) {
+    let (_env, model, _) = member_recording(cx);
+    open_object(cx, &model, "member", 2);
+    type_in(cx, &model, "name", "Edited");
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    let DeleteState::Confirm(dialog) = delete_dialog(cx, &model) else {
+        panic!("expected the confirmation");
+    };
+    assert!(dialog.discards_draft);
+    assert_eq!(
+        text::DELETE_DISCARDS_DRAFT,
+        "Your unsaved changes to it are discarded."
+    );
+    // Cancel keeps the draft.
+    act(cx, &model, DbmanagerModel::cancel_delete);
+    assert!(dirty(cx, &model));
+    act(cx, &model, DbmanagerModel::request_delete);
+    idle(cx, &model);
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert_eq!(place(cx, &model), table("member"));
+    assert!(!dirty(cx, &model));
+}
+
+#[gpui::test]
+fn pickable_tables_never_delete(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_object(cx, &model, "publisher", 1);
+    assert!(!read(cx, &model, |m| m.can_delete("publisher")));
+    act(cx, &model, DbmanagerModel::request_delete);
+    assert!(read(cx, &model, |m| m.delete_state().is_none()));
+    act(cx, &model, |m, cx| {
+        m.request_delete_of("publisher", rowid(2), "Harbour Books", cx);
+    });
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.delete_state().is_none()));
+    // A table that is not deletable in the config never does either.
+    assert!(!read(cx, &model, |m| m.can_delete("genre")));
+}
+
+#[gpui::test]
+fn request_delete_of_list_item_keeps_place(cx: &mut TestAppContext) {
+    let (env, model, _) = member_recording(cx);
+    choose(cx, &model, "member");
+    act(cx, &model, |m, cx| {
+        m.request_delete_of("member", rowid(3), "Lena Fischer", cx);
+    });
+    idle(cx, &model);
+    let DeleteState::Confirm(dialog) = delete_dialog(cx, &model) else {
+        panic!("expected the confirmation");
+    };
+    assert!(!dialog.discards_draft);
+    assert_eq!(dialog.label, "Lena Fischer");
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert_eq!(place(cx, &model), table("member"), "the place stays");
+    let page = read(cx, &model, |m| {
+        m.list_state("member").and_then(|l| l.page.clone())
+    })
+    .unwrap();
+    assert!(page.items.iter().all(|i| i.key != rowid(3)), "list re-read");
+    assert!(matches!(
+        read(cx, &model, |m| m.notice().cloned()),
+        Some(Notice::Deleted { .. })
+    ));
+    assert_eq!(
+        db_count(&env, "SELECT COUNT(*) FROM member WHERE id = 3"),
+        0
+    );
+}
+
+#[gpui::test]
+fn delete_notice_hint_is_raised(cx: &mut TestAppContext) {
+    let (_env, model, _) = member_recording(cx);
+    choose(cx, &model, "member");
+    act(cx, &model, |m, cx| {
+        m.request_delete_of("member", rowid(3), "Lena Fischer", cx);
+    });
+    idle(cx, &model);
+    let _ = hint(cx, &model);
+    act(cx, &model, DbmanagerModel::confirm_delete);
+    idle(cx, &model);
+    assert_eq!(hint(cx, &model), Some(FocusHint::DeleteNotice));
+}
+
+// ---- M12c follow-up: leaving cancels a link re-read ----
+
+#[gpui::test]
+fn leaving_cancels_link_reread(cx: &mut TestAppContext) {
+    let env = loaded();
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, &env);
+    handle.open();
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    handle.close();
+    // 1. The re-read of a link conflict starts and waits at the gate.
+    act(cx, &model, |m, cx| {
+        m.begin_link_conflict(
+            fm_dbmanager::session::LinkRef {
+                relation: CONTRIB.to_owned(),
+                other: rowid(2),
+            },
+            cx,
+        );
+    });
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::save_blocked_reason),
+        Some(text::REASON_LINK_CHECK)
+    );
+    // 2. The user goes to a new book, whose draft exists at once.
+    act(cx, &model, |m, cx| m.new_object("book", cx));
+    assert!(matches!(place(cx, &model), Place::New { .. }));
+    assert_eq!(
+        read(cx, &model, DbmanagerModel::save_blocked_reason),
+        None,
+        "the re-read no longer holds this place's save"
+    );
+    // 3. The gate opens: the old answer arrives and is dropped.
+    handle.open();
+    idle(cx, &model);
+    toggle(cx, &model, CONTRIB, &rowid(2));
+    assert!(read(cx, &model, |m| m
+        .staged_link(CONTRIB, &rowid(2))
+        .is_some()));
+    assert!(read(cx, &model, |m| m.link_conflict(CONTRIB).is_none()));
+    assert!(read(cx, &model, |m| m.draft().is_some()));
+    assert_eq!(read(cx, &model, DbmanagerModel::save_blocked_reason), None);
+}
+
+// ---- the config file: watcher, reload, Edit config ----
+
+fn config_hash(cx: &mut TestAppContext, model: &Entity<DbmanagerModel>) -> String {
+    snapshot(cx, model).config.hash
+}
+
+/// Pumps the executor until `done` holds (events from the real watcher come
+/// from another thread).
+fn wait_until(
+    cx: &mut TestAppContext,
+    model: &Entity<DbmanagerModel>,
+    what: &str,
+    done: impl Fn(&DbmanagerModel) -> bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        cx.run_until_parked();
+        if read(cx, model, |m| done(m) && !m.busy()) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[gpui::test]
+fn first_snapshot_arms_watcher_once(cx: &mut TestAppContext) {
+    // Off unless asked: a plain fixture model never arms.
+    let (_env, plain, _) = started(cx);
+    assert_eq!(read(cx, &plain, |m| m.watch_arms), 0);
+
+    let env = loaded();
+    cx.executor().allow_parking();
+    let fake = FakePlatform::new();
+    cx.update(|cx| platform::set_platform(cx, fake));
+    let backend = Box::new(env.backend());
+    let model = cx.new(|cx| DbmanagerModel::new(backend, cx).with_config_watcher());
+    idle(cx, &model);
+    wait_until(cx, &model, "the watcher", DbmanagerModel::config_watched);
+    assert_eq!(read(cx, &model, |m| m.watch_arms), 1);
+    // Later snapshots do not arm it again.
+    act(cx, &model, DbmanagerModel::fetch_snapshot);
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, |m| m.watch_arms), 1);
+    cx.update(|_| drop(model));
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn no_config_path_never_arms_watcher(cx: &mut TestAppContext) {
+    let env = loaded();
+    cx.executor().allow_parking();
+    let fake = FakePlatform::new();
+    cx.update(|cx| platform::set_platform(cx, fake));
+    let backend = Box::new(env.backend_without_config_path());
+    let model = cx.new(|cx| DbmanagerModel::new(backend, cx).with_config_watcher());
+    idle(cx, &model);
+    assert!(snapshot(cx, &model).config.path.is_none());
+    act(cx, &model, DbmanagerModel::fetch_snapshot);
+    idle(cx, &model);
+    assert_eq!(read(cx, &model, |m| m.watch_arms), 0);
+    assert!(!read(cx, &model, DbmanagerModel::config_watched));
+}
+
+#[gpui::test]
+fn config_edit_reloads_and_rechecks_draft(cx: &mut TestAppContext) {
+    let (env, model, _) = started(cx);
+    act(cx, &model, DbmanagerModel::arm_config_watcher);
+    wait_until(cx, &model, "the watcher", DbmanagerModel::config_watched);
+    // Let the watch settle before the edit.
+    std::thread::sleep(Duration::from_millis(300));
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "400");
+    type_in(cx, &model, "title", "Edited");
+    let before = config_hash(cx, &model);
+    env.edit_config_book_pages_read_only();
+    wait_until(cx, &model, "the reload notice", |m| m.notice().is_some());
+    assert_ne!(config_hash(cx, &model), before);
+    let Some(Notice::ConfigReloaded { dropped }) = read(cx, &model, |m| m.notice().cloned()) else {
+        panic!("expected the reload notice");
+    };
+    assert_eq!(dropped.len(), 1);
+    assert_eq!(read(cx, &model, DbmanagerModel::dirty_count), 1);
+    assert!(read(cx, &model, |m| m.config_reloaded_notice().is_some()));
+    // Drop the model (and its watcher) before the temp dir goes.
+    cx.update(|_| drop(model));
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn inject_file_changed_reloads(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    let before = config_hash(cx, &model);
+    cx.update(|cx| model.update(cx, DbmanagerModel::inject_file_changed));
+    idle(cx, &model);
+    assert_ne!(config_hash(cx, &model), before);
+    assert_eq!(
+        read(cx, &model, |m| m.table_view("book").and_then(|t| t
+            .fields
+            .iter()
+            .find(|f| f.column == "pages")
+            .map(|f| f.mode))),
+        Some(fm_dbmanager::config::FieldMode::ReadOnly)
+    );
+    assert!(
+        snapshot(cx, &model).open,
+        "the database stays open, not reopened"
+    );
+    // The same hash again changes nothing and raises no notice.
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    cx.update(|cx| model.update(cx, DbmanagerModel::config_file_changed));
+    idle(cx, &model);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+}
+
+#[gpui::test]
+fn reload_drops_edits_that_no_longer_apply(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "400");
+    cx.update(|cx| model.update(cx, DbmanagerModel::inject_file_changed));
+    idle(cx, &model);
+    let copy = read(cx, &model, DbmanagerModel::config_reloaded_notice).expect("a notice");
+    assert!(
+        copy.starts_with(
+            "The config was reloaded. These changes no longer apply and were removed: "
+        ),
+        "{copy}"
+    );
+    assert!(!dirty(cx, &model));
+}
+
+#[gpui::test]
+fn reload_waits_for_running_save(cx: &mut TestAppContext) {
+    let env = loaded();
+    let handle = cx.update(crate::jobs::WorkerGate::install_closed);
+    let (model, _) = start(cx, &env);
+    handle.open();
+    idle(cx, &model);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "title", "Saved first");
+    handle.close();
+    act(cx, &model, DbmanagerModel::save);
+    cx.update(|cx| model.update(cx, DbmanagerModel::inject_file_changed));
+    cx.run_until_parked();
+    assert!(read(cx, &model, DbmanagerModel::saving));
+    // Only the save may run: the config edit and reload wait behind it.
+    handle.release_one();
+    cx.run_until_parked();
+    assert_eq!(
+        std::fs::read_to_string(&env.config).unwrap(),
+        include_str!("../../../../../examples/dbmanager/example.toml"),
+        "the config is not touched while the save is queued ahead"
+    );
+    handle.open();
+    idle(cx, &model);
+    assert_eq!(
+        db_count(
+            &env,
+            "SELECT COUNT(*) FROM book WHERE title = 'Saved first'"
+        ),
+        1
+    );
+    assert!(read(cx, &model, |m| m.error().is_none()));
+    assert!(read(cx, &model, |m| !m.saving()));
+}
+
+#[gpui::test]
+fn edit_config_needs_dev_mode(cx: &mut TestAppContext) {
+    use crate::app::dev_mode::DevMode;
+
+    let (env, model, fake) = started(cx);
+    cx.update(DevMode::init);
+    assert!(!cx.update(|cx| model.read(cx).can_edit_config(cx)));
+    act(cx, &model, DbmanagerModel::edit_config);
+    idle(cx, &model);
+    assert!(fake.calls().is_empty(), "nothing opened");
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+    cx.update(DevMode::toggle);
+    assert!(cx.update(|cx| model.read(cx).can_edit_config(cx)));
+    drop(env);
+}
+
+#[gpui::test]
+fn edit_config_opens_with_system_and_notices_creation(cx: &mut TestAppContext) {
+    use crate::app::dev_mode::DevMode;
+
+    let env = FixtureEnv::new(DbmanagerFixture::ConfigMissing);
+    let (model, fake) = start(cx, &env);
+    idle(cx, &model);
+    cx.update(DevMode::init);
+    cx.update(DevMode::toggle);
+    assert!(!env.config.exists());
+    act(cx, &model, DbmanagerModel::edit_config);
+    idle(cx, &model);
+    assert!(env.config.is_file(), "the starter was created");
+    assert_eq!(
+        fake.calls(),
+        vec![PlatformCall::OpenWithSystem(env.config.clone())]
+    );
+    let copy = read(cx, &model, |m| m.notice().map(Notice::copy)).expect("a notice");
+    assert!(copy.starts_with("Created a starter config at "), "{copy}");
+    assert!(copy.contains("dbmanager.toml"), "{copy}");
+    // An existing file is opened as it is, with no notice.
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    let text = std::fs::read_to_string(&env.config).unwrap();
+    act(cx, &model, DbmanagerModel::edit_config);
+    idle(cx, &model);
+    assert_eq!(fake.calls().len(), 2);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+    assert_eq!(std::fs::read_to_string(&env.config).unwrap(), text);
+}
+
+#[gpui::test]
+fn edit_config_opener_failure_shows_opener_failed(cx: &mut TestAppContext) {
+    use crate::app::dev_mode::DevMode;
+    use crate::platform::OpenError;
+
+    let (_env, model, fake) = started(cx);
+    cx.update(DevMode::init);
+    cx.update(DevMode::toggle);
+    fake.answer_open(Err(OpenError {
+        detail: "no handler for .toml".to_owned(),
+    }));
+    act(cx, &model, DbmanagerModel::edit_config);
+    idle(cx, &model);
+    let Some(ViewError::Dbmanager { error, .. }) = read(cx, &model, |m| m.error().cloned()) else {
+        panic!("expected the banner");
+    };
+    assert_eq!(error.kind, DbmanagerErrorKind::OpenerFailed);
+    assert_eq!(error.message, "no handler for .toml");
+}
+
+#[gpui::test]
+fn fixtures_build_diagnostics_and_readonly_config_states(cx: &mut TestAppContext) {
+    let diagnostics = state_of(cx, DbmanagerFixture::Diagnostics);
+    assert!(diagnostics.open);
+    assert_eq!(diagnostics.error_count, 1, "{:?}", diagnostics.diagnostics);
+    assert_eq!(
+        diagnostics.warning_count, 1,
+        "{:?}",
+        diagnostics.diagnostics
+    );
+
+    let readonly = state_of(cx, DbmanagerFixture::ReadonlyConfig);
+    assert!(readonly.open);
+    assert!(readonly.config_fail_closed.is_some());
+    assert!(readonly.tables.iter().all(|t| !t.can_create));
+    assert!(text::config_notice(&readonly).is_some());
+}
+
+#[test]
+fn problems_copy_text() {
+    assert_eq!(
+        text::problems_summary(2, 1),
+        "Config: 2 errors, 1 warning. Entries with errors are read-only."
+    );
+    assert_eq!(text::problems_summary(0, 2), "Config: 2 warnings.");
+    let d = |line, col, table: Option<&str>, column: Option<&str>| ConfigDiagnostic {
+        severity: DiagnosticSeverity::Error,
+        message: String::new(),
+        line,
+        col,
+        table: table.map(Into::into),
+        column: column.map(Into::into),
+    };
+    assert_eq!(
+        text::position(&d(Some(12), Some(3), None, None)),
+        "Line 12, column 3"
+    );
+    assert_eq!(
+        text::position(&d(None, None, Some("book"), Some("isbn"))),
+        "Table book, field isbn"
+    );
+    assert_eq!(text::position(&d(None, None, None, None)), "");
+}
+
+#[gpui::test]
+fn state_warning_dismissal_sticks_until_it_changes(cx: &mut TestAppContext) {
+    let env = FixtureEnv::new(DbmanagerFixture::StateWarning);
+    let (model, _) = start(cx, &env);
+    idle(cx, &model);
+    let warning = read(cx, &model, |m| m.state_warning().map(String::from)).expect("a warning");
+    act(cx, &model, DbmanagerModel::dismiss_state_warning);
+    assert_eq!(
+        read(cx, &model, |m| m.state_warning().map(String::from)),
+        None
+    );
+    // The same text stays dismissed across a reload.
+    act(cx, &model, DbmanagerModel::reload);
+    idle(cx, &model);
+    assert_eq!(
+        read(cx, &model, |m| m.state_warning().map(String::from)),
+        None
+    );
+    // A different text shows again.
+    act(cx, &model, |m, _| {
+        m.state_warning_dismissed = Some(format!("not {warning}"));
+    });
+    assert_eq!(
+        read(cx, &model, |m| m.state_warning().map(String::from)),
+        Some(warning)
+    );
+}
+
+#[gpui::test]
+fn escape_ignored_while_shortcuts_open(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    act(cx, &model, |m, cx| m.choose_table("member", cx));
+    assert!(read(cx, &model, |m| m.leave_request().is_some()));
+    act(cx, &model, |m, cx| m.set_shortcuts_open(true, cx));
+    act(cx, &model, DbmanagerModel::escape);
+    assert!(
+        read(cx, &model, |m| m.leave_request().is_some()),
+        "the help took the key"
+    );
+    act(cx, &model, |m, cx| m.set_shortcuts_open(false, cx));
+    act(cx, &model, DbmanagerModel::escape);
+    assert!(read(cx, &model, |m| m.leave_request().is_none()));
+    // A notice is held the same way.
+    act(cx, &model, |m, cx| {
+        m.notice = Some(Notice::LinkAlreadyGone);
+        m.set_shortcuts_open(true, cx);
+    });
+    act(cx, &model, DbmanagerModel::escape);
+    assert!(read(cx, &model, |m| m.notice().is_some()));
+    act(cx, &model, |m, cx| m.set_shortcuts_open(false, cx));
+    act(cx, &model, DbmanagerModel::escape);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+}
+
+#[gpui::test]
+fn buttons_work_while_shortcuts_open(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    act(cx, &model, |m, cx| m.choose_table("member", cx));
+    act(cx, &model, |m, cx| m.set_shortcuts_open(true, cx));
+    act(cx, &model, DbmanagerModel::cancel_leave);
+    assert!(read(cx, &model, |m| m.leave_request().is_none()));
+    act(cx, &model, |m, _| m.notice = Some(Notice::LinkAlreadyGone));
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
 }

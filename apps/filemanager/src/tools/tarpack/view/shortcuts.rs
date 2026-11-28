@@ -1,6 +1,6 @@
 //! The Tar Packager's shortcuts table: the rows of `text::SHORTCUTS` for the
-//! shared [`crate::widgets::ShortcutsHelp`]. The bindings themselves are the
-//! build task's (U11).
+//! shared [`crate::widgets::ShortcutsHelp`]. The bindings themselves are in
+//! `keys.rs`.
 
 use crate::tools::tarpack::text;
 use crate::widgets::shortcuts_help::ShortcutRow;

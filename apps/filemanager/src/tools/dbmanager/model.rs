@@ -1,9 +1,10 @@
 //! The Database Manager's model: the snapshot, the places the user has been
 //! (history), the table lists, one object with its "referenced by" and
 //! many-to-many pages, and the edit side: one draft at a time, the reference
-//! picker, save, create, the conflict panel and the leave confirmation. The
-//! view only renders it and calls the methods here. Link staging and delete
-//! come with a later part.
+//! picker, save, create, the conflict panel and the leave confirmation, the
+//! staging of many-to-many link changes (saved with the draft, with the link
+//! conflict rebase), and the confirmed delete with its impact. The view only
+//! renders it and calls the methods here.
 //!
 //! No backend call runs on the UI thread: each goes through the model's
 //! [`Worker`]. Results come back through weak-entity updates, so a result
@@ -14,22 +15,26 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use fm_dbmanager::config::TableMode;
-use fm_dbmanager::model::TableView;
+use fm_core::watch::FileWatcher;
+use fm_dbmanager::config::{RelationMode, TableMode};
+use fm_dbmanager::model::{FieldView, TableView};
 use fm_dbmanager::session::{
-    ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectSummary, ObjectView,
-    ReferencingFilter, SaveRequest, SaveResult,
+    DeleteImpact, DeleteResult, ImpactGroup, LinkRef, ListQuery, M2mOption, M2mPage, M2mQuery,
+    ObjectKey, ObjectPage, ObjectSummary, ObjectView, ReferencingFilter, SaveRequest, SaveResult,
 };
 use fm_dbmanager::tool::{DbmanagerError, DbmanagerErrorKind, DbmanagerSnapshot};
-use gpui::Context;
+use gpui::{Context, Task};
 
+use crate::app::dev_mode::DevMode;
 use crate::app::text::PICK_FAILED;
 use crate::jobs::{JobPanicked, Worker};
-use crate::platform::{platform, FileFilter, OpenSpec, PickError, PickKind};
+use crate::platform::{platform, FileFilter, OpenError, OpenSpec, PickError, PickKind};
 
 use super::backend::DbmanagerBackend;
 pub use super::draft::EditorInput;
-use super::draft::{ConflictDiff, Draft, Pick};
+use super::draft::{
+    rebase_link, ConflictDiff, Draft, LinkStage, Pick, RebaseOutcome, Rebased, StagedLink,
+};
 use super::text;
 
 /// Rows per page, in lists, "referenced by" and many-to-many pages.
@@ -119,7 +124,7 @@ pub enum FocusHint {
     /// The reference picker's trigger for this field, after the picker
     /// closed or picked.
     PickerTrigger(String),
-    /// The delete notice (impact changed, or delete done; a later part).
+    /// The delete notice (impact changed, or delete done).
     DeleteNotice,
 }
 
@@ -182,6 +187,26 @@ pub enum Notice {
     ConfigChangedWhileEditing { dropped: Vec<String> },
     /// The config was reloaded and the edited object is gone.
     ConfigReloadedGone { label: String },
+    /// Re-applying a set-aside link change found the link already there.
+    LinkAlreadyLinked,
+    /// Re-applying a set-aside removal found the link already gone.
+    LinkAlreadyGone,
+    /// Re-applying a set-aside edit found the link already holding it.
+    LinkAlreadyApplied,
+    /// Edit config created the starter file (display path).
+    StarterCreated { display: String },
+    /// An object was deleted (`related` rows went with it; `at_least` when
+    /// the count was cut short). `backup` is the display path when this
+    /// delete took the session's backup.
+    Deleted {
+        label: String,
+        related: u64,
+        at_least: bool,
+        backup: Option<String>,
+    },
+    /// A delete found the object changed by another program; nothing was
+    /// deleted.
+    DeleteConflict { label: String },
 }
 
 impl Notice {
@@ -195,6 +220,17 @@ impl Notice {
                 text::config_changed_while_editing(dropped)
             }
             Notice::ConfigReloadedGone { label } => text::config_reloaded_gone(label),
+            Notice::LinkAlreadyLinked => text::LINK_ALREADY_LINKED.to_owned(),
+            Notice::LinkAlreadyGone => text::LINK_ALREADY_GONE.to_owned(),
+            Notice::LinkAlreadyApplied => text::LINK_ALREADY_APPLIED.to_owned(),
+            Notice::StarterCreated { display } => text::starter_created(display),
+            Notice::Deleted {
+                label,
+                related,
+                at_least,
+                backup,
+            } => text::deleted_notice(label, *related, *at_least, backup.as_deref()),
+            Notice::DeleteConflict { label } => text::delete_conflict(label),
         }
     }
 }
@@ -207,6 +243,145 @@ pub struct ConflictPanel {
     /// The object as it is now.
     pub current: ObjectView,
     pub diff: ConflictDiff,
+}
+
+/// One staged link change as the many-to-many section lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StagedRow {
+    pub other: ObjectKey,
+    pub label: String,
+    pub stage: LinkStage,
+    /// The row is on the relation's current page (drawn in place). Off the
+    /// page, it is drawn in the "Not saved yet" group, so a staged change is
+    /// never off screen.
+    pub on_page: bool,
+    /// For a removal of a link that has fields: "Will be removed with its
+    /// fields: ...".
+    pub removal_note: Option<String>,
+}
+
+impl StagedRow {
+    /// `!on_page`.
+    #[must_use]
+    pub fn off_page(&self) -> bool {
+        !self.on_page
+    }
+}
+
+/// The counts line of a many-to-many section.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LinkCounts {
+    /// Links stored now.
+    pub linked: u64,
+    pub to_add: usize,
+    pub to_remove: usize,
+}
+
+impl LinkCounts {
+    /// "3 linked", or "3 linked \u{b7} 2 to add \u{b7} 1 to remove".
+    #[must_use]
+    pub fn line(&self) -> String {
+        text::link_counts(self.linked, self.to_add, self.to_remove)
+    }
+}
+
+/// A save met a link that another program changed: the user's change to it
+/// is set aside, and this is what the section offers.
+#[derive(Clone, Debug)]
+pub struct LinkConflict {
+    pub relation: String,
+    pub other: ObjectKey,
+    /// The other object's label.
+    pub label: String,
+    /// The link as it is now (`None`: the other object is gone).
+    pub now: Option<M2mOption>,
+    /// The user's change as it was.
+    pub set_aside: StagedLink,
+    /// What "Re-apply my change" does.
+    pub rebased: Rebased,
+}
+
+impl LinkConflict {
+    /// The section notice.
+    #[must_use]
+    pub fn notice(&self) -> String {
+        text::link_conflict(&self.label)
+    }
+}
+
+/// How far a delete is.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DeleteState {
+    /// The impact is being read ("Checking...").
+    Checking { label: String },
+    /// The confirmation, starting on Cancel.
+    Confirm(DeleteDialog),
+    /// The delete cannot happen; the dialog offers only Close.
+    Blocked(DeleteDialog),
+    /// The confirmed delete is running.
+    Deleting(DeleteDialog),
+}
+
+/// What changed since the dialog first opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeleteDialogNotice {
+    ImpactChanged,
+    ConfigReloaded,
+}
+
+impl DeleteDialogNotice {
+    /// The user-facing sentence.
+    #[must_use]
+    pub fn copy(self) -> &'static str {
+        match self {
+            DeleteDialogNotice::ImpactChanged => text::DELETE_IMPACT_CHANGED,
+            DeleteDialogNotice::ConfigReloaded => text::DELETE_CONFIG_RELOADED,
+        }
+    }
+}
+
+/// The delete confirmation's content.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeleteDialog {
+    pub table: String,
+    pub key: ObjectKey,
+    pub label: String,
+    pub impact: DeleteImpact,
+    /// The object has a dirty draft that the delete discards.
+    pub discards_draft: bool,
+    pub notice: Option<DeleteDialogNotice>,
+}
+
+impl DeleteDialog {
+    /// The groups that make the delete fail, first.
+    #[must_use]
+    pub fn blocking_groups(&self) -> Vec<&ImpactGroup> {
+        self.impact.groups.iter().filter(|g| g.blocks).collect()
+    }
+
+    /// The groups that do not block, in the impact's order.
+    #[must_use]
+    pub fn other_groups(&self) -> Vec<&ImpactGroup> {
+        self.impact.groups.iter().filter(|g| !g.blocks).collect()
+    }
+
+    /// Blocked with no blocking group to name: show
+    /// [`text::DELETE_BLOCKED_GENERIC`].
+    #[must_use]
+    pub fn generic_block(&self) -> bool {
+        self.impact.blocked && !self.impact.groups.iter().any(|g| g.blocks)
+    }
+}
+
+/// The object a delete is about.
+#[derive(Clone, Debug)]
+struct DeleteTarget {
+    table: String,
+    key: ObjectKey,
+    label: String,
+    /// It is the open object (the place is replaced on success).
+    open: bool,
+    discards_draft: bool,
 }
 
 /// A navigation that waits for the answer to "Discard unsaved changes?".
@@ -317,8 +492,8 @@ pub struct DbmanagerModel {
     m2ms: HashMap<String, M2mState>,
     /// The folder of the database last held, where the open dialog starts.
     last_dir: Option<PathBuf>,
-    /// A save or delete is running. Set by the write parts; the drop is
-    /// refused meanwhile.
+    /// A save or the confirmed delete is running; the drop is refused
+    /// meanwhile.
     write_in_progress: bool,
     draft: Option<Draft>,
     /// The config hash the draft was last checked against.
@@ -326,18 +501,61 @@ pub struct DbmanagerModel {
     picker: Option<PickerState>,
     conflict: Option<ConflictPanel>,
     leave: Option<LeaveRequest>,
-    notice: Option<Notice>,
+    pub(super) notice: Option<Notice>,
+    /// The state warning the user dismissed; a different text shows again.
+    pub(super) state_warning_dismissed: Option<String>,
+    /// The shortcuts help is open: Escape belongs to it.
+    shortcuts_open: bool,
     /// The request a `Busy` answer refused, for "Try again".
     retry: Option<SaveRequest>,
     /// Counts every start-over for a database (see `command_done`).
     reset_count: u64,
     recheck_seq: u64,
+    /// Link conflicts waiting for an answer, by relation.
+    link_conflicts: Vec<LinkConflict>,
+    link_conflict_seq: u64,
+    /// A link conflict's one-option re-read is in flight.
+    link_reread: bool,
+    delete: Option<DeleteState>,
+    delete_target: Option<DeleteTarget>,
+    delete_seq: u64,
+    /// The watcher of the config file, once armed.
+    config_watcher: Option<FileWatcher>,
+    /// Whether the first snapshot arms the watcher, and whether it did.
+    watch: WatchState,
+    /// How many times a watcher was started (tests count them).
+    #[cfg(test)]
+    pub(super) watch_arms: usize,
+    /// The watcher's callback sends here; a foreground task reloads.
+    config_changes: async_channel::Sender<()>,
+}
+
+/// Arming of the config watcher (once per model).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WatchState {
+    /// Never armed (fixtures, tests).
+    Off,
+    /// The first snapshot arms it.
+    Wanted,
+    /// Arming was started.
+    Armed,
 }
 
 impl DbmanagerModel {
     /// A model over `backend`; it starts loading the state at once.
     pub fn new(backend: Box<dyn DbmanagerBackend>, cx: &mut Context<Self>) -> Self {
         let worker = Worker::new(backend, cx);
+        let (config_changes, changed) = async_channel::unbounded::<()>();
+        cx.spawn(async move |this, cx| {
+            while changed.recv().await.is_ok() {
+                if this.update(cx, Self::config_file_changed).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        // Edit config shows only in developer mode: a change redraws at once.
+        cx.observe_global::<DevMode>(|_, cx| cx.notify()).detach();
         let mut model = Self {
             worker,
             snapshot: None,
@@ -366,12 +584,33 @@ impl DbmanagerModel {
             conflict: None,
             leave: None,
             notice: None,
+            state_warning_dismissed: None,
+            shortcuts_open: false,
             retry: None,
             reset_count: 0,
             recheck_seq: 0,
+            link_conflicts: Vec::new(),
+            link_conflict_seq: 0,
+            link_reread: false,
+            delete: None,
+            delete_target: None,
+            delete_seq: 0,
+            config_watcher: None,
+            watch: WatchState::Off,
+            #[cfg(test)]
+            watch_arms: 0,
+            config_changes,
         };
         model.fetch_snapshot(cx);
         model
+    }
+
+    /// Makes the first snapshot arm the config watcher. The real app sets
+    /// this; fixtures and tests leave it off unless they test the watcher.
+    #[must_use]
+    pub fn with_config_watcher(mut self) -> Self {
+        self.watch = WatchState::Wanted;
+        self
     }
 
     // ---- reading ----
@@ -518,7 +757,7 @@ impl DbmanagerModel {
         self.next_seq
     }
 
-    fn fetch_snapshot(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn fetch_snapshot(&mut self, cx: &mut Context<Self>) {
         let order = self.next_seq();
         self.request(
             |b| b.session(),
@@ -548,6 +787,11 @@ impl DbmanagerModel {
         self.snapshot = Some(snapshot);
         if changed {
             self.reset_for_database(false, cx);
+        }
+        // Only a model set up with `with_config_watcher` watches (a real
+        // watcher on every fixture would reload behind unrelated tests).
+        if self.watch == WatchState::Wanted {
+            self.arm_config_watcher(cx);
         }
         cx.notify();
     }
@@ -925,6 +1169,13 @@ impl DbmanagerModel {
         self.draft = None;
         self.picker = None;
         self.conflict = None;
+        self.link_conflicts.clear();
+        // A link conflict's one-option re-read still in flight belongs to the
+        // place being left: its answer is stale and is dropped.
+        self.link_conflict_seq += 1;
+        self.link_reread = false;
+        self.delete = None;
+        self.delete_target = None;
         self.leave = None;
         self.retry = None;
         let focus = match self.place().clone() {
@@ -938,7 +1189,7 @@ impl DbmanagerModel {
                 FocusHint::SheetHeading
             }
             Place::New { table } => {
-                self.start_new_draft(&table);
+                self.start_new_draft(&table, cx);
                 FocusHint::SheetHeading
             }
         };
@@ -1088,12 +1339,20 @@ impl DbmanagerModel {
         }
         self.draft = None;
         self.conflict = None;
+        self.link_conflicts.clear();
         if self.table_read_only_reason(table).is_none() {
             if let Some(tv) = self.table_view(table) {
                 self.draft = Some(Draft::for_object(tv, &view));
                 self.checked_hash = self.config_hash();
             }
         }
+        self.object = Some(ObjectLoad::Loaded(view));
+        self.init_m2m(table, keep_m2m, cx);
+    }
+
+    /// Starts the many-to-many states of `table`'s relations and reads
+    /// their first pages (`keep`: the open ones keep their query).
+    fn init_m2m(&mut self, table: &str, keep_m2m: bool, cx: &mut Context<Self>) {
         let relations: Vec<(String, bool)> = self
             .table_view(table)
             .map(|t| {
@@ -1108,7 +1367,6 @@ impl DbmanagerModel {
                     .collect()
             })
             .unwrap_or_default();
-        self.object = Some(ObjectLoad::Loaded(view));
         for (relation, linked_only) in relations {
             if !keep_m2m || !self.m2ms.contains_key(&relation) {
                 self.m2ms.insert(
@@ -1289,8 +1547,10 @@ impl DbmanagerModel {
     }
 
     fn fetch_m2m(&mut self, relation: &str, cx: &mut Context<Self>) {
-        let Place::Object { table, key, .. } = self.place().clone() else {
-            return;
+        let (table, key) = match self.place().clone() {
+            Place::Object { table, key, .. } => (table, Some(key)),
+            Place::New { table } => (table, None),
+            _ => return,
         };
         let seq = self.next_seq();
         let Some(state) = self.m2ms.get_mut(relation) else {
@@ -1308,7 +1568,7 @@ impl DbmanagerModel {
         let name = relation.to_owned();
         let asked = name.clone();
         self.request(
-            move |b| b.m2m_options(&table, Some(&key), &asked, &query),
+            move |b| b.m2m_options(&table, key.as_ref(), &asked, &query),
             cx,
             move |m, result, cx| m.m2m_done(&name, seq, result, cx),
         );
@@ -1348,13 +1608,13 @@ impl DbmanagerModel {
         self.draft.as_ref()
     }
 
-    /// The draft has changed fields.
+    /// The draft has changed fields or staged link changes.
     #[must_use]
     pub fn dirty(&self) -> bool {
         self.draft.as_ref().is_some_and(Draft::dirty)
     }
 
-    /// How many fields are changed.
+    /// How many fields are changed plus how many link changes are staged.
     #[must_use]
     pub fn dirty_count(&self) -> usize {
         self.draft.as_ref().map_or(0, Draft::dirty_count)
@@ -1397,14 +1657,21 @@ impl DbmanagerModel {
     pub fn save_blocked_reason(&self) -> Option<&'static str> {
         if self.conflict.is_some() {
             Some(text::REASON_CONFLICT)
+        } else if self.delete.is_some() {
+            Some(text::REASON_DELETE)
         } else if self.write_in_progress {
             Some(text::REASON_SAVING)
+        } else if self.link_reread {
+            Some(text::REASON_LINK_CHECK)
         } else {
             None
         }
     }
 
-    /// The message under the sheet (backup, config reloaded).
+    /// The message under the sheet (backup, config reloaded, delete done).
+    /// It stays until the user dismisses it, the next successful save clears
+    /// it (and sets the backup notice again only when that save made the
+    /// backup), or anything else that has a notice replaces it.
     #[must_use]
     pub fn notice(&self) -> Option<&Notice> {
         self.notice.as_ref()
@@ -1415,6 +1682,27 @@ impl DbmanagerModel {
         if self.notice.take().is_some() {
             cx.notify();
         }
+    }
+
+    /// The state warning (store problems), unless the user dismissed this
+    /// text.
+    #[must_use]
+    pub fn state_warning(&self) -> Option<&str> {
+        let warning = self.snapshot.as_ref()?.state_warning.as_deref()?;
+        (self.state_warning_dismissed.as_deref() != Some(warning)).then_some(warning)
+    }
+
+    /// Hides the current state warning until a different one arrives.
+    pub fn dismiss_state_warning(&mut self, cx: &mut Context<Self>) {
+        self.state_warning_dismissed = self.snapshot.as_ref().and_then(|s| s.state_warning.clone());
+        cx.notify();
+    }
+
+    /// The shortcuts help is open or closed. While it is open, Escape's
+    /// model actions (dismiss a notice, cancel a pending leave) do nothing.
+    pub fn set_shortcuts_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.shortcuts_open = open;
+        cx.notify();
     }
 
     /// The conflict panel's content.
@@ -1438,7 +1726,7 @@ impl DbmanagerModel {
     /// Asks before leaving a dirty draft. Returns whether `action` was held
     /// back: for the question, or because a save is running.
     fn intercept(&mut self, action: Nav, cx: &mut Context<Self>) -> bool {
-        if self.write_in_progress {
+        if self.write_in_progress || self.delete.is_some() {
             return true;
         }
         if !self.dirty() {
@@ -1477,6 +1765,20 @@ impl DbmanagerModel {
     pub fn cancel_leave(&mut self, cx: &mut Context<Self>) {
         if self.leave.take().is_some() {
             cx.notify();
+        }
+    }
+
+    /// The Escape key. Does nothing while the shortcuts help is open (it
+    /// owns the key). Otherwise cancels a pending leave, else dismisses the
+    /// notice. The views bind the key here, never to the two it calls.
+    pub fn escape(&mut self, cx: &mut Context<Self>) {
+        if self.shortcuts_open {
+            return;
+        }
+        if self.leave.is_some() {
+            self.cancel_leave(cx);
+        } else {
+            self.dismiss_notice(cx);
         }
     }
 
@@ -1798,12 +2100,22 @@ impl DbmanagerModel {
     fn save_failed(&mut self, request: SaveRequest, e: DbmanagerError, cx: &mut Context<Self>) {
         match e.kind {
             DbmanagerErrorKind::ValidationFailed
-                if self
-                    .draft
-                    .as_mut()
-                    .is_some_and(|d| d.set_server_issues(&e.field_errors)) =>
+                if self.draft.as_mut().is_some_and(|d| {
+                    let fields = d.set_server_issues(&e.field_errors);
+                    let links = d.links_mut().set_errors(&e.link_errors);
+                    fields || links
+                }) =>
             {
                 self.focus_hint = Some(FocusHint::ErrorSummary);
+            }
+            DbmanagerErrorKind::Conflict
+                if e.conflict_link
+                    .as_deref()
+                    .is_some_and(|l| self.is_staged(l)) =>
+            {
+                if let Some(link) = e.conflict_link {
+                    self.begin_link_conflict(*link, cx);
+                }
             }
             DbmanagerErrorKind::Conflict if e.conflict_link.is_none() && e.current.is_some() => {
                 if let (Some(current), Some(draft)) = (e.current, self.draft.as_ref()) {
@@ -1895,13 +2207,16 @@ impl DbmanagerModel {
             && self.table_read_only_reason(table).is_none()
     }
 
-    fn start_new_draft(&mut self, table: &str) {
+    fn start_new_draft(&mut self, table: &str, cx: &mut Context<Self>) {
         if !self.can_create(table) {
             return;
         }
         if let Some(tv) = self.table_view(table) {
             self.draft = Some(Draft::for_new(tv));
             self.checked_hash = self.config_hash();
+            // A new object stages link adds too: its relations list every
+            // other-side object, none linked.
+            self.init_m2m(table, false, cx);
         }
     }
 
@@ -2069,6 +2384,625 @@ impl DbmanagerModel {
         }
     }
 
+    // ---- many-to-many staging ----
+
+    /// The current table's many-to-many side `relation` with its link
+    /// fields, when the draft may change it.
+    fn editable_relation(&self, relation: &str) -> Option<Vec<FieldView>> {
+        if self.write_in_progress || self.delete.is_some() {
+            return None;
+        }
+        let (Place::Object { table, .. } | Place::New { table }) = self.place() else {
+            return None;
+        };
+        self.draft.as_ref()?;
+        let side = self
+            .table_view(table)?
+            .many_to_many
+            .iter()
+            .find(|m| m.relation == relation)?;
+        (side.mode != RelationMode::ReadOnly).then(|| side.link_fields.clone())
+    }
+
+    /// `other`'s row of the relation's current page.
+    fn page_option(&self, relation: &str, other: &ObjectKey) -> Option<M2mOption> {
+        self.m2ms
+            .get(relation)?
+            .page
+            .as_ref()?
+            .items
+            .iter()
+            .find(|o| &o.key == other)
+            .cloned()
+    }
+
+    /// Ticks or unticks a row: stages an add (link fields start at their
+    /// defaults) or a removal; toggling again undoes it exactly. Nothing is
+    /// written until Save.
+    pub fn toggle_link(&mut self, relation: &str, other: &ObjectKey, cx: &mut Context<Self>) {
+        let Some(views) = self.editable_relation(relation) else {
+            return;
+        };
+        let option = self.page_option(relation, other);
+        let Some(draft) = self.draft.as_mut() else {
+            return;
+        };
+        match option {
+            Some(option) => draft.links_mut().toggle(relation, &option, &views),
+            None => {
+                draft.links_mut().flip(relation, other);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Edits a link field of a row: on a linked row it stages an update
+    /// with the link's version; on a staged add it edits the add.
+    pub fn edit_link_field(
+        &mut self,
+        relation: &str,
+        other: &ObjectKey,
+        field: &str,
+        input: EditorInput,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(views) = self.editable_relation(relation) else {
+            return;
+        };
+        let option = self.page_option(relation, other).or_else(|| {
+            // A staged row off the page: its own state is the base.
+            self.draft
+                .as_ref()?
+                .links()
+                .get(relation, other)
+                .map(|l| (l.label().to_owned(), l.version().is_some()))
+                .map(|(label, linked)| M2mOption {
+                    key: other.clone(),
+                    label,
+                    linked,
+                    link_values: None,
+                    link_version: None,
+                })
+        });
+        let (Some(option), Some(draft)) = (option, self.draft.as_mut()) else {
+            return;
+        };
+        draft
+            .links_mut()
+            .edit(relation, &option, &views, field, input);
+        cx.notify();
+    }
+
+    /// A link field lost focus: its issues show.
+    pub fn blur_link_field(
+        &mut self,
+        relation: &str,
+        other: &ObjectKey,
+        field: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(draft) = self.draft.as_mut() {
+            draft.links_mut().blur(relation, other, field);
+            cx.notify();
+        }
+    }
+
+    /// Drops the staged change to a row ("Undo").
+    pub fn undo_link(&mut self, relation: &str, other: &ObjectKey, cx: &mut Context<Self>) {
+        if self.editable_relation(relation).is_none() {
+            return;
+        }
+        if let Some(draft) = self.draft.as_mut() {
+            if draft.links_mut().undo(relation, other).is_some() {
+                cx.notify();
+            }
+        }
+    }
+
+    /// The staged change to one row, with its link-field editors.
+    #[must_use]
+    pub fn staged_link(&self, relation: &str, other: &ObjectKey) -> Option<&StagedLink> {
+        self.draft.as_ref()?.links().get(relation, other)
+    }
+
+    /// Every staged change of `relation`, once each: those on the current
+    /// page are drawn in place, the others in the "Not saved yet" group.
+    #[must_use]
+    pub fn staged_rows(&self, relation: &str) -> Vec<StagedRow> {
+        let Some(draft) = &self.draft else {
+            return Vec::new();
+        };
+        draft
+            .links()
+            .for_relation(relation)
+            .map(|l| {
+                let values = l.removal_values();
+                StagedRow {
+                    other: l.other().clone(),
+                    label: l.label().to_owned(),
+                    stage: l.stage(),
+                    on_page: self.page_option(relation, l.other()).is_some(),
+                    removal_note: (!values.is_empty()).then(|| text::removal_with_fields(&values)),
+                }
+            })
+            .collect()
+    }
+
+    /// The counts line's numbers: links stored now, and staged adds and
+    /// removals.
+    #[must_use]
+    pub fn link_counts(&self, relation: &str) -> LinkCounts {
+        let linked = self
+            .m2ms
+            .get(relation)
+            .and_then(|s| s.page.as_ref())
+            .map(|p| p.linked_total)
+            .or_else(|| match &self.object {
+                Some(ObjectLoad::Loaded(v)) => v
+                    .many_to_many
+                    .iter()
+                    .find(|c| c.relation == relation)
+                    .map(|c| c.count),
+                _ => None,
+            })
+            .unwrap_or(0);
+        let (to_add, to_remove) = self
+            .draft
+            .as_ref()
+            .map_or((0, 0), |d| d.links().counts(relation));
+        LinkCounts {
+            linked,
+            to_add,
+            to_remove,
+        }
+    }
+
+    // ---- link conflicts ----
+
+    fn is_staged(&self, link: &LinkRef) -> bool {
+        self.draft
+            .as_ref()
+            .is_some_and(|d| d.links().get(&link.relation, &link.other).is_some())
+    }
+
+    /// The section's pending link conflict.
+    #[must_use]
+    pub fn link_conflict(&self, relation: &str) -> Option<&LinkConflict> {
+        self.link_conflicts.iter().find(|c| c.relation == relation)
+    }
+
+    /// A save met a link another program changed: reads that one option and
+    /// the relation's page again, then sets the user's change to it aside.
+    /// Every other edit stays.
+    pub(super) fn begin_link_conflict(&mut self, link: LinkRef, cx: &mut Context<Self>) {
+        let Place::Object { table, key, .. } = self.place().clone() else {
+            return;
+        };
+        self.link_conflict_seq += 1;
+        let seq = self.link_conflict_seq;
+        self.link_reread = true;
+        let query = M2mQuery {
+            search: None,
+            offset: 0,
+            limit: 1,
+            linked_only: false,
+            only: Some(link.other.clone()),
+        };
+        let relation = link.relation.clone();
+        self.request(
+            move |b| b.m2m_options(&table, Some(&key), &link.relation, &query),
+            cx,
+            {
+                let relation = relation.clone();
+                let other = link.other;
+                move |m, result, cx| m.link_conflict_read(seq, &relation, &other, result, cx)
+            },
+        );
+        if self.m2ms.contains_key(&relation) {
+            self.fetch_m2m(&relation, cx);
+        }
+    }
+
+    fn link_conflict_read(
+        &mut self,
+        seq: u64,
+        relation: &str,
+        other: &ObjectKey,
+        result: JobResult<M2mPage>,
+        cx: &mut Context<Self>,
+    ) {
+        if seq != self.link_conflict_seq {
+            return;
+        }
+        self.link_reread = false;
+        match result {
+            Ok(Ok(page)) => {
+                let now = page.items.into_iter().find(|o| &o.key == other);
+                let Some(set_aside) = self
+                    .draft
+                    .as_mut()
+                    .and_then(|d| d.links_mut().undo(relation, other))
+                else {
+                    return;
+                };
+                let rebased = rebase_link(&set_aside, now.as_ref());
+                self.link_conflicts.retain(|c| c.relation != relation);
+                self.link_conflicts.push(LinkConflict {
+                    relation: relation.to_owned(),
+                    other: other.clone(),
+                    label: now
+                        .as_ref()
+                        .map_or_else(|| set_aside.label().to_owned(), |o| o.label.clone()),
+                    now,
+                    set_aside,
+                    rebased,
+                });
+            }
+            Ok(Err(e)) => self.fail_db(e, cx),
+            Err(e) => self.fail(e.into(), cx),
+        }
+        cx.notify();
+    }
+
+    /// "Re-apply my change": stages the set-aside change again on the link as
+    /// it is now (see [`rebase_link`]). When nothing is left to do a notice
+    /// says why.
+    pub fn reapply_link(&mut self, relation: &str, cx: &mut Context<Self>) {
+        let Some(at) = self
+            .link_conflicts
+            .iter()
+            .position(|c| c.relation == relation)
+        else {
+            return;
+        };
+        let conflict = self.link_conflicts.remove(at);
+        match conflict.rebased.outcome {
+            RebaseOutcome::Staged => {}
+            RebaseOutcome::AlreadyLinked => self.notice = Some(Notice::LinkAlreadyLinked),
+            RebaseOutcome::AlreadyGone => self.notice = Some(Notice::LinkAlreadyGone),
+            RebaseOutcome::AlreadyApplied => self.notice = Some(Notice::LinkAlreadyApplied),
+        }
+        if let (Some(staged), Some(draft)) = (conflict.rebased.staged, self.draft.as_mut()) {
+            draft.links_mut().insert(staged);
+        }
+        cx.notify();
+    }
+
+    /// "Discard it": the set-aside change is dropped.
+    pub fn discard_link(&mut self, relation: &str, cx: &mut Context<Self>) {
+        let before = self.link_conflicts.len();
+        self.link_conflicts.retain(|c| c.relation != relation);
+        if self.link_conflicts.len() != before {
+            cx.notify();
+        }
+    }
+
+    // ---- delete ----
+
+    /// Objects of `table` can be deleted now: the config allows it and
+    /// nothing makes the table read-only. A pickable table never can.
+    #[must_use]
+    pub fn can_delete(&self, table: &str) -> bool {
+        self.table_view(table)
+            .is_some_and(|t| t.can_delete && t.mode == TableMode::Editable)
+            && self.table_read_only_reason(table).is_none()
+    }
+
+    /// The delete confirmation's state; `None` when no delete is going on.
+    #[must_use]
+    pub fn delete_state(&self) -> Option<&DeleteState> {
+        self.delete.as_ref()
+    }
+
+    /// Starts deleting the open object: reads the impact ("Checking..."),
+    /// then opens the confirmation. A dirty draft is named in it and
+    /// discarded when the delete happens.
+    pub fn request_delete(&mut self, cx: &mut Context<Self>) {
+        let (Place::Object { table, key, .. }, Some(ObjectLoad::Loaded(view))) =
+            (self.place().clone(), &self.object)
+        else {
+            return;
+        };
+        let label = match self.draft_label() {
+            l if l.is_empty() => view.label.clone(),
+            l => l,
+        };
+        let discards = self.dirty();
+        self.begin_delete(
+            DeleteTarget {
+                table,
+                key,
+                label,
+                open: true,
+                discards_draft: discards,
+            },
+            cx,
+        );
+    }
+
+    /// Starts deleting a list item. When it is the open object this is
+    /// [`DbmanagerModel::request_delete`]; otherwise there is no draft to
+    /// discard, and on success the list is read again and the place stays.
+    pub fn request_delete_of(
+        &mut self,
+        table: &str,
+        key: ObjectKey,
+        label: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(self.place(), Place::Object { table: t, key: k, .. } if t == table && *k == key)
+        {
+            self.request_delete(cx);
+            return;
+        }
+        self.begin_delete(
+            DeleteTarget {
+                table: table.to_owned(),
+                key,
+                label: label.to_owned(),
+                open: false,
+                discards_draft: false,
+            },
+            cx,
+        );
+    }
+
+    fn begin_delete(&mut self, target: DeleteTarget, cx: &mut Context<Self>) {
+        if self.write_in_progress || self.delete.is_some() || !self.can_delete(&target.table) {
+            return;
+        }
+        self.delete_seq += 1;
+        let seq = self.delete_seq;
+        self.delete = Some(DeleteState::Checking {
+            label: target.label.clone(),
+        });
+        let (table, key) = (target.table.clone(), target.key.clone());
+        self.delete_target = Some(target);
+        self.request(
+            move |b| b.delete_preview(&table, &key),
+            cx,
+            move |m, result, cx| m.preview_done(seq, None, result, cx),
+        );
+        cx.notify();
+    }
+
+    fn preview_done(
+        &mut self,
+        seq: u64,
+        notice: Option<DeleteDialogNotice>,
+        result: JobResult<DeleteImpact>,
+        cx: &mut Context<Self>,
+    ) {
+        if seq != self.delete_seq || self.delete.is_none() {
+            return;
+        }
+        match result {
+            Ok(Ok(impact)) => self.show_dialog(impact, notice),
+            Ok(Err(e)) => {
+                self.delete = None;
+                self.delete_target = None;
+                self.fail_db(e, cx);
+            }
+            Err(e) => {
+                self.delete = None;
+                self.delete_target = None;
+                self.fail(e.into(), cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Shows `impact`: the confirmation, or the blocked state.
+    fn show_dialog(&mut self, impact: DeleteImpact, notice: Option<DeleteDialogNotice>) {
+        let Some(target) = &self.delete_target else {
+            return;
+        };
+        let blocked = impact.blocked;
+        let dialog = DeleteDialog {
+            table: target.table.clone(),
+            key: target.key.clone(),
+            label: target.label.clone(),
+            impact,
+            discards_draft: target.discards_draft,
+            notice,
+        };
+        self.delete = Some(if blocked {
+            DeleteState::Blocked(dialog)
+        } else {
+            DeleteState::Confirm(dialog)
+        });
+    }
+
+    /// Cancel or Close: the dialog goes and nothing is deleted. Ignored while
+    /// the delete itself runs.
+    pub fn cancel_delete(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.delete, None | Some(DeleteState::Deleting(_))) {
+            return;
+        }
+        self.delete = None;
+        self.delete_target = None;
+        self.delete_seq += 1;
+        cx.notify();
+    }
+
+    /// Confirm: deletes with the impact's version and token and the config
+    /// hash the user was shown.
+    pub fn confirm_delete(&mut self, cx: &mut Context<Self>) {
+        let Some(DeleteState::Confirm(dialog)) = self.delete.clone() else {
+            return;
+        };
+        let hash = self.config_hash();
+        self.write_in_progress = true;
+        self.delete = Some(DeleteState::Deleting(dialog.clone()));
+        self.request(
+            move |b| {
+                b.delete(
+                    &dialog.table,
+                    &dialog.key,
+                    &dialog.impact.version,
+                    &dialog.impact.token,
+                    &hash,
+                )
+            },
+            cx,
+            |m, result, cx| {
+                m.write_in_progress = false;
+                m.delete_done(result, cx);
+            },
+        );
+        cx.notify();
+    }
+
+    fn delete_done(&mut self, result: JobResult<DeleteResult>, cx: &mut Context<Self>) {
+        let Some(DeleteState::Deleting(dialog)) = self.delete.clone() else {
+            return;
+        };
+        match result {
+            Ok(Ok(done)) => self.deleted(&done, cx),
+            Ok(Err(e)) => self.delete_failed(dialog, e, cx),
+            Err(e) => {
+                self.delete = None;
+                self.delete_target = None;
+                self.fail(e.into(), cx);
+                self.fetch_snapshot(cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn deleted(&mut self, done: &DeleteResult, cx: &mut Context<Self>) {
+        let target = self.delete_target.take();
+        self.delete = None;
+        let groups = &done.impact.groups;
+        let related = groups.iter().map(|g| g.count).sum();
+        let at_least = done.impact.truncated || groups.iter().any(|g| g.truncated);
+        let notice = Notice::Deleted {
+            label: done.label.clone(),
+            related,
+            at_least,
+            backup: done.backup_created.clone(),
+        };
+        let open = target.as_ref().is_some_and(|t| t.open);
+        if open {
+            // The object is gone: the place is replaced by its table.
+            self.history[self.cursor] = Place::Table {
+                table: done.table.clone(),
+            };
+            self.enter(true, cx);
+        } else if self
+            .list_states
+            .get(&done.table)
+            .is_some_and(|l| l.page.is_some())
+        {
+            self.fetch_list(&done.table, cx);
+        }
+        self.announce(notice.copy(), cx);
+        self.notice = Some(notice);
+        self.focus_hint = Some(FocusHint::DeleteNotice);
+        if done.backup_created.is_some() {
+            self.fetch_snapshot(cx);
+        }
+    }
+
+    fn delete_failed(&mut self, dialog: DeleteDialog, e: DbmanagerError, cx: &mut Context<Self>) {
+        match e.kind {
+            DbmanagerErrorKind::ImpactChanged => {
+                let impact = e.impact.map_or(dialog.impact, |i| *i);
+                self.show_dialog(impact, Some(DeleteDialogNotice::ImpactChanged));
+                self.focus_hint = Some(FocusHint::DeleteNotice);
+            }
+            DbmanagerErrorKind::DeleteBlocked => {
+                let mut impact = e.impact.map_or(dialog.impact, |i| *i);
+                impact.blocked = true;
+                self.show_dialog(impact, None);
+            }
+            DbmanagerErrorKind::ConfigChangedOnDisk => {
+                // The backend has reloaded the config. Nothing is retried:
+                // the impact is read again and shown first.
+                self.delete_seq += 1;
+                let seq = self.delete_seq;
+                let order = self.next_seq();
+                self.delete = Some(DeleteState::Checking {
+                    label: dialog.label.clone(),
+                });
+                // The draft's inline issues follow the new rules at once.
+                self.recheck(Recheck::Reload, cx);
+                let (table, key) = (dialog.table, dialog.key);
+                self.request(
+                    move |b| {
+                        let snapshot = b.session();
+                        let impact = b.delete_preview(&table, &key);
+                        (snapshot, impact)
+                    },
+                    cx,
+                    move |m, result, cx| match result {
+                        Ok((snapshot, impact)) => {
+                            m.snapshot_arrived(order, snapshot, cx);
+                            m.preview_done(
+                                seq,
+                                Some(DeleteDialogNotice::ConfigReloaded),
+                                Ok(impact),
+                                cx,
+                            );
+                        }
+                        Err(e) => m.preview_done(seq, None, Err(e), cx),
+                    },
+                );
+            }
+            DbmanagerErrorKind::Conflict => {
+                let open = self.delete_target.take().is_some_and(|t| t.open);
+                self.delete = None;
+                match e.current {
+                    Some(current) if open => {
+                        let table = dialog.table.clone();
+                        self.object_seq = self.next_seq();
+                        if self.dirty() {
+                            // Nothing was deleted: the edits stay, and the
+                            // conflict panel is raised as on a save.
+                            if let Some(draft) = self.draft.as_ref() {
+                                let diff = draft.conflict_diff(&current);
+                                let label = match self.draft_label() {
+                                    l if l.is_empty() => current.label.clone(),
+                                    l => l,
+                                };
+                                self.conflict = Some(ConflictPanel {
+                                    label,
+                                    current: *current,
+                                    diff,
+                                });
+                            }
+                        } else {
+                            self.apply_view(&table, *current, true, cx);
+                        }
+                        self.notice = Some(Notice::DeleteConflict {
+                            label: dialog.label,
+                        });
+                        self.focus_hint = Some(FocusHint::DeleteNotice);
+                    }
+                    _ => {
+                        self.fail_db(e, cx);
+                        if self
+                            .list_states
+                            .get(&dialog.table)
+                            .is_some_and(|l| l.page.is_some())
+                        {
+                            self.fetch_list(&dialog.table, cx);
+                        }
+                    }
+                }
+            }
+            _ => {
+                self.delete = None;
+                self.delete_target = None;
+                let backup_failed = e.kind == DbmanagerErrorKind::BackupFailed;
+                self.fail_db(e, cx);
+                if backup_failed {
+                    self.fetch_snapshot(cx);
+                }
+            }
+        }
+    }
+
     /// Tests: the race `command_done` handles. An open was sent, a later fetch
     /// answered first (it was applied and started the lists over), then the
     /// open's own, older, snapshot arrives.
@@ -2094,23 +3028,161 @@ impl DbmanagerModel {
         );
     }
 
+    // ---- the config file ----
+
+    /// Starts watching the config file, once per model, after the first
+    /// snapshot, when the config has a location. The watcher starts on the
+    /// background executor (it touches the disk); one that cannot start is
+    /// logged, and the snapshot's `config_changed` and the write path's
+    /// reload cover it.
+    pub(super) fn arm_config_watcher(&mut self, cx: &mut Context<Self>) {
+        if self.watch == WatchState::Armed {
+            return;
+        }
+        let Some(path) = self.snapshot.as_ref().and_then(|s| s.config.path.clone()) else {
+            return;
+        };
+        self.watch = WatchState::Armed;
+        #[cfg(test)]
+        {
+            self.watch_arms += 1;
+        }
+        let changes = self.config_changes.clone();
+        let target = path.clone();
+        let task = cx.background_executor().spawn(async move {
+            FileWatcher::start(&target, move || {
+                let _ = changes.try_send(());
+            })
+        });
+        cx.spawn(async move |this, cx| match task.await {
+            Ok(watcher) => {
+                this.update(cx, |m, _| m.config_watcher = Some(watcher))
+                    .ok();
+            }
+            Err(e) => log::warn!("dbmanager: cannot watch {}: {e}", path.display()),
+        })
+        .detach();
+    }
+
+    /// Whether the config file is being watched (tests wait on this).
+    #[cfg(test)]
+    pub(super) fn config_watched(&self) -> bool {
+        self.config_watcher.is_some()
+    }
+
+    /// The config file changed on disk (the watcher, or the harness): asks
+    /// the worker to read it again, after any write already queued, so a
+    /// reload never interrupts one. When its hash differs from the one shown,
+    /// the draft is checked against the new rules ([`Self::recheck_after_reload`]);
+    /// the database is not reopened.
+    pub(super) fn config_file_changed(&mut self, cx: &mut Context<Self>) {
+        let order = self.next_seq();
+        self.request(
+            |b| b.reload_config(),
+            cx,
+            move |m, result, cx| match result {
+                Ok(snapshot) => {
+                    let shown = m.snapshot.as_ref().map(|s| s.config.hash.as_str());
+                    if shown.is_some_and(|h| h != snapshot.config.hash) {
+                        m.recheck_after_reload(cx);
+                    } else {
+                        m.snapshot_arrived(order, snapshot, cx);
+                    }
+                }
+                Err(e) => m.fail(e.into(), cx),
+            },
+        );
+    }
+
+    /// Edit config can be used: developer mode is on.
+    #[must_use]
+    pub fn can_edit_config(&self, cx: &gpui::App) -> bool {
+        DevMode::is_on(cx)
+    }
+
+    /// Opens the config in the system editor, first creating a commented
+    /// starter file when there is none (the notice says so). A system that
+    /// cannot open it is the `OpenerFailed` banner. Does nothing outside
+    /// developer mode.
+    pub fn edit_config(&mut self, cx: &mut Context<Self>) {
+        if !self.can_edit_config(cx) {
+            return;
+        }
+        let task = self.worker.run(|b| b.edit_config_target(), cx);
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |m, cx| match result {
+                Ok(Ok((path, created))) => {
+                    if created {
+                        let display = m
+                            .snapshot
+                            .as_ref()
+                            .and_then(|s| s.config.display.clone())
+                            .unwrap_or_else(|| path.display().to_string());
+                        m.notice = Some(Notice::StarterCreated { display });
+                        cx.notify();
+                    }
+                    let opened = platform(cx).open_with_system(&path, cx);
+                    Self::report_open(opened, cx);
+                }
+                Ok(Err(e)) => m.fail_db(e, cx),
+                Err(e) => m.fail(e.into(), cx),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Waits for the system's answer to an open and shows its failure as the
+    /// banner (`OpenerFailed`, the system's words as the detail).
+    fn report_open(task: Task<Result<(), OpenError>>, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = task.await {
+                this.update(cx, |m, cx| {
+                    m.fail_db(
+                        DbmanagerError::new(DbmanagerErrorKind::OpenerFailed, e.detail),
+                        cx,
+                    );
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// The copy of the current notice when it is one of the three
+    /// config-reload notices ("The config was reloaded.", "The config was
+    /// reloaded. These changes no longer apply and were removed: ...", and
+    /// the save-refused-after-reload notice). `None` for any other notice,
+    /// or none.
+    #[must_use]
+    pub fn config_reloaded_notice(&self) -> Option<String> {
+        self.notice
+            .as_ref()
+            .filter(|n| {
+                matches!(
+                    n,
+                    Notice::ConfigReloaded { .. }
+                        | Notice::ConfigChangedWhileEditing { .. }
+                        | Notice::ConfigReloadedGone { .. }
+                )
+            })
+            .map(Notice::copy)
+    }
+
     /// Screenshot harness and tests: edits the config as a user would, then
-    /// reloads and checks the draft, as the watcher will.
+    /// takes the watcher's path: reload the config, and re-check the draft
+    /// when its hash changed.
     #[cfg(any(test, feature = "shoot"))]
     pub fn inject_file_changed(&mut self, cx: &mut Context<Self>) {
         self.request(
-            |b| {
-                b.simulate_config_edit();
-                b.reload()
-            },
+            |b| b.simulate_config_edit(),
             cx,
             |m, result, cx| {
-                match result {
-                    Ok(Ok(_)) => {}
-                    Ok(Err(e)) => m.fail_db(e, cx),
-                    Err(e) => m.fail(e.into(), cx),
+                if let Err(e) = result {
+                    m.fail(e.into(), cx);
                 }
-                m.recheck_after_reload(cx);
+                m.config_file_changed(cx);
             },
         );
     }

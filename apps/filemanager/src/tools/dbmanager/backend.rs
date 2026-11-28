@@ -7,12 +7,13 @@
 use std::path::{Path, PathBuf};
 
 use fm_dbmanager::session::{
-    ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView, SaveRequest, SaveResult,
+    DeleteImpact, DeleteResult, ListQuery, M2mPage, M2mQuery, ObjectKey, ObjectPage, ObjectView,
+    SaveRequest, SaveResult,
 };
 use fm_dbmanager::tool::{Core, DbmanagerError, DbmanagerErrorKind, DbmanagerSnapshot};
 
 /// What the Database Manager model needs from its core: one method per
-/// [`Core`] operation. Writes come with later parts.
+/// [`Core`] operation.
 pub trait DbmanagerBackend: Send + 'static {
     /// The current state. The first call loads the config and reopens the
     /// most recent database.
@@ -43,6 +44,17 @@ pub trait DbmanagerBackend: Send + 'static {
     /// # Errors
     /// The database cannot be reopened.
     fn reload(&mut self) -> Result<DbmanagerSnapshot, DbmanagerError>;
+
+    /// Reads the config file again and applies it to the open database; the
+    /// database is not reopened. Runs after any write already queued.
+    fn reload_config(&mut self) -> DbmanagerSnapshot;
+
+    /// Where Edit config opens the config and whether this call created it
+    /// (a commented starter, only when the file was missing).
+    ///
+    /// # Errors
+    /// `Io`: the location is unknown or the file cannot be created.
+    fn edit_config_target(&mut self) -> Result<(PathBuf, bool), DbmanagerError>;
 
     /// Closes the database; the config stays.
     fn close(&mut self) -> DbmanagerSnapshot;
@@ -78,6 +90,33 @@ pub trait DbmanagerBackend: Send + 'static {
     /// # Errors
     /// `NoDatabase`, or the session's error.
     fn save(&mut self, request: SaveRequest) -> Result<SaveResult, DbmanagerError>;
+
+    /// What deleting the object would do to every table that references it.
+    ///
+    /// # Errors
+    /// `NoDatabase`, or the session's error.
+    fn delete_preview(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+    ) -> Result<DeleteImpact, DbmanagerError>;
+
+    /// Deletes the object, after the session's one backup, when `version` and
+    /// `token` are still what the preview returned and `config_hash` is the
+    /// config the user was shown. A stale config is reloaded before the
+    /// `ConfigChangedOnDisk` error comes back; nothing is retried.
+    ///
+    /// # Errors
+    /// `NoDatabase`, or the session's error (`ConfigChangedOnDisk`,
+    /// `Conflict`, `ImpactChanged`, `DeleteBlocked`, ...).
+    fn delete(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+        version: &str,
+        token: &str,
+        config_hash: &str,
+    ) -> Result<DeleteResult, DbmanagerError>;
 
     /// Fixtures only: rewrites the config file as a user's edit would. Does
     /// nothing by default.
@@ -154,6 +193,15 @@ impl DbmanagerBackend for RealDbmanager {
         Ok(self.core.session())
     }
 
+    fn reload_config(&mut self) -> DbmanagerSnapshot {
+        self.core.reload_config();
+        self.core.session()
+    }
+
+    fn edit_config_target(&mut self) -> Result<(PathBuf, bool), DbmanagerError> {
+        self.core.edit_config_target()
+    }
+
     fn close(&mut self) -> DbmanagerSnapshot {
         self.core.close();
         self.core.session()
@@ -179,5 +227,24 @@ impl DbmanagerBackend for RealDbmanager {
 
     fn save(&mut self, request: SaveRequest) -> Result<SaveResult, DbmanagerError> {
         self.core.save(&request)
+    }
+
+    fn delete_preview(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+    ) -> Result<DeleteImpact, DbmanagerError> {
+        self.core.delete_preview(table, key)
+    }
+
+    fn delete(
+        &mut self,
+        table: &str,
+        key: &ObjectKey,
+        version: &str,
+        token: &str,
+        config_hash: &str,
+    ) -> Result<DeleteResult, DbmanagerError> {
+        self.core.delete(table, key, version, token, config_hash)
     }
 }

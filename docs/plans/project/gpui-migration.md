@@ -542,6 +542,7 @@ recommendation was go-with-conditions; the human decided go (D10–D14).
 | M12b | [`M12-dbmanager-b-edits.md`](../tasks/gpui-migration/M12-dbmanager-b-edits.md) | Drafts in the model, validation while typing, save, create, object conflicts, leave and close guards | M12a | **depends on UI plan** |
 | M12c | [`M12-dbmanager-c-links-delete.md`](../tasks/gpui-migration/M12-dbmanager-c-links-delete.md) | Many-to-many staging with link fields, link conflicts, confirmed delete | M12b | **depends on UI plan** |
 | M12d | [`M12-dbmanager-d-config-watch.md`](../tasks/gpui-migration/M12-dbmanager-d-config-watch.md) | Config watcher (missing-directory chain), automatic reload with draft re-check, Edit config with the starter | M12c | **depends on UI plan** |
+| M12e | [`M12e-dbmanager-view-copy.md`](../tasks/gpui-migration/M12e-dbmanager-view-copy.md) | Database Manager view copy into `text.rs`; `dismiss_state_warning`, `set_shortcuts_open` | M12d, dbmanager U2 | no |
 | M13 | [`M13-dbmanager-docs.md`](../tasks/gpui-migration/M13-dbmanager-docs.md) | Database Manager docs, manual chapter, screenshots, Windows check | M12d, M8, every dbmanager U task | **depends on UI plan** |
 
 Also, in the dbmanager plan:
