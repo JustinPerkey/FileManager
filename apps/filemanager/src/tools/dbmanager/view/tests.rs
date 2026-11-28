@@ -217,10 +217,7 @@ fn config_line_per_status(cx: &mut TestAppContext) {
             let path = s.config.display.clone().expect("a config path");
             assert_eq!(line, format!("Config: {path}"));
         }
-        assert_eq!(
-            has(vcx, "db-banner-no-config"),
-            status == ConfigStatus::Missing
-        );
+        assert!(!has(vcx, "db-banner-no-config"), "no banner for {status:?}");
         assert_eq!(
             has(vcx, "db-banner-config-closed"),
             status == ConfigStatus::FailClosed
@@ -246,15 +243,21 @@ fn banners_in_fixed_order(cx: &mut TestAppContext) {
         vec![
             Kind::Error,
             Kind::ConfigFailedClosed,
-            Kind::NoConfig,
             Kind::ConfigChanged,
             Kind::ReadOnlyDatabase,
             Kind::StateWarning,
         ]
     );
+    // A missing config has no banner: the config line says it.
+    let (host, vcx) = started(cx, DbmanagerFixture::ConfigMissing);
+    let missing = snapshot(vcx, &host);
+    assert_eq!(missing.config.status, ConfigStatus::Missing);
+    assert_eq!(
+        plan(false, Some(&missing), Dismissed::default()),
+        Vec::<Kind>::new()
+    );
     // Dismissals remove only their own banner.
     let dismissed = Dismissed {
-        no_config: true,
         state_warning: Some("A warning"),
     };
     assert_eq!(
@@ -267,7 +270,6 @@ fn banners_in_fixed_order(cx: &mut TestAppContext) {
     );
     // A different warning is a new banner.
     let other = Dismissed {
-        no_config: true,
         state_warning: Some("Another"),
     };
     assert!(plan(false, Some(&s), other).contains(&Kind::StateWarning));
@@ -280,20 +282,6 @@ fn banners_in_fixed_order(cx: &mut TestAppContext) {
     let error = bounds(vcx, "db-error");
     let closed = bounds(vcx, "db-banner-config-closed");
     assert!(error.bottom() <= closed.top(), "{error:?} {closed:?}");
-}
-
-#[gpui::test]
-fn no_config_banner_dismisses_for_the_run(cx: &mut TestAppContext) {
-    let (host, vcx) = started(cx, DbmanagerFixture::ConfigMissing);
-    assert!(has(vcx, "db-banner-no-config"));
-    click(vcx, "banner-dismiss");
-    idle(vcx, &host);
-    assert!(!has(vcx, "db-banner-no-config"));
-    // A reload keeps it gone.
-    host.model.update(vcx, DbmanagerModel::reload);
-    idle(vcx, &host);
-    assert!(!has(vcx, "db-banner-no-config"));
-    assert!(has(vcx, "db-config-line"), "the line stays");
 }
 
 #[gpui::test]

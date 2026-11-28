@@ -55,8 +55,6 @@ pub struct DbmanagerView {
     /// The config problems' toggle (F8).
     problems_focus: FocusHandle,
     problems_open: bool,
-    /// The "no config file" notice was dismissed (for the app run).
-    no_config_dismissed: bool,
     /// The text of the state warning that was dismissed.
     state_warning_dismissed: Option<String>,
     /// A shortcut fired and its key has not come up yet: a held key does not
@@ -77,7 +75,6 @@ impl DbmanagerView {
             error_focus: cx.focus_handle(),
             problems_focus: cx.focus_handle(),
             problems_open: false,
-            no_config_dismissed: false,
             state_warning_dismissed: None,
             latched: false,
             skeleton: Skeleton::Idle,
@@ -207,7 +204,6 @@ impl Render for DbmanagerView {
         let skeleton_wanted = waiting && !stuck;
         let diagnostics_open = self.problems_open;
         let dismissed = Dismissed {
-            no_config: self.no_config_dismissed,
             state_warning: self.state_warning_dismissed.as_deref(),
         };
 

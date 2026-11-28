@@ -1,5 +1,5 @@
 //! The banners under the header, in a fixed order: a command error, the config
-//! failed closed, no config file, the config changed on disk, a read-only
+//! failed closed, the config changed on disk, a read-only
 //! database and the state warning.
 
 use fm_dbmanager::config::ConfigStatus;
@@ -20,7 +20,6 @@ use crate::widgets::{button, Banner, Tone};
 pub enum Kind {
     Error,
     ConfigFailedClosed,
-    NoConfig,
     ConfigChanged,
     ReadOnlyDatabase,
     StateWarning,
@@ -29,8 +28,6 @@ pub enum Kind {
 /// What the view remembers having dismissed.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Dismissed<'a> {
-    /// The "no config file" notice, for the app run.
-    pub no_config: bool,
     /// The state warning's text, when dismissed.
     pub state_warning: Option<&'a str>,
 }
@@ -49,9 +46,6 @@ pub fn plan(
     let Some(s) = snapshot else { return kinds };
     if s.config_fail_closed.is_some() || s.config.status == ConfigStatus::FailClosed {
         kinds.push(Kind::ConfigFailedClosed);
-    }
-    if s.config.status == ConfigStatus::Missing && !dismissed.no_config {
-        kinds.push(Kind::NoConfig);
     }
     if s.config_changed {
         kinds.push(Kind::ConfigChanged);
@@ -89,20 +83,6 @@ pub fn banners(
                 wrap(
                     "db-banner-config-closed",
                     Banner::new(Tone::Error, notice).id("db-config-closed-banner"),
-                )
-            }
-            Kind::NoConfig => {
-                let view = view.clone();
-                wrap(
-                    "db-banner-no-config",
-                    Banner::new(Tone::Info, text::CONFIG_MISSING)
-                        .id("db-no-config-banner")
-                        .dismiss(move |_, cx| {
-                            view.update(cx, |v, cx| {
-                                v.no_config_dismissed = true;
-                                cx.notify();
-                            });
-                        }),
                 )
             }
             Kind::ConfigChanged => {

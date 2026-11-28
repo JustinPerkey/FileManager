@@ -460,8 +460,6 @@ pub const READ_ONLY: &str = "Read-only";
 pub const CONFIG_LABEL: &str = "Config:";
 /// The config line when the location is unknown.
 pub const CONFIG_NO_LOCATION: &str = "the location could not be determined";
-pub const EMPTY_LEAD: &str = "Open a SQLite database to browse and edit it as objects.";
-pub const DROP_HINT: &str = "Or drop a database file on this window.";
 pub const SEVERITY_ERROR: &str = "Error";
 pub const SEVERITY_WARNING: &str = "Warning";
 
