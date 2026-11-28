@@ -7,7 +7,7 @@ use gpui::prelude::*;
 use gpui::{div, px, Entity, IntoElement, SharedString};
 use gpui_component::{h_flex, v_flex};
 
-use super::{copy, shortcuts};
+use super::shortcuts;
 use crate::app::probe::Tag as _;
 use crate::theme::tokens::{SPACE_1, SPACE_2, SPACE_4};
 use crate::tools::dbmanager::model::DbmanagerModel;
@@ -32,7 +32,7 @@ pub fn recent_menu(model: &Entity<DbmanagerModel>, recent: &[String]) -> MenuBut
         })
         .collect();
     let model = model.clone();
-    MenuButton::new("db-recent", copy::RECENT)
+    MenuButton::new("db-recent", text::RECENT)
         .items(items)
         .on_select(move |index, _window, cx| {
             model.update(cx, |m, cx| m.open_recent(index, cx));
@@ -53,15 +53,15 @@ pub fn folder(path: &str) -> Option<String> {
 #[must_use]
 pub fn config_line_text(s: &DbmanagerSnapshot) -> String {
     if s.config.status == ConfigStatus::Missing {
-        return copy::CONFIG_MISSING_LINE.to_owned();
+        return text::CONFIG_MISSING.to_owned();
     }
     format!(
         "{} {}",
-        copy::CONFIG_LABEL,
+        text::CONFIG_LABEL,
         s.config
             .display
             .as_deref()
-            .unwrap_or(copy::CONFIG_NO_LOCATION)
+            .unwrap_or(text::CONFIG_NO_LOCATION)
     )
 }
 
@@ -70,13 +70,13 @@ pub fn config_line_text(s: &DbmanagerSnapshot) -> String {
 pub fn config_line(s: &DbmanagerSnapshot) -> impl IntoElement {
     let row = h_flex().flex_wrap().gap_x(px(SPACE_1)).items_baseline();
     let row = if s.config.status == ConfigStatus::Missing {
-        row.child(small(copy::CONFIG_MISSING_LINE))
+        row.child(small(text::CONFIG_MISSING))
     } else {
-        row.child(small(copy::CONFIG_LABEL)).child(mono_small_muted(
+        row.child(small(text::CONFIG_LABEL)).child(mono_small_muted(
             s.config
                 .display
                 .clone()
-                .unwrap_or_else(|| copy::CONFIG_NO_LOCATION.to_owned()),
+                .unwrap_or_else(|| text::CONFIG_NO_LOCATION.to_owned()),
         ))
     };
     row.debug_selector(|| "db-config-line".to_string())
@@ -136,7 +136,7 @@ pub fn header(model: &Entity<DbmanagerModel>, props: &HeaderProps) -> impl IntoE
             let mut any = false;
             if s.read_only_reason.is_some() {
                 any = true;
-                notes = notes.child(tag(copy::READ_ONLY, Some(IconName::Lock)));
+                notes = notes.child(tag(text::READ_ONLY, Some(IconName::Lock)));
             }
             if let Some(path) = &s.backup_path {
                 any = true;
@@ -148,7 +148,7 @@ pub fn header(model: &Entity<DbmanagerModel>, props: &HeaderProps) -> impl IntoE
                     div()
                         .id("db-backup-line")
                         .tooltip(tooltip_view(full))
-                        .child(small_muted(copy::backup_line(&name)))
+                        .child(small_muted(text::backup_line(&name)))
                         .debug_selector(|| "db-backup-line".to_string()),
                 );
             }

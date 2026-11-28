@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use fm_dbmanager::config::TableMode;
+use fm_dbmanager::config::{ConfigDiagnostic, DiagnosticSeverity, TableMode};
 use fm_dbmanager::session::ObjectKey;
 use fm_dbmanager::tool::{DbmanagerError, DbmanagerErrorKind, DbmanagerSnapshot};
 use gpui::{AppContext as _, Context, Entity, TestAppContext};
@@ -3198,4 +3198,86 @@ fn fixtures_build_diagnostics_and_readonly_config_states(cx: &mut TestAppContext
     assert!(readonly.config_fail_closed.is_some());
     assert!(readonly.tables.iter().all(|t| !t.can_create));
     assert!(text::config_notice(&readonly).is_some());
+}
+
+#[test]
+fn problems_copy_text() {
+    assert_eq!(
+        text::problems_summary(2, 1),
+        "Config: 2 errors, 1 warning. Entries with errors are read-only."
+    );
+    assert_eq!(text::problems_summary(0, 2), "Config: 2 warnings.");
+    let d = |line, col, table: Option<&str>, column: Option<&str>| ConfigDiagnostic {
+        severity: DiagnosticSeverity::Error,
+        message: String::new(),
+        line,
+        col,
+        table: table.map(Into::into),
+        column: column.map(Into::into),
+    };
+    assert_eq!(
+        text::position(&d(Some(12), Some(3), None, None)),
+        "Line 12, column 3"
+    );
+    assert_eq!(
+        text::position(&d(None, None, Some("book"), Some("isbn"))),
+        "Table book, field isbn"
+    );
+    assert_eq!(text::position(&d(None, None, None, None)), "");
+}
+
+#[gpui::test]
+fn state_warning_dismissal_sticks_until_it_changes(cx: &mut TestAppContext) {
+    let env = FixtureEnv::new(DbmanagerFixture::StateWarning);
+    let (model, _) = start(cx, &env);
+    idle(cx, &model);
+    let warning = read(cx, &model, |m| m.state_warning().map(String::from)).expect("a warning");
+    act(cx, &model, DbmanagerModel::dismiss_state_warning);
+    assert_eq!(
+        read(cx, &model, |m| m.state_warning().map(String::from)),
+        None
+    );
+    // The same text stays dismissed across a reload.
+    act(cx, &model, DbmanagerModel::reload);
+    idle(cx, &model);
+    assert_eq!(
+        read(cx, &model, |m| m.state_warning().map(String::from)),
+        None
+    );
+    // A different text shows again.
+    act(cx, &model, |m, _| {
+        m.state_warning_dismissed = Some(format!("not {warning}"));
+    });
+    assert_eq!(
+        read(cx, &model, |m| m.state_warning().map(String::from)),
+        Some(warning)
+    );
+}
+
+#[gpui::test]
+fn escape_ignored_while_shortcuts_open(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    act(cx, &model, |m, cx| m.choose_table("member", cx));
+    assert!(read(cx, &model, |m| m.leave_request().is_some()));
+    act(cx, &model, |m, cx| m.set_shortcuts_open(true, cx));
+    act(cx, &model, DbmanagerModel::cancel_leave);
+    assert!(
+        read(cx, &model, |m| m.leave_request().is_some()),
+        "the help took the key"
+    );
+    act(cx, &model, |m, cx| m.set_shortcuts_open(false, cx));
+    act(cx, &model, DbmanagerModel::cancel_leave);
+    assert!(read(cx, &model, |m| m.leave_request().is_none()));
+    // A notice is held the same way.
+    act(cx, &model, |m, cx| {
+        m.notice = Some(Notice::LinkAlreadyGone);
+        m.set_shortcuts_open(true, cx);
+    });
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    assert!(read(cx, &model, |m| m.notice().is_some()));
+    act(cx, &model, |m, cx| m.set_shortcuts_open(false, cx));
+    act(cx, &model, DbmanagerModel::dismiss_notice);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
 }

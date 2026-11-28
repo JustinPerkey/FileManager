@@ -8,7 +8,6 @@
 
 mod banners;
 mod config_problems;
-mod copy;
 mod empty;
 mod header;
 pub mod keys;

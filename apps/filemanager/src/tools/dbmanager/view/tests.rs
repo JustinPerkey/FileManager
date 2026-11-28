@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use fm_dbmanager::config::{ConfigDiagnostic, ConfigStatus, DiagnosticSeverity};
+use fm_dbmanager::config::ConfigStatus;
 use fm_dbmanager::tool::DbmanagerSnapshot;
 use gpui::{
     px, size, AppContext as _, Entity, Modifiers, Pixels, TestAppContext, VisualTestContext,
@@ -14,7 +14,7 @@ use gpui_component::{Root, ThemeMode};
 
 use super::banners::{plan, Dismissed, Kind};
 use super::header::config_line_text;
-use super::{copy, shortcuts, DbmanagerView};
+use super::{shortcuts, DbmanagerView};
 use crate::platform;
 use crate::platform::fake::{FakePlatform, PlatformCall};
 use crate::tools::dbmanager::fixtures::{DbmanagerFixture, FixtureEnv};
@@ -212,7 +212,7 @@ fn config_line_per_status(cx: &mut TestAppContext) {
         assert!(has(vcx, "db-config-line"), "{status:?}");
         let line = config_line_text(&s);
         if status == ConfigStatus::Missing {
-            assert_eq!(line, copy::CONFIG_MISSING_LINE);
+            assert_eq!(line, text::CONFIG_MISSING);
         } else {
             let path = s.config.display.clone().expect("a config path");
             assert_eq!(line, format!("Config: {path}"));
@@ -318,32 +318,6 @@ fn config_problems_expand_with_f8(cx: &mut TestAppContext) {
     focus_root(vcx, &host);
     press(vcx, "f8");
     assert!(!has(vcx, "db-config-problems"));
-}
-
-#[test]
-fn problems_copy() {
-    assert_eq!(
-        copy::problems_summary(2, 1),
-        "Config: 2 errors, 1 warning. Entries with errors are read-only."
-    );
-    assert_eq!(copy::problems_summary(0, 2), "Config: 2 warnings.");
-    let d = |line, col, table: Option<&str>, column: Option<&str>| ConfigDiagnostic {
-        severity: DiagnosticSeverity::Error,
-        message: String::new(),
-        line,
-        col,
-        table: table.map(Into::into),
-        column: column.map(Into::into),
-    };
-    assert_eq!(
-        copy::position(&d(Some(12), Some(3), None, None)),
-        "Line 12, column 3"
-    );
-    assert_eq!(
-        copy::position(&d(None, None, Some("book"), Some("isbn"))),
-        "Table book, field isbn"
-    );
-    assert_eq!(copy::position(&d(None, None, None, None)), "");
 }
 
 #[gpui::test]

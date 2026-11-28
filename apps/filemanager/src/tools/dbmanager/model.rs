@@ -501,7 +501,11 @@ pub struct DbmanagerModel {
     picker: Option<PickerState>,
     conflict: Option<ConflictPanel>,
     leave: Option<LeaveRequest>,
-    notice: Option<Notice>,
+    pub(super) notice: Option<Notice>,
+    /// The state warning the user dismissed; a different text shows again.
+    pub(super) state_warning_dismissed: Option<String>,
+    /// The shortcuts help is open: Escape belongs to it.
+    shortcuts_open: bool,
     /// The request a `Busy` answer refused, for "Try again".
     retry: Option<SaveRequest>,
     /// Counts every start-over for a database (see `command_done`).
@@ -580,6 +584,8 @@ impl DbmanagerModel {
             conflict: None,
             leave: None,
             notice: None,
+            state_warning_dismissed: None,
+            shortcuts_open: false,
             retry: None,
             reset_count: 0,
             recheck_seq: 0,
@@ -1671,11 +1677,33 @@ impl DbmanagerModel {
         self.notice.as_ref()
     }
 
-    /// Hides the notice.
+    /// Hides the notice. Does nothing while the shortcuts help is open
+    /// (Escape belongs to it).
     pub fn dismiss_notice(&mut self, cx: &mut Context<Self>) {
-        if self.notice.take().is_some() {
+        if !self.shortcuts_open && self.notice.take().is_some() {
             cx.notify();
         }
+    }
+
+    /// The state warning (store problems), unless the user dismissed this
+    /// text.
+    #[must_use]
+    pub fn state_warning(&self) -> Option<&str> {
+        let warning = self.snapshot.as_ref()?.state_warning.as_deref()?;
+        (self.state_warning_dismissed.as_deref() != Some(warning)).then_some(warning)
+    }
+
+    /// Hides the current state warning until a different one arrives.
+    pub fn dismiss_state_warning(&mut self, cx: &mut Context<Self>) {
+        self.state_warning_dismissed = self.snapshot.as_ref().and_then(|s| s.state_warning.clone());
+        cx.notify();
+    }
+
+    /// The shortcuts help is open or closed. While it is open, Escape's
+    /// model actions (dismiss a notice, cancel a pending leave) do nothing.
+    pub fn set_shortcuts_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.shortcuts_open = open;
+        cx.notify();
     }
 
     /// The conflict panel's content.
@@ -1734,9 +1762,10 @@ impl DbmanagerModel {
         cx.notify();
     }
 
-    /// The user chose "Keep editing": nothing changes.
+    /// The user chose "Keep editing": nothing changes. Does nothing while
+    /// the shortcuts help is open (Escape belongs to it).
     pub fn cancel_leave(&mut self, cx: &mut Context<Self>) {
-        if self.leave.take().is_some() {
+        if !self.shortcuts_open && self.leave.take().is_some() {
             cx.notify();
         }
     }

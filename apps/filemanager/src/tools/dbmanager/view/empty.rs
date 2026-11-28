@@ -5,7 +5,6 @@ use gpui::prelude::*;
 use gpui::{px, Entity};
 use gpui_component::{h_flex, v_flex};
 
-use super::copy;
 use super::header::{config_line, folder};
 use crate::app::probe::Tag as _;
 use crate::theme::tokens::{SPACE_1, SPACE_2, SPACE_3};
@@ -38,7 +37,7 @@ pub fn empty_state(
         v_flex()
             .items_start()
             .gap(px(SPACE_1))
-            .child(small_muted(copy::RECENT))
+            .child(small_muted(text::RECENT))
             .children(recent.iter().enumerate().map(|(i, path)| {
                 let model = model.clone();
                 let name = text::file_name(path).to_owned();
@@ -86,10 +85,10 @@ pub fn empty_state(
         .max_w(px(INTRO_MAX_WIDTH))
         .gap(px(SPACE_3))
         .children(failure)
-        .child(body(copy::EMPTY_LEAD))
+        .child(body(text::EMPTY_LEAD))
         .child(h_flex().flex_wrap().gap(px(SPACE_2)).child(open))
         .children(recents)
-        .child(muted(copy::DROP_HINT))
+        .child(muted(text::DROP_HINT))
         .children(snapshot.map(config_line))
         .debug_selector(|| "db-empty".to_string())
         .tag("db-empty")

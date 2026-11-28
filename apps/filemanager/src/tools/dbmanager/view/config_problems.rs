@@ -7,10 +7,11 @@ use gpui::prelude::*;
 use gpui::{div, px, App, Entity, FocusHandle, IntoElement};
 use gpui_component::{h_flex, v_flex};
 
-use super::{copy, DbmanagerView};
+use super::DbmanagerView;
 use crate::app::probe::Tag as _;
 use crate::theme::palette;
 use crate::theme::tokens::{RADIUS, SPACE_1, SPACE_2, SPACE_3};
+use crate::tools::dbmanager::text;
 use crate::widgets::text::{mono_small_muted, small};
 use crate::widgets::{button, icon, IconName};
 
@@ -30,7 +31,7 @@ pub fn config_problems(
         let view = view.clone();
         button(
             "db-config-problems-toggle",
-            copy::problems_summary(s.error_count, s.warning_count),
+            text::problems_summary(s.error_count, s.warning_count),
         )
         .quiet()
         .icon(IconName::ChevronDown)
@@ -51,13 +52,13 @@ pub fn config_problems(
             .children(s.diagnostics.iter().enumerate().map(|(i, d)| {
                 let (name, word, tone) = match d.severity {
                     DiagnosticSeverity::Error => {
-                        (IconName::XCircle, copy::SEVERITY_ERROR, p.danger)
+                        (IconName::XCircle, text::SEVERITY_ERROR, p.danger)
                     }
                     DiagnosticSeverity::Warning => {
-                        (IconName::AlertTriangle, copy::SEVERITY_WARNING, p.warn)
+                        (IconName::AlertTriangle, text::SEVERITY_WARNING, p.warn)
                     }
                 };
-                let position = copy::position(d);
+                let position = text::position(d);
                 h_flex()
                     .id(("db-config-problem", i))
                     .flex_wrap()
