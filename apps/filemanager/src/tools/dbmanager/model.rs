@@ -1677,10 +1677,9 @@ impl DbmanagerModel {
         self.notice.as_ref()
     }
 
-    /// Hides the notice. Does nothing while the shortcuts help is open
-    /// (Escape belongs to it).
+    /// Hides the notice.
     pub fn dismiss_notice(&mut self, cx: &mut Context<Self>) {
-        if !self.shortcuts_open && self.notice.take().is_some() {
+        if self.notice.take().is_some() {
             cx.notify();
         }
     }
@@ -1762,11 +1761,24 @@ impl DbmanagerModel {
         cx.notify();
     }
 
-    /// The user chose "Keep editing": nothing changes. Does nothing while
-    /// the shortcuts help is open (Escape belongs to it).
+    /// The user chose "Keep editing": nothing changes.
     pub fn cancel_leave(&mut self, cx: &mut Context<Self>) {
-        if !self.shortcuts_open && self.leave.take().is_some() {
+        if self.leave.take().is_some() {
             cx.notify();
+        }
+    }
+
+    /// The Escape key. Does nothing while the shortcuts help is open (it
+    /// owns the key). Otherwise cancels a pending leave, else dismisses the
+    /// notice. The views bind the key here, never to the two it calls.
+    pub fn escape(&mut self, cx: &mut Context<Self>) {
+        if self.shortcuts_open {
+            return;
+        }
+        if self.leave.is_some() {
+            self.cancel_leave(cx);
+        } else {
+            self.dismiss_notice(cx);
         }
     }
 

@@ -3262,22 +3262,36 @@ fn escape_ignored_while_shortcuts_open(cx: &mut TestAppContext) {
     act(cx, &model, |m, cx| m.choose_table("member", cx));
     assert!(read(cx, &model, |m| m.leave_request().is_some()));
     act(cx, &model, |m, cx| m.set_shortcuts_open(true, cx));
-    act(cx, &model, DbmanagerModel::cancel_leave);
+    act(cx, &model, DbmanagerModel::escape);
     assert!(
         read(cx, &model, |m| m.leave_request().is_some()),
         "the help took the key"
     );
     act(cx, &model, |m, cx| m.set_shortcuts_open(false, cx));
-    act(cx, &model, DbmanagerModel::cancel_leave);
+    act(cx, &model, DbmanagerModel::escape);
     assert!(read(cx, &model, |m| m.leave_request().is_none()));
     // A notice is held the same way.
     act(cx, &model, |m, cx| {
         m.notice = Some(Notice::LinkAlreadyGone);
         m.set_shortcuts_open(true, cx);
     });
-    act(cx, &model, DbmanagerModel::dismiss_notice);
+    act(cx, &model, DbmanagerModel::escape);
     assert!(read(cx, &model, |m| m.notice().is_some()));
     act(cx, &model, |m, cx| m.set_shortcuts_open(false, cx));
+    act(cx, &model, DbmanagerModel::escape);
+    assert!(read(cx, &model, |m| m.notice().is_none()));
+}
+
+#[gpui::test]
+fn buttons_work_while_shortcuts_open(cx: &mut TestAppContext) {
+    let (_env, model, _) = started(cx);
+    open_book(cx, &model, 1);
+    type_in(cx, &model, "pages", "330");
+    act(cx, &model, |m, cx| m.choose_table("member", cx));
+    act(cx, &model, |m, cx| m.set_shortcuts_open(true, cx));
+    act(cx, &model, DbmanagerModel::cancel_leave);
+    assert!(read(cx, &model, |m| m.leave_request().is_none()));
+    act(cx, &model, |m, _| m.notice = Some(Notice::LinkAlreadyGone));
     act(cx, &model, DbmanagerModel::dismiss_notice);
     assert!(read(cx, &model, |m| m.notice().is_none()));
 }
